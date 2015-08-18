@@ -1,0 +1,745 @@
+/*
+Copyright (C) 2015 Jonathon Ogden     < jeog.dev@gmail.com >
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see http://www.gnu.org/licenses.
+*/
+
+#include <Python.h>
+#include <structmember.h>
+#include "../simple_orderbook.hpp"
+
+class CallbackWrapper{
+  PyObject* _callback;
+
+public:
+  CallbackWrapper(PyObject* callback)
+    :
+    _callback(callback)
+      {
+        Py_XINCREF(callback);
+      }
+  CallbackWrapper(const CallbackWrapper& obj)
+    :
+    _callback(obj._callback)
+      {
+       Py_XINCREF(obj._callback);
+      }
+  ~CallbackWrapper()
+  {
+    Py_XDECREF(this->_callback);
+  }
+  void operator()(NativeLayer::id_type id,
+                  NativeLayer::price_type price,
+                  NativeLayer::size_type size) const
+  {
+    PyObject* args = Py_BuildValue("kfk", id, price, size);
+    PyObject_CallObject(this->_callback, args);
+    Py_DECREF(args);
+  }
+};
+
+typedef struct {
+  PyObject_HEAD
+  PyObject* _sob;
+} pySOB;
+
+template<typename... Types>
+bool get_order_args(PyObject* args,
+                    PyObject* kwds,
+                    const char* frmt,
+                    char** kwlist,
+                    PyObject** callback,
+                    Types*... varargs )
+{
+  int rval;
+
+  rval = callback
+    ? PyArg_ParseTupleAndKeywords(args, kwds, frmt, kwlist, varargs..., callback)
+    : PyArg_ParseTupleAndKeywords(args, kwds, frmt, kwlist, varargs...);
+
+  if(!rval){
+    PyErr_SetString(PyExc_ValueError, "error parsing args");
+    return false;
+  }
+
+  rval = PyCallable_Check(*callback);
+
+  if(!rval){
+    PyErr_SetString(PyExc_TypeError,"callback must be callable");
+    return false;
+  }
+
+  return true;
+}
+
+static char okws[][16] = { "id", "stop","limit","size","callback" };
+
+/*
+ * NOTE: the order of args passed into the python call (in *args *kwds)
+ *  is different than what we pass into get_order_args because of varargs...
+ */
+
+template<bool BuyNotSell, bool Replace>
+PyObject* VOB_trade_limit_(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  using namespace NativeLayer;
+
+  price_type limit;
+  size_type size;
+  PyObject* callback;
+  bool ares;
+
+  id_type id = 0;
+  callback = PyLong_FromLong(1); //dummy
+
+  if(Replace){
+    static char* kwlist[] = {okws[0],okws[2],okws[3],okws[4],NULL};
+    ares = get_order_args(args, kwds, "kfkO:callback", kwlist, &callback,
+                          &id, &limit, &size);
+  }else{
+    static char* kwlist[] = {okws[2],okws[3],okws[4],NULL};
+    ares = get_order_args(args, kwds, "fkO:callback", kwlist, &callback, &limit,
+                          &size);
+  }
+
+  if(!ares)
+    return NULL;
+
+  try{
+    SimpleOrderbook* sob = (SimpleOrderbook*)self->_sob;
+    /*
+     * be careful with copy contruction/ ref passing of CallbackWrapper object
+     * we need to copy into the order_map, can pass by reference elsewhere
+     */
+    fill_callback_type cb = fill_callback_type(CallbackWrapper(callback));
+
+    id = Replace ? sob->replace_with_limit_order(id, BuyNotSell, limit, size, cb)
+                 : sob->insert_limit_order(BuyNotSell, limit, size, cb);
+
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+
+  return PyLong_FromUnsignedLong(id);
+}
+
+static PyObject*
+VOB_buy_limit(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_limit_<true,false>(self,args,kwds);
+}
+static PyObject*
+VOB_sell_limit(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_limit_<false,false>(self,args,kwds);
+}
+static PyObject*
+VOB_replace_with_buy_limit(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_limit_<true,true>(self,args,kwds);
+}
+static PyObject*
+VOB_replace_with_sell_limit(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_limit_<false,true>(self,args,kwds);
+}
+
+
+template< bool BuyNotSell, bool Replace >
+PyObject* VOB_trade_market_(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  using namespace NativeLayer;
+
+  size_type size;
+  PyObject* callback;
+  bool ares;
+
+  id_type id = 0;
+  callback = PyLong_FromLong(1); //dummy
+
+  if(Replace){
+    static char* kwlist[] = {okws[0],okws[3],okws[4],NULL};
+    ares = get_order_args(args, kwds, "kkO:callback", kwlist, &callback,
+                         &id, &size);
+  }else{
+    static char* kwlist[] = {okws[3],okws[4],NULL};
+    ares = get_order_args(args, kwds, "kO:callback", kwlist, &callback, &size);
+  }
+
+  if(!ares)
+    return NULL;
+
+  try{
+    SimpleOrderbook* sob = (SimpleOrderbook*)self->_sob;
+    /*
+     * be careful with copy contruction/ ref passing of CallbackWrapper object
+     * we need to copy into the order_map, can pass by reference elsewhere
+     */
+    fill_callback_type cb = fill_callback_type(CallbackWrapper(callback));
+
+    id = Replace ? sob->replace_with_market_order(id, BuyNotSell, size, cb)
+                 : sob->insert_market_order(BuyNotSell, size, cb);
+
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+
+  return PyLong_FromUnsignedLong(id);
+}
+
+static PyObject*
+VOB_buy_market(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_market_<true,false>(self,args,kwds);
+}
+static PyObject*
+VOB_sell_market(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_market_<false,false>(self,args,kwds);
+}
+static PyObject*
+VOB_replace_with_buy_market(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_market_<true,true>(self,args,kwds);
+}
+static PyObject*
+VOB_replace_with_sell_market(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_market_<false,true>(self,args,kwds);
+}
+
+
+template<bool BuyNotSell, bool Replace>
+PyObject* VOB_trade_stop_(pySOB* self,PyObject* args,PyObject* kwds)
+{
+  using namespace NativeLayer;
+
+  price_type stop;
+  size_type size;
+  PyObject* callback;
+  bool ares;
+
+  id_type id = 0;
+  callback = PyLong_FromLong(1); //dummy
+
+  if(Replace){
+    static char* kwlist[] = {okws[0],okws[1],okws[3],okws[4],NULL};
+    ares = get_order_args(args, kwds, "kfkO:callback", kwlist, &callback,
+                          &id, &stop, &size);
+  }else{
+    static char* kwlist[] = {okws[1],okws[3],okws[4],NULL};
+    ares = get_order_args(args, kwds, "fkO:callback", kwlist, &callback, &stop,
+                          &size);
+  }
+
+  if(!ares)
+    return NULL;
+
+  try{
+    SimpleOrderbook* sob = (SimpleOrderbook*)self->_sob;
+    /*
+     * be careful with copy contruction/ ref passing of CallbackWrapper object
+     * we need to copy into the order_map, can pass by reference elsewhere
+     */
+    fill_callback_type cb = fill_callback_type(CallbackWrapper(callback));
+
+    id = Replace ? sob->replace_with_stop_order(id, BuyNotSell, stop, size, cb)
+                 : sob->insert_stop_order(BuyNotSell, stop, size, cb);
+
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+  return PyLong_FromUnsignedLong(id);
+}
+
+static PyObject*
+VOB_buy_stop(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_stop_<true,false>(self,args,kwds);
+}
+static PyObject*
+VOB_sell_stop(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_stop_<false,false>(self,args,kwds);
+}
+static PyObject*
+VOB_replace_with_buy_stop(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_stop_<true,true>(self,args,kwds);
+}
+static PyObject*
+VOB_replace_with_sell_stop(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_stop_<false,true>(self,args,kwds);
+}
+
+
+template<bool BuyNotSell, bool Replace>
+PyObject* VOB_trade_stop_limit_(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  using namespace NativeLayer;
+
+  price_type stop;
+  price_type limit;
+  size_type size;
+  PyObject* callback;
+  bool ares;
+
+  id_type id = 0;
+  callback = PyLong_FromLong(1); //dummy
+
+  if(Replace){
+    static char* kwlist[] = {okws[0],okws[1],okws[2],okws[3],okws[4],NULL};
+    ares = get_order_args(args, kwds, "kffkO:callback", kwlist, &callback,
+                         &id, &stop, &limit, &size);
+  }else{
+    static char* kwlist[] = {okws[1],okws[2],okws[3],okws[4],NULL};
+    ares = get_order_args(args, kwds, "ffkO:callback", kwlist, &callback, &stop,
+                          &limit, &size);
+  }
+
+  if(!ares)
+    return NULL;
+
+  try{
+    SimpleOrderbook* sob = (SimpleOrderbook*)self->_sob;
+    /*
+     * be careful with copy contruction/ ref passing of CallbackWrapper object
+     * we need to copy into the order_map, can pass by reference elsewhere
+     */
+    fill_callback_type cb = fill_callback_type(CallbackWrapper(callback));
+
+    id = Replace
+      ? sob->replace_with_stop_order(id, BuyNotSell, stop, limit, size, cb)
+      : sob->insert_stop_order(BuyNotSell, stop, limit, size, cb);
+
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+  return PyLong_FromUnsignedLong(id);
+}
+
+static PyObject*
+VOB_buy_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_stop_limit_<true,false>(self,args,kwds);
+}
+static PyObject*
+VOB_sell_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_stop_limit_<false,false>(self,args,kwds);
+}
+static PyObject*
+VOB_replace_with_buy_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_stop_limit_<true,true>(self,args,kwds);
+}
+static PyObject*
+VOB_replace_with_sell_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  return VOB_trade_stop_limit_<false,true>(self,args,kwds);
+}
+
+
+PyObject* VOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
+{
+  using namespace NativeLayer;
+
+  bool rval;
+  id_type id;
+
+  static char* kwlist[] = {okws[0],NULL};
+
+  if(!get_order_args(args, kwds, "k", kwlist, nullptr, &id))
+    return NULL;
+
+  try{
+    rval = ((SimpleOrderbook*)self->_sob)->pull_order(id);
+
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+
+  return PyBool_FromLong((unsigned long)rval);
+}
+
+static PyObject* VOB_bid_price(pySOB* self)
+{
+  try{
+    NativeLayer::SimpleOrderbook* sob =
+      (NativeLayer::SimpleOrderbook*)self->_sob;
+    return PyFloat_FromDouble(sob->bid_price());
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+}
+
+static PyObject* VOB_ask_price(pySOB* self)
+{
+  try{
+    NativeLayer::SimpleOrderbook* sob =
+      (NativeLayer::SimpleOrderbook*)self->_sob;
+    return PyFloat_FromDouble(sob->ask_price());
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+}
+
+static PyObject* VOB_last_price(pySOB* self)
+{
+  try{
+    NativeLayer::SimpleOrderbook* sob =
+      (NativeLayer::SimpleOrderbook*)self->_sob;
+    return PyFloat_FromDouble(sob->last_price());
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+}
+
+static PyObject* VOB_bid_size(pySOB* self)
+{
+  try{
+    NativeLayer::SimpleOrderbook* sob =
+      (NativeLayer::SimpleOrderbook*)self->_sob;
+    return PyLong_FromUnsignedLong(sob->bid_size());
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+}
+
+static PyObject* VOB_ask_size(pySOB* self)
+{
+  try{
+    NativeLayer::SimpleOrderbook* sob =
+      (NativeLayer::SimpleOrderbook*)self->_sob;
+    return PyLong_FromUnsignedLong(sob->ask_size());
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+}
+
+static PyObject* VOB_last_size(pySOB* self)
+{
+  try{
+    NativeLayer::SimpleOrderbook* sob =
+      (NativeLayer::SimpleOrderbook*)self->_sob;
+    return PyLong_FromUnsignedLong(sob->last_size());
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+}
+
+static PyObject* VOB_volume(pySOB* self)
+{
+  try{
+    NativeLayer::SimpleOrderbook* sob =
+      (NativeLayer::SimpleOrderbook*)self->_sob;
+    return PyLong_FromUnsignedLongLong(sob->volume());
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+}
+
+static PyObject* VOB_dump_buy_limits(pySOB* self)
+{
+  try{
+    NativeLayer::SimpleOrderbook* sob =
+      (NativeLayer::SimpleOrderbook*)self->_sob;
+    sob->dump_buy_limits();
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+  Py_RETURN_NONE;
+}
+static PyObject* VOB_dump_sell_limits(pySOB* self)
+{
+  try{
+    NativeLayer::SimpleOrderbook* sob =
+      (NativeLayer::SimpleOrderbook*)self->_sob;
+    sob->dump_sell_limits();
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+  Py_RETURN_NONE;
+}
+static PyObject* VOB_dump_buy_stops(pySOB* self)
+{
+  try{
+    NativeLayer::SimpleOrderbook* sob =
+      (NativeLayer::SimpleOrderbook*)self->_sob;
+    sob->dump_buy_stops();
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+  Py_RETURN_NONE;
+}
+static PyObject* VOB_dump_sell_stops(pySOB* self)
+{
+  try{
+    NativeLayer::SimpleOrderbook* sob =
+      (NativeLayer::SimpleOrderbook*)self->_sob;
+    sob->dump_sell_stops();
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+  Py_RETURN_NONE;
+}
+
+static PyObject* VOB_time_and_sales(pySOB* self, PyObject* args)
+{
+  using namespace NativeLayer;
+
+  SimpleOrderbook* sob;
+  long arg;
+  size_type num;
+  PyObject *list, *tup;
+
+  if(!PyArg_ParseTuple(args, "l", &arg)){
+    PyErr_SetString(PyExc_ValueError, "error parsing args");
+    return NULL;
+  }
+
+  try{
+    sob = (SimpleOrderbook*)self->_sob;
+    const SimpleOrderbook::time_and_sales_type& vec = sob->time_and_sales();
+    auto biter = vec.cbegin();
+    auto eiter = vec.cend();
+    num = arg <= 0 ? vec.size() : (size_type)arg;
+
+    list = PyList_New(std::min(vec.size(),(size_type)num));
+
+    for(size_type i = 0; i < num && biter != eiter; ++i, ++biter)
+    {
+      std::string s = SimpleOrderbook::timestamp_to_str(std::get<0>(*biter));
+      tup = Py_BuildValue("(s,f,k)", s.c_str(), std::get<1>(*biter),
+                          std::get<2>(*biter));
+      PyList_SET_ITEM(list, i, tup);
+    }
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+
+  return list;
+}
+
+static PyMethodDef pySOB_methods[] =
+{
+  /* INSERT */
+  {"buy_limit",(PyCFunction)VOB_buy_limit, METH_VARARGS | METH_KEYWORDS,
+    "buy limit order; (limit, size, callback) -> order ID"},
+  {"sell_limit",(PyCFunction)VOB_sell_limit, METH_VARARGS | METH_KEYWORDS,
+    "sell limit order; (limit, size, callback) -> order ID"},
+  {"buy_market",(PyCFunction)VOB_buy_market, METH_VARARGS | METH_KEYWORDS,
+    "buy market order; (size, callback) -> order ID"},
+  {"sell_market",(PyCFunction)VOB_sell_market, METH_VARARGS | METH_KEYWORDS,
+    "sell market order; (size, callback) -> order ID"},
+  {"buy_stop",(PyCFunction)VOB_buy_stop, METH_VARARGS | METH_KEYWORDS,
+    "buy stop order; (stop, size, callback) -> order ID"},
+  {"sell_stop",(PyCFunction)VOB_sell_stop, METH_VARARGS | METH_KEYWORDS,
+    "sell stop order; (stop, size, callback) -> order ID"},
+  {"buy_stop_limit",(PyCFunction)VOB_buy_stop_limit,
+    METH_VARARGS | METH_KEYWORDS,
+    "buy stop limit order; (stop, limit, size, callback) -> order ID"},
+  {"sell_stop_limit",(PyCFunction)VOB_sell_stop_limit,
+    METH_VARARGS | METH_KEYWORDS,
+    "sell stop limit order; (stop, limit, size, callback) -> order ID"},
+  /* PULL */
+  {"pull_order",(PyCFunction)VOB_pull_order, METH_VARARGS | METH_KEYWORDS,
+    "remove order; (id) -> success/failure(boolean)"},
+  /* REPLACE */
+  {"replace_with_buy_limit",(PyCFunction)VOB_replace_with_buy_limit,
+    METH_VARARGS | METH_KEYWORDS, "replace old order with new buy limit order; "
+                                  "(id, limit, size, callback) -> new order ID"},
+  {"replace_with_sell_limit",(PyCFunction)VOB_replace_with_sell_limit,
+    METH_VARARGS | METH_KEYWORDS, "replace old order with new sell limit order; "
+                                  "(id, limit, size, callback) -> new order ID"},
+  {"replace_with_buy_market",(PyCFunction)VOB_replace_with_buy_market,
+    METH_VARARGS | METH_KEYWORDS, "replace old order with new buy market order; "
+                                  "(id, size, callback) -> new order ID"},
+  {"replace_with_sell_market",(PyCFunction)VOB_replace_with_sell_market,
+    METH_VARARGS | METH_KEYWORDS, "replace old order with new sell market order; "
+                                  "(id, size, callback) -> new order ID"},
+  {"replace_with_buy_stop",(PyCFunction)VOB_replace_with_buy_stop,
+    METH_VARARGS | METH_KEYWORDS, "replace old order with new buy stop order; "
+                                  "(id, stop, size, callback) -> new order ID"},
+  {"replace_with_sell_stop",(PyCFunction)VOB_replace_with_sell_stop,
+    METH_VARARGS | METH_KEYWORDS, "replace old order with new sell stop order; "
+                                  "(id, stop, size, callback) -> new order ID"},
+  {"replace_with_buy_stop_limit",(PyCFunction)VOB_replace_with_buy_stop_limit,
+    METH_VARARGS | METH_KEYWORDS, "replace old order with new buy stop limit "
+                                  "order; (id, stop, limit, size, callback) "
+                                  "-> new order ID"},
+  {"replace_with_sell_stop_limit",(PyCFunction)VOB_replace_with_sell_stop_limit,
+    METH_VARARGS | METH_KEYWORDS, "replace old order with new sell stop limit "
+                                  "order; (id, stop, limit, size, callback) "
+                                  "-> new order ID"},
+  /* GET STATE/CAHCE VALS */
+  {"bid_price",(PyCFunction)VOB_bid_price, METH_NOARGS, "() -> float"},
+  {"ask_price",(PyCFunction)VOB_ask_price, METH_NOARGS, "() -> float"},
+  {"last_price",(PyCFunction)VOB_last_price, METH_NOARGS, "() -> float"},
+  {"bid_size",(PyCFunction)VOB_bid_size, METH_NOARGS, "() -> int"},
+  {"ask_size",(PyCFunction)VOB_ask_size, METH_NOARGS, "() -> int"},
+  {"last_size",(PyCFunction)VOB_last_size, METH_NOARGS, "() -> int"},
+  {"volume",(PyCFunction)VOB_volume, METH_NOARGS, "() -> int"},
+  /* TIME & SALES */
+  {"time_and_sales",(PyCFunction)VOB_time_and_sales, METH_VARARGS,
+    "(size) -> list of 3-tuples [(int,float,int),(int,float,int),..] "},
+  /* DUMP */
+  {"dump_buy_limits",(PyCFunction)VOB_dump_buy_limits, METH_NOARGS,
+      "dump (to stdout) all active limit buy orders; () -> void"},
+  {"dump_sell_limits",(PyCFunction)VOB_dump_sell_limits, METH_NOARGS,
+      "dump (to stdout) all active limit sell orders; () -> void"},
+  {"dump_buy_stops",(PyCFunction)VOB_dump_buy_stops, METH_NOARGS,
+      "dump (to stdout) all active buy stop orders; () -> void"},
+  {"dump_sell_stops",(PyCFunction)VOB_dump_sell_stops, METH_NOARGS,
+      "dump (to stdout) all active sell stop orders; () -> void"},
+  {NULL}
+};
+
+static PyObject* VOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
+{
+  using namespace NativeLayer;
+
+  pySOB* self;
+  price_type price,incr;
+  size_type mms, sz_low, sz_high, mm_init;
+
+  static char kws[][16] = { "price", "increment", "mm_num", "mm_sz_low",
+                            "mm_sz_high", "mm_init_levels" };
+  static char* kwlist[] = { kws[0],kws[1],kws[2],kws[3],kws[4],kws[5],NULL };
+
+  if(!PyArg_ParseTupleAndKeywords(args,kwds,"ffkkkk",kwlist,&price,&incr,
+                                   &mms, &sz_low, &sz_high, &mm_init))
+  {
+    PyErr_SetString(PyExc_ValueError, "error parsing args to __new__");
+    return NULL;
+  }
+
+  self = (pySOB*)type->tp_alloc(type,0);
+  self->_sob = nullptr;
+  if(self != NULL){
+    try{
+      self->_sob = (PyObject*)new SimpleOrderbook(price, incr, mms, sz_low,
+                                                  sz_high, mm_init);
+      if(!self->_sob)
+        PyErr_SetString(PyExc_RuntimeError, "self->_sob was not constructed");
+    }catch(const std::invalid_argument & e){
+      PyErr_SetString(PyExc_ValueError, e.what());
+    }catch(const std::exception & e){
+      PyErr_SetString(PyExc_Exception, e.what());
+    }
+    if(PyErr_Occurred()){
+      Py_DECREF(self);
+      return NULL;
+    }
+  }
+
+  return (PyObject*)self;
+}
+
+static void VOB_Delete(pySOB* self)
+{
+  delete (NativeLayer::SimpleOrderbook*)(self->_sob);
+  Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyTypeObject pySOB_type =
+{
+  PyVarObject_HEAD_INIT(NULL,0)
+  "simpleorderbook.SimpleOrderbook",
+  sizeof(pySOB),
+  0,
+  (destructor)VOB_Delete,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  Py_TPFLAGS_DEFAULT,
+  "SimpleOrderbook (implemented in C++)",
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  pySOB_methods,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0, //(initproc)VOB_Init,
+  0,
+  VOB_New,
+};
+
+static struct PyModuleDef pySOB_mod_def =
+{
+  PyModuleDef_HEAD_INIT,
+  "simpleorderbook",
+  NULL,
+  -1,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL
+};
+
+PyMODINIT_FUNC PyInit_simpleorderbook(void)
+{
+  PyObject* mod;
+
+  if(PyType_Ready(&pySOB_type) < 0)
+    return NULL;
+
+  mod = PyModule_Create(&pySOB_mod_def);
+  if(!mod)
+    return NULL;
+
+  Py_INCREF(&pySOB_type);
+  PyModule_AddObject(mod, "SimpleOrderbook", (PyObject*)&pySOB_type);
+
+  return mod;
+}
+
