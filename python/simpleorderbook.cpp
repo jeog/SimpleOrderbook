@@ -49,12 +49,10 @@ public:
   }
 };
 
-
 typedef struct {
   PyObject_HEAD
   PyObject* _sob;
 } pySOB;
-
 
 #define CALLDOWN_FOR_STATE_WITH_TRY_BLOCK(apicall,sobcall) \
   static PyObject* VOB_ ## sobcall(pySOB* self){ \
@@ -111,7 +109,6 @@ CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_stops )
   VOB_replace_with_sell_ ## order(pySOB* self, PyObject* args, PyObject* kwds){ \
     return VOB_trade_ ## order ## _<false,true>(self,args,kwds); \
   }
-
 
 static char okws[][16] = { "id", "stop","limit","size","callback" };
 
@@ -190,9 +187,7 @@ PyObject* VOB_trade_limit_(pySOB* self, PyObject* args, PyObject* kwds)
 
   return PyLong_FromUnsignedLong(id);
 }
-
 UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( limit )
-
 
 template< bool BuyNotSell, bool Replace >
 PyObject* VOB_trade_market_(pySOB* self, PyObject* args, PyObject* kwds)
@@ -236,9 +231,7 @@ PyObject* VOB_trade_market_(pySOB* self, PyObject* args, PyObject* kwds)
 
   return PyLong_FromUnsignedLong(id);
 }
-
 UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( market )
-
 
 template<bool BuyNotSell, bool Replace>
 PyObject* VOB_trade_stop_(pySOB* self,PyObject* args,PyObject* kwds)
@@ -283,9 +276,7 @@ PyObject* VOB_trade_stop_(pySOB* self,PyObject* args,PyObject* kwds)
   }
   return PyLong_FromUnsignedLong(id);
 }
-
 UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( stop )
-
 
 template<bool BuyNotSell, bool Replace>
 PyObject* VOB_trade_stop_limit_(pySOB* self, PyObject* args, PyObject* kwds)
@@ -332,9 +323,7 @@ PyObject* VOB_trade_stop_limit_(pySOB* self, PyObject* args, PyObject* kwds)
   }
   return PyLong_FromUnsignedLong(id);
 }
-
 UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( stop_limit )
-
 
 PyObject* VOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
 {
@@ -358,7 +347,6 @@ PyObject* VOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
 
   return PyBool_FromLong((unsigned long)rval);
 }
-
 
 static PyObject* VOB_time_and_sales(pySOB* self, PyObject* args)
 {

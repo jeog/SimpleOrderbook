@@ -49,6 +49,8 @@ typedef unsigned long long  large_size_type;
 typedef std::pair<price_type,size_type>         limit_order_type;
 typedef std::pair<price_type,limit_order_type>  stop_order_type;
 
+typedef typename std::chrono::steady_clock      clock_type;
+
 typedef std::function<void(id_type,price_type,size_type)> fill_callback_type;
 
 std::ostream& operator<<(std::ostream& out, limit_order_type lim);
@@ -85,6 +87,8 @@ class MarketMaker{
   std::uniform_int_distribution<size_type> _distr;
   const SimpleOrderbook& _my_vob;
 
+  static const clock_type::time_point seedtp;
+
 public:
   MarketMaker( size_type sz_low, size_type sz_high, const SimpleOrderbook& vob);
   MarketMaker( const MarketMaker& mm );
@@ -103,7 +107,6 @@ class SimpleOrderbook{
   * TODO tighten up timestamp/t&s
   */
 public:
-  typedef typename std::chrono::steady_clock                clock_type;
   typedef typename clock_type::time_point                   time_stamp_type;
   typedef std::tuple<time_stamp_type,price_type,size_type>  t_and_s_type;
   typedef std::vector< t_and_s_type >                       time_and_sales_type;
@@ -257,7 +260,9 @@ private:
   template<typename ChainArrayTy>
   inline typename ChainArrayTy::element_type*
   _find_order_chain(const ChainArrayTy& array, price_type price)
-  { /* get chain ptr by price */
+  { /*
+     * get chain ptr by price
+     */
     ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
 
     return &(array[this->_ptoi(price)]);
@@ -275,17 +280,14 @@ private:
    */
   size_type _lift_offers(price_type price, id_type id, size_type size,
                          fill_callback_type& callback);
-
   size_type _hit_bids(price_type price, id_type id, size_type size,
                       fill_callback_type& callback);
-
   /*
    * signal trade has occurred(admin only, DONT INSERT NEW TRADES FROM HERE!)
    */
   void _trade_has_occured(price_type price, size_type size, id_type id_buyer,
                           id_type id_seller, fill_callback_type& cb_buyer,
                           fill_callback_type& cb_seller, bool took_offer);
-
   /*
    * internal insert orders once/if we have an id
    */
@@ -301,7 +303,6 @@ private:
   void _insert_stop_order(bool buy, price_type stop, price_type limit,
                            size_type size, fill_callback_type callback,
                            id_type id);
-
   /*
    * initialize book and market makers; CAREFUL: called from constructor
    */
@@ -329,13 +330,10 @@ public:
    */
   id_type insert_limit_order(bool buy, price_type limit, size_type size,
                              fill_callback_type callback);
-
   id_type insert_market_order(bool buy, size_type size,
                               fill_callback_type callback);
-
   id_type insert_stop_order(bool buy, price_type stop, size_type size,
                             fill_callback_type callback);
-
   id_type insert_stop_order(bool buy, price_type stop, price_type limit,
                             size_type size, fill_callback_type callback);
 
@@ -343,13 +341,10 @@ public:
 
   id_type replace_with_limit_order(id_type id, bool buy, price_type limit,
                                    size_type size, fill_callback_type callback);
-
   id_type replace_with_market_order(id_type id, bool buy, size_type size,
                                     fill_callback_type callback);
-
   id_type replace_with_stop_order(id_type id, bool buy, price_type stop,
                                   size_type size, fill_callback_type callback);
-
   id_type replace_with_stop_order(id_type id, bool buy, price_type stop,
                                   price_type limit, size_type size,
                                   fill_callback_type callback);

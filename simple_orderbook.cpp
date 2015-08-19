@@ -26,7 +26,8 @@ MarketMaker::MarketMaker(size_type sz_low,
   :
   _sz_low(sz_low),
   _sz_high(sz_high),
-  _rand_engine(rand()),
+  _rand_engine( (clock_type::now() - MarketMaker::seedtp).count() *
+                (unsigned long long)this % std::numeric_limits<long>::max()),
   _distr(sz_low, sz_high),
   _my_vob(vob)
     {
@@ -36,10 +37,12 @@ MarketMaker::MarketMaker(const MarketMaker& mm)
   :
   _sz_low(mm._sz_low),
   _sz_high(mm._sz_high),
-  _rand_engine(rand()),
+  _rand_engine( (clock_type::now() - MarketMaker::seedtp).count() *
+                (unsigned long long)this % std::numeric_limits<long>::max()),
   _distr(mm._sz_low, mm._sz_high),
   _my_vob(mm._my_vob)
     {
+
     }
 
 limit_order_type MarketMaker::post_bid(price_type price)
@@ -58,6 +61,8 @@ void MarketMaker::default_callback(id_type id,
 {
   std::cout<<"MM FILL: "<<' '<<id<<' '<<price<<' '<<size<<std::endl;
 }
+
+const clock_type::time_point MarketMaker::seedtp = clock_type::now();
 
 void SimpleOrderbook::_on_trade_completion()
 {
