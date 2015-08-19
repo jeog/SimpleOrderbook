@@ -152,19 +152,13 @@ private:
   limit_array_type _bid_limits, _ask_limits;
   stop_array_type _bid_stops, _ask_stops;
 
-  /*
-   * autonomous market makers
-   */
+  /* autonomous market makers */
   std::vector<MarketMaker> _market_makers;
 
-  /*
-   * trade has occurred but we've deferred 'handling' it
-   */
+  /* trade has occurred but we've deferred 'handling' it */
   bool _is_dirty;
 
-  /*
-   * store deferred callback info until we are clear to execute
-   */
+  /* store deferred callback info until we are clear to execute */
   std::queue<dfrd_cb_elem_type> _deferred_callback_queue;
 
   /*
@@ -199,17 +193,33 @@ private:
   size_type _ptoi(price_type price);
   price_type _itop(size_type index);
 
-  /*
-   * adjust price/size cache vals after new trade/limit order
-   */
-  size_type _calc_limit_chain_size(const limit_array_type& array,
-                                   price_type price);
+  template<typename ChainArrayTy>
+  struct _array_type_check_{
+    static_assert( std::is_same<ChainArrayTy,limit_array_type>::value ||
+                   std::is_same<ChainArrayTy,stop_array_type>::value,
+                   "type not limit_array_type or stop_array_type");
+  };
+
+  template< typename ChainArrayTy>
+  size_type _chain_size(const ChainArrayTy& array, price_type price)
+  { /*
+     * calculate total volume in the chain
+     */
+    _array_type_check_<ChainArrayTy>();
+    size_type sz = 0;
+    for( typename ChainArrayTy::element_type::value_type& e
+         : *(this->_find_order_chain(array,price))){
+      sz += e.second.first;
+    }
+    return sz;
+  }
 
   template< typename ChainArrayTy >
   void _dump_chain_array(ChainArrayTy& ca)
   { /*
      *dump (to stdout) a particular chain array
      */
+    _array_type_check_<ChainArrayTy>();
     size_type sz;
     typename ChainArrayTy::element_type* porders;
 
@@ -218,10 +228,10 @@ private:
       sz = porders->size();
       if(sz)
         std::cout<< this->_itop(i);
-       for(typename ChainArrayTy::element_type::value_type& elem : *porders)
+      for(typename ChainArrayTy::element_type::value_type& elem : *porders)
         std::cout<< " <" << elem.second.first << "> ";
-       if(sz)
-         std::cout<< std::endl;
+      if(sz)
+        std::cout<< std::endl;
     }
   }
 
@@ -230,17 +240,27 @@ private:
   { /*
      * remove order from particular chain array, return success boolean
      */
+    _array_type_check_<ChainArrayTy>();
     typename ChainArrayTy::element_type* porders;
 
     for(long long i = this->_full_range - 1; i >= 0; --i){
       porders = &(ca[i]);
-       for(typename ChainArrayTy::element_type::value_type& elem : *porders)
+      for(typename ChainArrayTy::element_type::value_type& elem : *porders){
         if(elem.first == id){
           porders->erase(id);
-           return true;
+          return true;
         }
+      }
     }
     return false;
+  }
+
+  template<typename ChainArrayTy>
+  inline typename ChainArrayTy::element_type*
+  _find_order_chain(const ChainArrayTy& array, price_type price)
+  { /* get chain ptr by price */
+    _array_type_check_<ChainArrayTy>();
+    return &(array[this->_ptoi(price)]);
   }
 
   /*
@@ -249,20 +269,6 @@ private:
   void _on_trade_completion();
   void _look_for_triggered_stops();
   void _handle_triggered_stop_chain(price_type price,bool ask_side);
-
-  /*
-   * get chain ptr by price
-   */
-  inline limit_chain_type*
-  _find_limit_orders(const limit_array_type& array, price_type price)
-  {
-    return &(array[this->_ptoi(price)]);
-  }
-  inline stop_chain_type*
-  _find_stop_orders(const stop_array_type& array, price_type price)
-  {
-    return &(array[this->_ptoi(price)]);
-  }
 
   /*
    * execute if orders match

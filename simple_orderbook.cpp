@@ -59,17 +59,6 @@ void MarketMaker::default_callback(id_type id,
   std::cout<<"MM FILL: "<<' '<<id<<' '<<price<<' '<<size<<std::endl;
 }
 
-
-size_type SimpleOrderbook::_calc_limit_chain_size(
-  const SimpleOrderbook::limit_array_type& array, price_type price)
-{
-  size_type sz = 0;
-  for(SimpleOrderbook::limit_chain_type::value_type& elem
-      : *(this->_find_limit_orders(array,price)))
-    sz += elem.second.first;
-  return sz;
-}
-
 void SimpleOrderbook::_on_trade_completion()
 {
   if(this->_is_dirty){
@@ -157,7 +146,7 @@ void SimpleOrderbook::_handle_triggered_stop_chain(price_type price,
   stop_chain_type *pchain, cchain;
   price_type limit;
 
-  pchain = this->_find_stop_orders(ask_side ? this->_ask_stops
+  pchain = this->_find_order_chain(ask_side ? this->_ask_stops
                                             : this->_bid_stops, price);
   /*
    * need to copy the relevant chain, delete original, THEN insert
@@ -226,7 +215,7 @@ size_type SimpleOrderbook::_lift_offers(price_type price,
          /* inside_price <= max_price with error allowance */
          && (inside_price - this->_max_price) < this->_incr_err )
   {
-    piask = this->_find_limit_orders(this->_ask_limits,inside_price);
+    piask = this->_find_order_chain(this->_ask_limits,inside_price);
     del_iter = piask->begin();
 
     for(limit_chain_type::value_type& elem : *piask){
@@ -257,8 +246,7 @@ size_type SimpleOrderbook::_lift_offers(price_type price,
       inside_price = this->_align(inside_price + this->_incr);
     }catch(std::range_error& e){
       this->_ask_price = inside_price;
-      this->_ask_size =
-              this->_calc_limit_chain_size(this->_ask_limits,this->_ask_price);
+      this->_ask_size = this->_chain_size(this->_ask_limits, this->_ask_price);
       break;
     }
 
@@ -267,20 +255,20 @@ size_type SimpleOrderbook::_lift_offers(price_type price,
 
     if(tflag){
       tflag = false;
-      this->_ask_size =
-        this->_calc_limit_chain_size(this->_ask_limits, this->_ask_price);
+      this->_ask_size = this->_chain_size(this->_ask_limits, this->_ask_price);
     }
   }
   /* if we finish on an empty chain look for one that isn't */
-  if(piask && piask->empty()){
-    ++piask;
-    pmax = &(this->_ask_limits[this->_full_range-1]);
-    for( ; piask->empty() && piask < pmax ; ++piask){
+  if(piask && piask->empty())
+  {
+    for( ++piask, pmax = &(this->_ask_limits[this->_full_range-1]) ;
+         piask->empty() && piask < pmax ;
+         ++piask)
+    {
       inside_price = this->_align(inside_price + this->_incr);
     }
     this->_ask_price = inside_price;
-    this->_ask_size =
-      this->_calc_limit_chain_size(this->_ask_limits, this->_ask_price);
+    this->_ask_size = this->_chain_size(this->_ask_limits, this->_ask_price);
   }
   return size; /* what we couldn't fill */
 }
@@ -306,7 +294,7 @@ size_type SimpleOrderbook::_hit_bids(price_type price,
          /* inside_price >= max_price with error allowance */
          && (inside_price - this->_min_price) > -this->_incr_err )
   {
-    pibid = this->_find_limit_orders(this->_bid_limits,inside_price);
+    pibid = this->_find_order_chain(this->_bid_limits,inside_price);
     del_iter = pibid->begin();
 
     for(limit_chain_type::value_type& elem : *pibid){
@@ -337,8 +325,7 @@ size_type SimpleOrderbook::_hit_bids(price_type price,
       inside_price = this->_align(inside_price - this->_incr);
     }catch(std::range_error& e){
       this->_bid_price = inside_price;
-      this->_bid_size =
-              this->_calc_limit_chain_size(this->_bid_limits,this->_bid_price);
+      this->_bid_size = this->_chain_size(this->_bid_limits, this->_bid_price);
       break;
     }
 
@@ -347,20 +334,20 @@ size_type SimpleOrderbook::_hit_bids(price_type price,
 
     if(tflag){
       tflag = false;
-      this->_bid_size =
-        this->_calc_limit_chain_size(this->_bid_limits,this->_bid_price);
+      this->_bid_size = this->_chain_size(this->_bid_limits, this->_bid_price);
     }
   }
   /* if we finish on an empty chain look for one that isn't */
-  if(pibid && pibid->empty()){
-    --pibid;
-    pmin = &(this->_bid_limits[0]);
-    for( ; pibid->empty() && pibid > pmin ; --pibid){
+  if(pibid && pibid->empty())
+  {
+    for( --pibid, pmin = &(this->_bid_limits[0]) ;
+         pibid->empty() && pibid > pmin ;
+         --pibid)
+    {
       inside_price = this->_align(inside_price - this->_incr);
     }
     this->_bid_price = inside_price;
-    this->_bid_size =
-      this->_calc_limit_chain_size(this->_bid_limits, this->_bid_price);
+    this->_bid_size = this->_chain_size(this->_bid_limits, this->_bid_price);
   }
   return size; /* what we couldn't fill */
 }
@@ -375,10 +362,9 @@ size_type SimpleOrderbook::_ptoi(price_type price)
   long long index = round(offset) + this->_lower_range;
 
   if(index < 0 || ((size_type)index >= this->_full_range))
-    throw std::range_error(
-      cat("invalid index from price, ","indx: ", std::to_string(index),
-                " price: ", std::to_string(price)) );
-
+    throw std::range_error( cat("invalid index from price, ","indx: ",
+                                std::to_string(index), " price: ",
+                                std::to_string(price)) );
   return index;
 }
 
@@ -391,10 +377,9 @@ price_type SimpleOrderbook::_itop(size_type index)
   price_type price = offset * this->_incr + this->_init_price;
 
   if(price < 0 || (price > this->_max_price))
-    throw std::range_error(
-      cat("invalid price from index, ","indx: ", std::to_string(index),
-         " price: ", std::to_string(price)) );
-
+    throw std::range_error( cat("invalid price from index, ","indx: ",
+                                std::to_string(index), " price: ",
+                                std::to_string(price)) );
   return price;
 }
 
@@ -435,26 +420,26 @@ void SimpleOrderbook::_insert_limit_order(bool buy,
    * first look if there are matching orders on the offer side
    * pass ref to callback functor, we'll copy later if necessary
    */
-  if(buy && limit >= this->_ask_price){
+  if(buy && limit >= this->_ask_price)
     rmndr = this->_lift_offers(limit,id,size,callback);
-  }else if(!buy && limit <= this->_bid_price){
+  else if(!buy && limit <= this->_bid_price)
     rmndr = this->_hit_bids(limit,id,size,callback);
-  }
+
   /*
    * then add what remains to bid side; copy callback functor, needs to persist
    */
   if(rmndr > 0){
-    limit_chain_type* orders = this->_find_limit_orders(la, limit);
+    limit_chain_type* orders = this->_find_order_chain(la, limit);
 
     limit_bndl_type bndl = limit_bndl_type(rmndr,callback);
     orders->insert(limit_chain_type::value_type(id,std::move(bndl)));
 
     if(buy && limit >= this->_bid_price){
       this->_bid_price = limit;
-      this->_bid_size = this->_calc_limit_chain_size(this->_bid_limits,limit);
+      this->_bid_size = this->_chain_size(this->_bid_limits,limit);
     }else if(!buy && limit <= this->_ask_price){
       this->_ask_price = limit;
-      this->_ask_size = this->_calc_limit_chain_size(this->_ask_limits,limit);
+      this->_ask_size = this->_chain_size(this->_ask_limits,limit);
     }
   }
 
@@ -501,7 +486,7 @@ void SimpleOrderbook::_insert_stop_order(bool buy,
    * copy callback functor, needs to persist
    */
   stop_chain_type* orders =
-    this->_find_stop_orders(buy ? this->_bid_stops : this->_ask_stops, stop);
+    this->_find_order_chain(buy ? this->_bid_stops : this->_ask_stops, stop);
 
   /* use 0 limit price for market order */
   stop_bndl_type bndl = stop_bndl_type( limit_order_type(limit,size),callback);

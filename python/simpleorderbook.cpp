@@ -49,10 +49,71 @@ public:
   }
 };
 
+
 typedef struct {
   PyObject_HEAD
   PyObject* _sob;
 } pySOB;
+
+
+#define CALLDOWN_FOR_STATE_WITH_TRY_BLOCK(apicall,sobcall) \
+  static PyObject* VOB_ ## sobcall(pySOB* self){ \
+    try{ \
+      NativeLayer::SimpleOrderbook* sob = \
+        (NativeLayer::SimpleOrderbook*)self->_sob; \
+      return apicall( sob->sobcall()); \
+    }catch(std::exception& e){ \
+      PyErr_SetString(PyExc_Exception, e.what()); \
+      return NULL; \
+    } \
+  }
+
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, bid_price )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, ask_price )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, last_price )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, ask_size )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, bid_size )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, last_size )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLongLong, volume )
+
+#define CALLDOWN_TO_DUMP_WITH_TRY_BLOCK(sobcall) \
+  static PyObject* VOB_ ## sobcall(pySOB* self){ \
+    try{ \
+      NativeLayer::SimpleOrderbook* sob = \
+        (NativeLayer::SimpleOrderbook*)self->_sob; \
+      sob->sobcall(); \
+    }catch(std::exception& e){ \
+      PyErr_SetString(PyExc_Exception, e.what()); \
+      return NULL; \
+    } \
+    Py_RETURN_NONE; \
+  }
+
+CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_buy_limits )
+CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_limits )
+CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_buy_stops )
+CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_stops )
+
+#define UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( order ) \
+  static PyObject* \
+  VOB_buy_ ## order(pySOB* self, PyObject* args, PyObject* kwds){ \
+    return VOB_trade_ ## order ## _<true,false>(self,args,kwds); \
+  } \
+  static PyObject* \
+  VOB_sell_ ## order(pySOB* self, PyObject* args, PyObject* kwds){ \
+    return VOB_trade_ ## order ## _<false,false>(self,args,kwds); \
+  } \
+  static PyObject* \
+  VOB_replace_with_buy_ ## order(pySOB* self, PyObject* args, PyObject* kwds){ \
+    return VOB_trade_ ## order ## _<true,true>(self,args,kwds); \
+  } \
+  static PyObject* \
+  VOB_replace_with_sell_ ## order(pySOB* self, PyObject* args, PyObject* kwds){ \
+    return VOB_trade_ ## order ## _<false,true>(self,args,kwds); \
+  }
+
+
+static char okws[][16] = { "id", "stop","limit","size","callback" };
 
 template<typename... Types>
 bool get_order_args(PyObject* args,
@@ -71,7 +132,6 @@ bool get_order_args(PyObject* args,
     PyErr_SetString(PyExc_ValueError, "error parsing args");
     return false;
   }
-
   if(callback){
     rval = PyCallable_Check(*callback);
     if(!rval){
@@ -82,13 +142,10 @@ bool get_order_args(PyObject* args,
   return true;
 }
 
-static char okws[][16] = { "id", "stop","limit","size","callback" };
-
 /*
- * NOTE: the order of args passed into the python call (in *args *kwds)
+ * NOTE: the order of args passed into the python call (*args, *kwds)
  *  is different than what we pass into get_order_args because of varargs...
  */
-
 template<bool BuyNotSell, bool Replace>
 PyObject* VOB_trade_limit_(pySOB* self, PyObject* args, PyObject* kwds)
 {
@@ -134,26 +191,7 @@ PyObject* VOB_trade_limit_(pySOB* self, PyObject* args, PyObject* kwds)
   return PyLong_FromUnsignedLong(id);
 }
 
-static PyObject*
-VOB_buy_limit(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_limit_<true,false>(self,args,kwds);
-}
-static PyObject*
-VOB_sell_limit(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_limit_<false,false>(self,args,kwds);
-}
-static PyObject*
-VOB_replace_with_buy_limit(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_limit_<true,true>(self,args,kwds);
-}
-static PyObject*
-VOB_replace_with_sell_limit(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_limit_<false,true>(self,args,kwds);
-}
+UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( limit )
 
 
 template< bool BuyNotSell, bool Replace >
@@ -199,26 +237,7 @@ PyObject* VOB_trade_market_(pySOB* self, PyObject* args, PyObject* kwds)
   return PyLong_FromUnsignedLong(id);
 }
 
-static PyObject*
-VOB_buy_market(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_market_<true,false>(self,args,kwds);
-}
-static PyObject*
-VOB_sell_market(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_market_<false,false>(self,args,kwds);
-}
-static PyObject*
-VOB_replace_with_buy_market(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_market_<true,true>(self,args,kwds);
-}
-static PyObject*
-VOB_replace_with_sell_market(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_market_<false,true>(self,args,kwds);
-}
+UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( market )
 
 
 template<bool BuyNotSell, bool Replace>
@@ -265,26 +284,7 @@ PyObject* VOB_trade_stop_(pySOB* self,PyObject* args,PyObject* kwds)
   return PyLong_FromUnsignedLong(id);
 }
 
-static PyObject*
-VOB_buy_stop(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_stop_<true,false>(self,args,kwds);
-}
-static PyObject*
-VOB_sell_stop(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_stop_<false,false>(self,args,kwds);
-}
-static PyObject*
-VOB_replace_with_buy_stop(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_stop_<true,true>(self,args,kwds);
-}
-static PyObject*
-VOB_replace_with_sell_stop(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_stop_<false,true>(self,args,kwds);
-}
+UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( stop )
 
 
 template<bool BuyNotSell, bool Replace>
@@ -333,26 +333,7 @@ PyObject* VOB_trade_stop_limit_(pySOB* self, PyObject* args, PyObject* kwds)
   return PyLong_FromUnsignedLong(id);
 }
 
-static PyObject*
-VOB_buy_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_stop_limit_<true,false>(self,args,kwds);
-}
-static PyObject*
-VOB_sell_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_stop_limit_<false,false>(self,args,kwds);
-}
-static PyObject*
-VOB_replace_with_buy_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_stop_limit_<true,true>(self,args,kwds);
-}
-static PyObject*
-VOB_replace_with_sell_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
-{
-  return VOB_trade_stop_limit_<false,true>(self,args,kwds);
-}
+UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( stop_limit )
 
 
 PyObject* VOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
@@ -378,42 +359,6 @@ PyObject* VOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
   return PyBool_FromLong((unsigned long)rval);
 }
 
-#define CALLDOWN_FOR_STATE_WITH_TRY_BLOCK(apicall,sobcall) \
-  static PyObject* VOB_ ## sobcall(pySOB* self){ \
-    try{ \
-      NativeLayer::SimpleOrderbook* sob = \
-        (NativeLayer::SimpleOrderbook*)self->_sob; \
-      return apicall( sob->sobcall()); \
-    }catch(std::exception& e){ \
-      PyErr_SetString(PyExc_Exception, e.what()); \
-      return NULL; \
-    }}
-
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, bid_price )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, ask_price )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, last_price )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, ask_size )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, bid_size )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, last_size )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLongLong, volume )
-
-#define CALLDOWN_TO_DUMP_WITH_TRY_BLOCK(sobcall) \
-  static PyObject* VOB_ ## sobcall(pySOB* self){ \
-    try{ \
-      NativeLayer::SimpleOrderbook* sob = \
-        (NativeLayer::SimpleOrderbook*)self->_sob; \
-      sob->sobcall(); \
-    }catch(std::exception& e){ \
-      PyErr_SetString(PyExc_Exception, e.what()); \
-      return NULL; \
-    } \
-    Py_RETURN_NONE; \
-  }
-
-CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_buy_limits )
-CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_limits )
-CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_buy_stops )
-CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_stops )
 
 static PyObject* VOB_time_and_sales(pySOB* self, PyObject* args)
 {
@@ -455,6 +400,23 @@ static PyObject* VOB_time_and_sales(pySOB* self, PyObject* args)
 
 static PyMethodDef pySOB_methods[] =
 {
+  /* GET STATE */
+  {"bid_price",(PyCFunction)VOB_bid_price, METH_NOARGS, "() -> float"},
+  {"ask_price",(PyCFunction)VOB_ask_price, METH_NOARGS, "() -> float"},
+  {"last_price",(PyCFunction)VOB_last_price, METH_NOARGS, "() -> float"},
+  {"bid_size",(PyCFunction)VOB_bid_size, METH_NOARGS, "() -> int"},
+  {"ask_size",(PyCFunction)VOB_ask_size, METH_NOARGS, "() -> int"},
+  {"last_size",(PyCFunction)VOB_last_size, METH_NOARGS, "() -> int"},
+  {"volume",(PyCFunction)VOB_volume, METH_NOARGS, "() -> int"},
+  /* DUMP */
+  {"dump_buy_limits",(PyCFunction)VOB_dump_buy_limits, METH_NOARGS,
+      "dump (to stdout) all active limit buy orders; () -> void"},
+  {"dump_sell_limits",(PyCFunction)VOB_dump_sell_limits, METH_NOARGS,
+      "dump (to stdout) all active limit sell orders; () -> void"},
+  {"dump_buy_stops",(PyCFunction)VOB_dump_buy_stops, METH_NOARGS,
+      "dump (to stdout) all active buy stop orders; () -> void"},
+  {"dump_sell_stops",(PyCFunction)VOB_dump_sell_stops, METH_NOARGS,
+      "dump (to stdout) all active sell stop orders; () -> void"},
   /* INSERT */
   {"buy_limit",(PyCFunction)VOB_buy_limit, METH_VARARGS | METH_KEYWORDS,
     "buy limit order; (limit, size, callback) -> order ID"},
@@ -504,26 +466,9 @@ static PyMethodDef pySOB_methods[] =
     METH_VARARGS | METH_KEYWORDS, "replace old order with new sell stop limit "
                                   "order; (id, stop, limit, size, callback) "
                                   "-> new order ID"},
-  /* GET STATE/CAHCE VALS */
-  {"bid_price",(PyCFunction)VOB_bid_price, METH_NOARGS, "() -> float"},
-  {"ask_price",(PyCFunction)VOB_ask_price, METH_NOARGS, "() -> float"},
-  {"last_price",(PyCFunction)VOB_last_price, METH_NOARGS, "() -> float"},
-  {"bid_size",(PyCFunction)VOB_bid_size, METH_NOARGS, "() -> int"},
-  {"ask_size",(PyCFunction)VOB_ask_size, METH_NOARGS, "() -> int"},
-  {"last_size",(PyCFunction)VOB_last_size, METH_NOARGS, "() -> int"},
-  {"volume",(PyCFunction)VOB_volume, METH_NOARGS, "() -> int"},
   /* TIME & SALES */
   {"time_and_sales",(PyCFunction)VOB_time_and_sales, METH_VARARGS,
     "(size) -> list of 3-tuples [(int,float,int),(int,float,int),..] "},
-  /* DUMP */
-  {"dump_buy_limits",(PyCFunction)VOB_dump_buy_limits, METH_NOARGS,
-      "dump (to stdout) all active limit buy orders; () -> void"},
-  {"dump_sell_limits",(PyCFunction)VOB_dump_sell_limits, METH_NOARGS,
-      "dump (to stdout) all active limit sell orders; () -> void"},
-  {"dump_buy_stops",(PyCFunction)VOB_dump_buy_stops, METH_NOARGS,
-      "dump (to stdout) all active buy stop orders; () -> void"},
-  {"dump_sell_stops",(PyCFunction)VOB_dump_sell_stops, METH_NOARGS,
-      "dump (to stdout) all active sell stop orders; () -> void"},
   {NULL}
 };
 
