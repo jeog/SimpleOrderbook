@@ -94,6 +94,8 @@ public:
   MarketMaker( const MarketMaker& mm );
   limit_order_type post_bid(price_type price);
   limit_order_type post_ask(price_type price);
+
+
   static void default_callback(id_type id, price_type price, size_type size);
 };
 
@@ -110,7 +112,7 @@ public:
   typedef typename clock_type::time_point                   time_stamp_type;
   typedef std::tuple<time_stamp_type,price_type,size_type>  t_and_s_type;
   typedef std::vector< t_and_s_type >                       time_and_sales_type;
-
+  typedef std::map<price_type,size_type>                    market_depth_type;
 private:
   /*
    * limit bundle type: holds the size and callback of each limit order
@@ -149,7 +151,8 @@ private:
    */
   price_type _incr, _incr_err, _init_price, _last_price,
              _bid_price, _ask_price, _min_price, _max_price,
-             _low_bid_stop, _high_ask_stop;
+             _low_buy_limit, _high_sell_limit,
+             _low_buy_stop, _high_sell_stop;
   size_type _bid_size, _ask_size, _mm_sz_high, _mm_sz_low,
            _lower_range, _full_range, _last_size;
   large_size_type _total_volume, _last_id;
@@ -200,6 +203,15 @@ private:
   price_type _itop(size_type index);
 
   template< typename ChainArrayTy>
+  market_depth_type _market_depth(const ChainArrayTy& array)
+  { /*
+     * calculate chain_size at each price level
+     */
+    ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
+
+  }
+
+  template< typename ChainArrayTy>
   size_type _chain_size(const ChainArrayTy& array, price_type price)
   { /*
      * calculate total volume in the chain
@@ -236,6 +248,46 @@ private:
     }
   }
 
+  template< typename ChainArrayTy>
+  void _check_removed_order(typename ChainArrayTy::element_type* porders,
+                            long long indx)
+  {
+    price_type price;
+
+    ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
+
+    if(!porders->empty())
+      return;
+
+    price = this->_itop(indx);
+    if( std::is_same<ChainArrayTy,limit_array_type>::value)
+    { /* if dealing with limit array */
+      if( (price - this->_ask_price) > -this->_incr_err)
+      {
+        if(price > this->_high_sell_limit)  /*limit sell side */
+          this->_high_sell_limit = price;
+      }
+      else
+      {
+        if(price < this->_low_buy_limit)  /*limit buy side */
+          this->_low_buy_limit = price;
+      }
+    }else{
+      if( (price - this->_ask_price) > -this->_incr_err)
+      {
+        if(price > this->_high_buy_stop)  /*stop buy side */
+          this->_high_buy_stop = price;
+      }else{
+        if(price < this->_low_sell_stop)  /*stop sell side */
+          this->_low_sell_stop = price;
+
+      }
+    }
+
+
+  }
+
+
   template< typename ChainArrayTy >
   bool _remove_order_from_chain_array(ChainArrayTy& ca, id_type id)
   { /*
@@ -250,6 +302,7 @@ private:
       for(typename ChainArrayTy::element_type::value_type& elem : *porders){
         if(elem.first == id){
           porders->erase(id);
+          this->_check_removed_order(porders,i);
           return true;
         }
       }

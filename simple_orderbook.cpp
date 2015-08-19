@@ -124,7 +124,7 @@ void SimpleOrderbook::_look_for_triggered_stops()
 {
   price_type low, high;
 
-  for( low = this->_low_bid_stop ;
+  for( low = this->_low_buy_stop ;
        (this->_last_price - low) > -this->_incr_err ;
        low = this->_align(low + this->_incr))
   { /*
@@ -134,7 +134,7 @@ void SimpleOrderbook::_look_for_triggered_stops()
     this->_handle_triggered_stop_chain(low,false);
   }
 
-  for( high = this->_high_ask_stop ;
+  for( high = this->_high_sell_stop ;
        (this->_last_price - high) < this->_incr_err ;
        high = this->_align(high - this->_incr))
   {  /*
@@ -167,7 +167,7 @@ void SimpleOrderbook::_handle_triggered_stop_chain(price_type price,
     if(ask_side)
       this->_high_ask_stop = this->_align(price - this->_incr);
     else
-      this->_low_bid_stop = this->_align(price + this->_incr);
+      this->_low_buy_stop = this->_align(price + this->_incr);
   }
 
   for(stop_chain_type::value_type& elem : cchain){
@@ -446,6 +446,11 @@ void SimpleOrderbook::_insert_limit_order(bool buy,
       this->_ask_price = limit;
       this->_ask_size = this->_chain_size(this->_ask_limits,limit);
     }
+
+    if(buy && limit < this->_low_buy_limit)
+      this->_low_buy_limit = limit;
+    else if(!buy && limit > this->_high_sell_limit)
+      this->_high_sell_limit = limit;
   }
 
   this->_on_trade_completion();
@@ -502,10 +507,10 @@ void SimpleOrderbook::_insert_stop_order(bool buy,
    *
    * adjust cached values if ncessary; (should we just maintain a pointer ??)
    */
-  if(buy && stop < this->_low_bid_stop)
-    this->_low_bid_stop = stop;
-  else if(!buy && stop > this->_high_ask_stop)
-    this->_high_ask_stop = stop;
+  if(buy && stop < this->_low_buy_stop)
+    this->_low_buy_stop = stop;
+  else if(!buy && stop > this->_high_sell_stop)
+    this->_high_sell_stop = stop;
 
   this->_on_trade_completion();
 }
@@ -526,8 +531,10 @@ SimpleOrderbook::SimpleOrderbook(price_type price,
   _ask_price(2 * price), /* max + 1 incr */
   _min_price(incr),
   _max_price(2 * price - incr),
-  _low_bid_stop(2 * price), /* max + 1 incr */
-  _high_ask_stop(0),        /* min - 1 incr */
+  _low_buy_limit(price),
+  _high_sell_limit(price),
+  _low_buy_stop(2 * price), /* max + 1 incr */
+  _high_sell_stop(0),        /* min - 1 incr */
   _bid_size(0),
   _ask_size(0),
   _mm_sz_high(mm_sz_high),
