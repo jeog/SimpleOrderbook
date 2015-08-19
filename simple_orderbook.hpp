@@ -93,7 +93,6 @@ public:
   static void default_callback(id_type id, price_type price, size_type size);
 };
 
-
 class SimpleOrderbook{
  /*
   * TODO add price and size limits, max increment precision
@@ -129,6 +128,12 @@ private:
   typedef std::map<id_type, stop_bndl_type>                stop_chain_type;
   typedef std::unique_ptr<stop_chain_type[],
                           void(*)(stop_chain_type*)>       stop_array_type;
+
+
+#define ASSERT_VALID_CHAIN_ARRAY(TYPE) \
+    static_assert(std::is_same<TYPE,limit_array_type>::value || \
+                  std::is_same<TYPE,stop_array_type>::value, \
+                  #TYPE " not limit_array_type or stop_array_type")
 
   /*
    * how callback info is stored in the deferred callback queue
@@ -177,10 +182,8 @@ private:
     return price > 0 && price <= this->_max_price;
   }
 
-  inline large_size_type _generate_id()
-  { /* don't worry about overflow */
-    return ++(this->_last_id);
-  }
+  /* don't worry about overflow */
+  inline large_size_type _generate_id(){ return ++(this->_last_id); }
 
   inline price_type _align(price_type price)
   { /* attempt to deal with internal floating point issues */
@@ -193,19 +196,13 @@ private:
   size_type _ptoi(price_type price);
   price_type _itop(size_type index);
 
-  template<typename ChainArrayTy>
-  struct _array_type_check_{
-    static_assert( std::is_same<ChainArrayTy,limit_array_type>::value ||
-                   std::is_same<ChainArrayTy,stop_array_type>::value,
-                   "type not limit_array_type or stop_array_type");
-  };
-
   template< typename ChainArrayTy>
   size_type _chain_size(const ChainArrayTy& array, price_type price)
   { /*
      * calculate total volume in the chain
      */
-    _array_type_check_<ChainArrayTy>();
+    ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
+
     size_type sz = 0;
     for( typename ChainArrayTy::element_type::value_type& e
          : *(this->_find_order_chain(array,price))){
@@ -219,7 +216,8 @@ private:
   { /*
      *dump (to stdout) a particular chain array
      */
-    _array_type_check_<ChainArrayTy>();
+    ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
+
     size_type sz;
     typename ChainArrayTy::element_type* porders;
 
@@ -240,7 +238,8 @@ private:
   { /*
      * remove order from particular chain array, return success boolean
      */
-    _array_type_check_<ChainArrayTy>();
+    ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
+
     typename ChainArrayTy::element_type* porders;
 
     for(long long i = this->_full_range - 1; i >= 0; --i){
@@ -259,7 +258,8 @@ private:
   inline typename ChainArrayTy::element_type*
   _find_order_chain(const ChainArrayTy& array, price_type price)
   { /* get chain ptr by price */
-    _array_type_check_<ChainArrayTy>();
+    ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
+
     return &(array[this->_ptoi(price)]);
   }
 
@@ -382,7 +382,6 @@ public:
   static std::string timestamp_to_str(const time_stamp_type& tp);
 };
 
-
 template<typename T1>
 inline std::string cat(T1 arg1){ return std::string(arg1); }
 template<typename T1, typename... Ts>
@@ -390,6 +389,7 @@ inline std::string cat(T1 arg1, Ts... args)
 {
   return std::string(arg1) + cat(args...);
 }
+
 
 };
 

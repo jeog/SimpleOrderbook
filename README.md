@@ -1,4 +1,4 @@
-SimpleOrderbook is an interactive back-end for handling and matching real-time financial market order-flow. It's currently in early development, has undergone almost no testing, and is currently only intended for animating market models and simulations.
+SimpleOrderbook is an interactive back-end for handling and matching real-time financial market order flow. It's currently in early development, has undergone almost no testing, and is currently only intended for animating market models and simulations.
 
 The core module is implemented as a C++ class, providing a low-level interface. The Python-C API extension module sits on top - wrapping the object - providing its own object-oriented interface.
 
@@ -20,3 +20,9 @@ The core module is implemented as a C++ class, providing a low-level interface. 
 - simple_orderbook.cpp:  the pure C++ module in namespace NativeLayer
 - python/simpleorderbook.cpp:  the Python-C API extension module that sits on top of simple_orderbook.cpp
 - python/setup.py:  the python setup script that builds/installs the extension module (you'll probably have to change the py_... variables to match your own system; see python docs)
+
+#####++ Licensing & Warranty
+
+*SimpleOrderbook is released under the GNU General Public License(GPL); a copy (LICENSE.txt) should be included. If not, see http://www.gnu.org/licenses. The author reserves the right to issue current and/or future versions of SimpleOrderbook under other licensing agreements. Any party that wishes to use SimpleOrderbook, in whole or in part, in any way not explicitly stipulated by the GPL, is thereby required to obtain a separate license from the author. The author reserves all other rights.*
+
+*This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. 
