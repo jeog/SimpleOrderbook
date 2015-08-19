@@ -63,7 +63,6 @@ bool get_order_args(PyObject* args,
                     Types*... varargs )
 {
   int rval;
-
   rval = callback
     ? PyArg_ParseTupleAndKeywords(args, kwds, frmt, kwlist, varargs..., callback)
     : PyArg_ParseTupleAndKeywords(args, kwds, frmt, kwlist, varargs...);
@@ -73,13 +72,13 @@ bool get_order_args(PyObject* args,
     return false;
   }
 
-  rval = PyCallable_Check(*callback);
-
-  if(!rval){
-    PyErr_SetString(PyExc_TypeError,"callback must be callable");
-    return false;
+  if(callback){
+    rval = PyCallable_Check(*callback);
+    if(!rval){
+      PyErr_SetString(PyExc_TypeError,"callback must be callable");
+      return false;
+    }
   }
-
   return true;
 }
 
@@ -379,138 +378,42 @@ PyObject* VOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
   return PyBool_FromLong((unsigned long)rval);
 }
 
-static PyObject* VOB_bid_price(pySOB* self)
-{
-  try{
-    NativeLayer::SimpleOrderbook* sob =
-      (NativeLayer::SimpleOrderbook*)self->_sob;
-    return PyFloat_FromDouble(sob->bid_price());
-  }catch(std::exception& e){
-    PyErr_SetString(PyExc_Exception, e.what());
-    return NULL;
-  }
-}
+#define CALLDOWN_FOR_STATE_WITH_TRY_BLOCK(apicall,sobcall) \
+  static PyObject* VOB_ ## sobcall(pySOB* self){ \
+    try{ \
+      NativeLayer::SimpleOrderbook* sob = \
+        (NativeLayer::SimpleOrderbook*)self->_sob; \
+      return apicall( sob->sobcall()); \
+    }catch(std::exception& e){ \
+      PyErr_SetString(PyExc_Exception, e.what()); \
+      return NULL; \
+    }}
 
-static PyObject* VOB_ask_price(pySOB* self)
-{
-  try{
-    NativeLayer::SimpleOrderbook* sob =
-      (NativeLayer::SimpleOrderbook*)self->_sob;
-    return PyFloat_FromDouble(sob->ask_price());
-  }catch(std::exception& e){
-    PyErr_SetString(PyExc_Exception, e.what());
-    return NULL;
-  }
-}
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, bid_price )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, ask_price )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, last_price )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, ask_size )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, bid_size )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, last_size )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLongLong, volume )
 
-static PyObject* VOB_last_price(pySOB* self)
-{
-  try{
-    NativeLayer::SimpleOrderbook* sob =
-      (NativeLayer::SimpleOrderbook*)self->_sob;
-    return PyFloat_FromDouble(sob->last_price());
-  }catch(std::exception& e){
-    PyErr_SetString(PyExc_Exception, e.what());
-    return NULL;
+#define CALLDOWN_TO_DUMP_WITH_TRY_BLOCK(sobcall) \
+  static PyObject* VOB_ ## sobcall(pySOB* self){ \
+    try{ \
+      NativeLayer::SimpleOrderbook* sob = \
+        (NativeLayer::SimpleOrderbook*)self->_sob; \
+      sob->sobcall(); \
+    }catch(std::exception& e){ \
+      PyErr_SetString(PyExc_Exception, e.what()); \
+      return NULL; \
+    } \
+    Py_RETURN_NONE; \
   }
-}
 
-static PyObject* VOB_bid_size(pySOB* self)
-{
-  try{
-    NativeLayer::SimpleOrderbook* sob =
-      (NativeLayer::SimpleOrderbook*)self->_sob;
-    return PyLong_FromUnsignedLong(sob->bid_size());
-  }catch(std::exception& e){
-    PyErr_SetString(PyExc_Exception, e.what());
-    return NULL;
-  }
-}
-
-static PyObject* VOB_ask_size(pySOB* self)
-{
-  try{
-    NativeLayer::SimpleOrderbook* sob =
-      (NativeLayer::SimpleOrderbook*)self->_sob;
-    return PyLong_FromUnsignedLong(sob->ask_size());
-  }catch(std::exception& e){
-    PyErr_SetString(PyExc_Exception, e.what());
-    return NULL;
-  }
-}
-
-static PyObject* VOB_last_size(pySOB* self)
-{
-  try{
-    NativeLayer::SimpleOrderbook* sob =
-      (NativeLayer::SimpleOrderbook*)self->_sob;
-    return PyLong_FromUnsignedLong(sob->last_size());
-  }catch(std::exception& e){
-    PyErr_SetString(PyExc_Exception, e.what());
-    return NULL;
-  }
-}
-
-static PyObject* VOB_volume(pySOB* self)
-{
-  try{
-    NativeLayer::SimpleOrderbook* sob =
-      (NativeLayer::SimpleOrderbook*)self->_sob;
-    return PyLong_FromUnsignedLongLong(sob->volume());
-  }catch(std::exception& e){
-    PyErr_SetString(PyExc_Exception, e.what());
-    return NULL;
-  }
-}
-
-static PyObject* VOB_dump_buy_limits(pySOB* self)
-{
-  try{
-    NativeLayer::SimpleOrderbook* sob =
-      (NativeLayer::SimpleOrderbook*)self->_sob;
-    sob->dump_buy_limits();
-  }catch(std::exception& e){
-    PyErr_SetString(PyExc_Exception, e.what());
-    return NULL;
-  }
-  Py_RETURN_NONE;
-}
-static PyObject* VOB_dump_sell_limits(pySOB* self)
-{
-  try{
-    NativeLayer::SimpleOrderbook* sob =
-      (NativeLayer::SimpleOrderbook*)self->_sob;
-    sob->dump_sell_limits();
-  }catch(std::exception& e){
-    PyErr_SetString(PyExc_Exception, e.what());
-    return NULL;
-  }
-  Py_RETURN_NONE;
-}
-static PyObject* VOB_dump_buy_stops(pySOB* self)
-{
-  try{
-    NativeLayer::SimpleOrderbook* sob =
-      (NativeLayer::SimpleOrderbook*)self->_sob;
-    sob->dump_buy_stops();
-  }catch(std::exception& e){
-    PyErr_SetString(PyExc_Exception, e.what());
-    return NULL;
-  }
-  Py_RETURN_NONE;
-}
-static PyObject* VOB_dump_sell_stops(pySOB* self)
-{
-  try{
-    NativeLayer::SimpleOrderbook* sob =
-      (NativeLayer::SimpleOrderbook*)self->_sob;
-    sob->dump_sell_stops();
-  }catch(std::exception& e){
-    PyErr_SetString(PyExc_Exception, e.what());
-    return NULL;
-  }
-  Py_RETURN_NONE;
-}
+CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_buy_limits )
+CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_limits )
+CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_buy_stops )
+CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_stops )
 
 static PyObject* VOB_time_and_sales(pySOB* self, PyObject* args)
 {

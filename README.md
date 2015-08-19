@@ -19,4 +19,4 @@ The core module is implemented as a C++ class, providing a low-level interface. 
 - simple_orderbook.hpp:  the (only) header for both modules
 - simple_orderbook.cpp:  the pure C++ module in namespace NativeLayer
 - python/simpleorderbook.cpp:  the Python-C API extension module that sits on top of simple_orderbook.cpp
-- python/setup.py:  the python setup script that builds/install the extension module(you'll probably have to change the py_... variables to match your own system(see python docs)
+- python/setup.py:  the python setup script that builds/installs the extension module (you'll probably have to change the py_... variables to match your own system; see python docs)
