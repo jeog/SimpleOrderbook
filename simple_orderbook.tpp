@@ -307,14 +307,14 @@ void SimpleOrderbook::_init(size_type levels_from_init, size_type end_from_init)
     for(size_type i = aanchor - levels_from_init;
         i < aanchor -end_from_init;
         ++i){
-      order = elem.post_bid(this->_ptrtop(i));
+      order = elem.post_bid(this->_itop(i));
       this->insert_limit_order(true, order.first, order.second,
                                &MarketMaker::default_callback);
     }
     for(size_type i = aanchor + end_from_init;
         i < aanchor + levels_from_init;
         ++i){
-      order = elem.post_bid(this->_ptrtop(i));
+      order = elem.post_bid(this->_itop(i));
       this->insert_limit_order(false, order.first, order.second,
                                &MarketMaker::default_callback);
     }
@@ -423,11 +423,10 @@ void SimpleOrderbook::_insert_stop_order(bool buy,
   this->_on_trade_completion();
 }
 */
-template< typename StartRatio, typename IncrementRatio>
-typename SimpleOrderbook<StartRatio,IncrementRatio>::chain_pair_type*
-SimpleOrderbook<StartRatio,IncrementRatio>::_ptoptr(price_type price)
+SOB_TEMPLATE
+typename SOB_CLASS::plevel SOB_CLASS::_ptoi(price_type price)
 {
-  chain_pair_type* plev;
+  plevel plev;
 
   plev = this->_min_plevel + (safe_uint_type)round(price / incr)-1;
 
@@ -440,8 +439,8 @@ SimpleOrderbook<StartRatio,IncrementRatio>::_ptoptr(price_type price)
   return plev;
 }
 
-template< typename StartRatio, typename IncrementRatio>
-price_type SimpleOrderbook<StartRatio,IncrementRatio>::_ptrtop(chain_pair_type* plev)
+SOB_TEMPLATE 
+price_type SOB_CLASS::_itop(plevel plev)
 {
   price_type price;
 
@@ -456,16 +455,16 @@ price_type SimpleOrderbook<StartRatio,IncrementRatio>::_ptrtop(chain_pair_type* 
   return floor(price*rounder) / rounder; 
 }
 
-template< typename StartRatio, typename IncrementRatio>
-SimpleOrderbook<StartRatio,IncrementRatio>::SimpleOrderbook(std::vector<MarketMaker>& mms)
+SOB_TEMPLATE 
+SOB_CLASS::SimpleOrderbook(std::vector<MarketMaker>& mms)
   :
   _bid_size(0),
   _ask_size(0),
-  _last_size(0),
-  _book( new chain_pair_type[total_increments], [](chain_pair_type* a){ delete[] a; }),
-  _min_plevel( _book.get() ),
-  _max_plevel( _book.get() + total_increments),
-  _last_plevel( _book.get() + lower_increments),
+  _last_size(0), 
+  _book(), 
+  _min_plevel( _book.begin() ),
+  _max_plevel( _book.end()),
+  _last_plevel( _book.begin() + lower_increments), 
   _bid_plevel( this->_min_plevel ),
   _ask_plevel( this->_max_plevel ),
   _low_buy_limit_plevel( this->_last_plevel ),
@@ -486,16 +485,17 @@ SimpleOrderbook<StartRatio,IncrementRatio>::SimpleOrderbook(std::vector<MarketMa
     std::cout<< "+ SimpleOrderbook Created\n";
   }
 
-template< typename StartRatio,typename IncrementRatio>
-SimpleOrderbook<StartRatio,IncrementRatio>::~SimpleOrderbook()
+SOB_TEMPLATE 
+SOB_CLASS::~SimpleOrderbook()
 {
   std::cout<< "- SimpleOrderbook Destroyed\n";
 }
 /*
-id_type SimpleOrderbook::insert_limit_order(bool buy,
-                                            price_type limit,
-                                            size_type size,
-                                            fill_callback_type callback)
+SOB_TEMPLATE
+id_type SOB_CLASS::insert_limit_order(bool buy,
+                                      price_type limit,
+                                      size_type size,
+                                      fill_callback_type callback)
 {
   id_type id;
 
@@ -511,8 +511,8 @@ id_type SimpleOrderbook::insert_limit_order(bool buy,
   this->_insert_limit_order(buy,limit,size,callback,id);
   return id;
 }
-
-
+*/
+/*
 id_type SimpleOrderbook::insert_market_order(bool buy,
                                              size_type size,
                                              fill_callback_type callback)

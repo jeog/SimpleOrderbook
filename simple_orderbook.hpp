@@ -36,6 +36,7 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <ctime>
 #include <string>
 #include <ratio>
+#include <array>
 
 namespace NativeLayer{
 
@@ -100,6 +101,9 @@ public:
   static void default_callback(id_type id, price_type price, size_type size);
 };
 
+#define SOB_TEMPLATE template< typename StartRatio, typename IncrementRatio>
+#define SOB_CLASS SimpleOrderbook<StartRatio,IncrementRatio>
+
 template< typename StartRatio = std::ratio<50,1>,
           typename IncrementRatio = std::ratio<1,100>  >
 class SimpleOrderbook{
@@ -121,30 +125,30 @@ public:
 
 private:
 
-  typedef std::ratio<1,100>  minimum_ratio;
-  typedef std::ratio<1,1> one;
-
-  typedef std::ratio_subtract< std::ratio_divide<StartRatio,IncrementRatio>,
-                      one> lower_increments_ratio;
-
+  typedef std::ratio<1,1>                               one_r;
+  typedef std::ratio<1,100>                             minimum_increment_r;
+  typedef std::ratio_divide<StartRatio,IncrementRatio>  raw_increments_r;
+  typedef std::ratio_subtract<raw_increments_r,one_r>   lower_increments_r;
   typedef std::ratio_subtract<StartRatio,
-                             std::ratio_multiply<lower_increments_ratio,
-                                                IncrementRatio>>  base_ratio;
+          std::ratio_multiply<lower_increments_r,IncrementRatio>>   base_r;
 
-  static constexpr size_type lower_increments =
-    floor(lower_increments_ratio::num / lower_increments_ratio::den);
-
+  static constexpr size_type lower_increments = floor(lower_increments_r::num /
+                                                      lower_increments_r::den);
   static constexpr size_type total_increments = lower_increments * 2 + 1;
   static constexpr size_type minimum_increments = 100;
 
-  static_assert( !std::ratio_less<IncrementRatio,minimum_ratio>::value,
-                 "IncrementRatio to can not be less than 1/1000 " );
+  static_assert(!std::ratio_less<IncrementRatio,minimum_increment_r>::value,
+                "IncrementRatio to can not be less than 1/1000 " );
+
   static_assert(total_increments >= minimum_increments, "not enough increments");
 
   const price_type incr = (price_type)IncrementRatio::num / IncrementRatio::den;
-  const price_type base = (price_type)base_ratio::num / (base_ratio::den);
+  const price_type base = (price_type)base_r::num / (base_r::den);
   const price_type rounder = std::max<price_type>((price_type)1/incr, 1);
 
+  /* how callback info is stored in the deferred callback queue */
+  typedef std::tuple<fill_callback_type,fill_callback_type,
+                     id_type, id_type, price_type,size_type>  dfrd_cb_elem_type;
   /*
    * limit bundle type: holds the size and callback of each limit order
    * limit 'chain' type: holds all limit orders at a price
@@ -162,19 +166,14 @@ private:
    */
 
 public: /* DEBUG */
-  typedef std::pair<limit_chain_type,stop_chain_type>  *plevel, chain_pair_type ;
-private:
+  typedef std::pair<limit_chain_type,stop_chain_type>   chain_pair_type ;
   /*
-   * chain array is an array of all chain pairs
+   *  an array of all chain pairs
    */
-  typedef std::unique_ptr<chain_pair_type[],
-                          void(*)(chain_pair_type*)>      order_book_type;
+  typedef std::array<chain_pair_type,total_increments>   order_book_type;
+  typedef typename order_book_type::iterator             plevel;
 
-  /*
-   * how callback info is stored in the deferred callback queue
-   */
-  typedef std::tuple<fill_callback_type,fill_callback_type,
-                     id_type, id_type, price_type,size_type>  dfrd_cb_elem_type;
+private:
 
   /* state fields */
   size_type _bid_size, _ask_size, _last_size;
@@ -182,12 +181,12 @@ private:
   /* THE ORDER BOOK */
   order_book_type _book;
 
+  /* cached internal pointers(iterators) of the orderbook */
   plevel _min_plevel, _max_plevel, _last_plevel, _bid_plevel, _ask_plevel,
-         _low_buy_limit_plevel, _high_sell_limit_plevel,
-         _low_buy_stop_plevel, _high_sell_stop_plevel;
+  _low_buy_limit_plevel, _high_sell_limit_plevel,
+  _low_buy_stop_plevel, _high_sell_stop_plevel;
 
   large_size_type _total_volume, _last_id;
-
 
   /* autonomous market makers */
   std::vector<MarketMaker > _market_makers;
@@ -198,20 +197,16 @@ private:
   /* store deferred callback info until we are clear to execute */
   std::queue<dfrd_cb_elem_type> _deferred_callback_queue;
 
-  /*
-   * time & sales
-   */
+  /* time & sales */
   std::vector< t_and_s_type > _t_and_s;
   size_type _t_and_s_max_sz;
   bool _t_and_s_full;
 
-  /*
-   * user input checks
-   *//*
+  /* user input checks */
   inline bool _check_order_size(size_type sz){ return sz > 0; }
   inline bool _check_order_price(price_type price)
   {
-    return price > 0 && price <= this->_max_plevel;
+    return this->_ptoi(price) <= this->_max_plevel;
   }
 
   /* don't worry about overflow */
@@ -219,15 +214,15 @@ private:
 
   inline price_type _align(price_type price)
   { /* attempt to deal with internal floating point issues */
-    return this->_ptrtop(this->_ptoptr(price));
+    return this->_itop(this->_ptoi(price));
   }
 
   /*
    * price-to-index and index-to-price utilities
    */
 public:
-  chain_pair_type* _ptoptr(price_type price);
-  price_type _ptrtop(chain_pair_type* plev);
+  plevel _ptoi(price_type price);
+  price_type _itop(plevel plev);
 private:
 
 /*
@@ -269,7 +264,7 @@ private:
       porders = &(ca[i]);
       sz = porders->size();
       if(sz)
-        std::cout<< this->_ptrtop(i);
+        std::cout<< this->_itop(i);
       for(typename ChainArrayTy::element_type::value_type& elem : *porders)
         std::cout<< " <" << elem.second.first << "> ";
       if(sz)
@@ -306,7 +301,7 @@ private:
      *//*
     ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
 
-    return &(array[this->_ptoptr(price)]);
+    return &(array[this->_ptoi(price)]);
   }
 
   /*
