@@ -19,6 +19,8 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <structmember.h>
 #include "../simple_orderbook.hpp"
 
+#ifdef DEBUG_IGNORE
+
 class CallbackWrapper{
   PyObject* _callback;
 
@@ -578,4 +580,4 @@ PyMODINIT_FUNC PyInit_simpleorderbook(void)
 
   return mod;
 }
-
+#endif

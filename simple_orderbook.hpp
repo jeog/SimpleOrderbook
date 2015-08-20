@@ -35,16 +35,18 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <chrono>
 #include <ctime>
 #include <string>
+#include <ratio>
 
 namespace NativeLayer{
 
-class SimpleOrderbook;
+//template< typename IncrementRatio = std::ratio<1,100>>
+//class SimpleOrderbook;
 
 typedef float               price_type;
 typedef double              price_diff_type;
 typedef unsigned long       size_type, id_type;
 typedef long long           size_diff_type;
-typedef unsigned long long  large_size_type;
+typedef unsigned long long  large_size_type, safe_uint_type;
 
 typedef std::pair<price_type,size_type>         limit_order_type;
 typedef std::pair<price_type,limit_order_type>  stop_order_type;
@@ -74,6 +76,7 @@ public:
     }
 };
 
+
 class MarketMaker{
  /*
   * an object that provides customizable orderflow from asymmetric market info
@@ -85,60 +88,87 @@ class MarketMaker{
 
   std::default_random_engine _rand_engine;
   std::uniform_int_distribution<size_type> _distr;
-  const SimpleOrderbook& _my_vob;
 
   static const clock_type::time_point seedtp;
 
 public:
-  MarketMaker( size_type sz_low, size_type sz_high, const SimpleOrderbook& vob);
+  MarketMaker( size_type sz_low, size_type sz_high );
   MarketMaker( const MarketMaker& mm );
   limit_order_type post_bid(price_type price);
   limit_order_type post_ask(price_type price);
 
-
   static void default_callback(id_type id, price_type price, size_type size);
 };
 
+template< typename StartRatio = std::ratio<50,1>,
+          typename IncrementRatio = std::ratio<1,100>  >
 class SimpleOrderbook{
  /*
   * TODO add price and size limits, max increment precision
   * TODO add 'this' consts where appropriate
   * TODO decide on consistent bid/ask, buy/sell, offer syntax
-  * TODO cache high/low orders in book to avoid checking entire thing
+  * TODO cache high/low limit orders in book to avoid checking entire thing
+  * TODO adjust cached high/low stop/limit orders on execution AND pull/remove
   * TOOD review how we copy/move/PY_INCREF callbacks
   * TODO tighten up timestamp/t&s
+  * TODO use ratio to handle floats
   */
 public:
   typedef typename clock_type::time_point                   time_stamp_type;
   typedef std::tuple<time_stamp_type,price_type,size_type>  t_and_s_type;
   typedef std::vector< t_and_s_type >                       time_and_sales_type;
   typedef std::map<price_type,size_type>                    market_depth_type;
+
 private:
+
+  typedef std::ratio<1,100>  minimum_ratio;
+  typedef std::ratio<1,1> one;
+
+  typedef std::ratio_subtract< std::ratio_divide<StartRatio,IncrementRatio>,
+                      one> lower_increments_ratio;
+
+  typedef std::ratio_subtract<StartRatio,
+                             std::ratio_multiply<lower_increments_ratio,
+                                                IncrementRatio>>  base_ratio;
+
+  static constexpr size_type lower_increments =
+    floor(lower_increments_ratio::num / lower_increments_ratio::den);
+
+  static constexpr size_type total_increments = lower_increments * 2 + 1;
+  static constexpr size_type minimum_increments = 100;
+
+  static_assert( !std::ratio_less<IncrementRatio,minimum_ratio>::value,
+                 "IncrementRatio to can not be less than 1/1000 " );
+  static_assert(total_increments >= minimum_increments, "not enough increments");
+
+  const price_type incr = (price_type)IncrementRatio::num / IncrementRatio::den;
+  const price_type base = (price_type)base_ratio::num / (base_ratio::den);
+  const price_type rounder = std::max<price_type>((price_type)1/incr, 1);
+
   /*
    * limit bundle type: holds the size and callback of each limit order
    * limit 'chain' type: holds all limit orders at a price
-   * limit array type: holds all the limit order chains
    */
-  typedef std::pair<size_type, fill_callback_type>     limit_bndl_type;
-  typedef std::map<id_type, limit_bndl_type>           limit_chain_type;
-  typedef std::unique_ptr<limit_chain_type[],
-                          void(*)(limit_chain_type*)>  limit_array_type;
+  typedef std::pair<size_type, fill_callback_type>         limit_bndl_type;
+  typedef std::map<id_type, limit_bndl_type>               limit_chain_type;
   /*
    * stop bundle type: holds the size and callback of each stop order
    * stop 'chain' type: holds all stop orders at a price(stop-limit/stop-market)
-   *   if price_type in stop_bndl_type is <=0 its a market order
-   * stop array type: holds all the limit order chains
    */
   typedef std::pair<limit_order_type, fill_callback_type>  stop_bndl_type;
   typedef std::map<id_type, stop_bndl_type>                stop_chain_type;
-  typedef std::unique_ptr<stop_chain_type[],
-                          void(*)(stop_chain_type*)>       stop_array_type;
+  /*
+   * chain pair is the limit and stop chain at a particular price
+   */
 
-
-#define ASSERT_VALID_CHAIN_ARRAY(TYPE) \
-    static_assert(std::is_same<TYPE,limit_array_type>::value || \
-                  std::is_same<TYPE,stop_array_type>::value, \
-                  #TYPE " not limit_array_type or stop_array_type")
+public: /* DEBUG */
+  typedef std::pair<limit_chain_type,stop_chain_type>  *plevel, chain_pair_type ;
+private:
+  /*
+   * chain array is an array of all chain pairs
+   */
+  typedef std::unique_ptr<chain_pair_type[],
+                          void(*)(chain_pair_type*)>      order_book_type;
 
   /*
    * how callback info is stored in the deferred callback queue
@@ -146,25 +176,21 @@ private:
   typedef std::tuple<fill_callback_type,fill_callback_type,
                      id_type, id_type, price_type,size_type>  dfrd_cb_elem_type;
 
-  /*
-   * state fields
-   */
-  price_type _incr, _incr_err, _init_price, _last_price,
-             _bid_price, _ask_price, _min_price, _max_price,
-             _low_buy_limit, _high_sell_limit,
-             _low_buy_stop, _high_sell_stop;
-  size_type _bid_size, _ask_size, _mm_sz_high, _mm_sz_low,
-           _lower_range, _full_range, _last_size;
+  /* state fields */
+  size_type _bid_size, _ask_size, _last_size;
+
+  /* THE ORDER BOOK */
+  order_book_type _book;
+
+  plevel _min_plevel, _max_plevel, _last_plevel, _bid_plevel, _ask_plevel,
+         _low_buy_limit_plevel, _high_sell_limit_plevel,
+         _low_buy_stop_plevel, _high_sell_stop_plevel;
+
   large_size_type _total_volume, _last_id;
 
-  /*
-   * order arrays
-   */
-  limit_array_type _bid_limits, _ask_limits;
-  stop_array_type _bid_stops, _ask_stops;
 
   /* autonomous market makers */
-  std::vector<MarketMaker> _market_makers;
+  std::vector<MarketMaker > _market_makers;
 
   /* trade has occurred but we've deferred 'handling' it */
   bool _is_dirty;
@@ -181,11 +207,11 @@ private:
 
   /*
    * user input checks
-   */
+   *//*
   inline bool _check_order_size(size_type sz){ return sz > 0; }
   inline bool _check_order_price(price_type price)
   {
-    return price > 0 && price <= this->_max_price;
+    return price > 0 && price <= this->_max_plevel;
   }
 
   /* don't worry about overflow */
@@ -193,29 +219,32 @@ private:
 
   inline price_type _align(price_type price)
   { /* attempt to deal with internal floating point issues */
-    return this->_itop(this->_ptoi(price));
+    return this->_ptrtop(this->_ptoptr(price));
   }
 
   /*
    * price-to-index and index-to-price utilities
    */
-  size_type _ptoi(price_type price);
-  price_type _itop(size_type index);
+public:
+  chain_pair_type* _ptoptr(price_type price);
+  price_type _ptrtop(chain_pair_type* plev);
+private:
 
+/*
   template< typename ChainArrayTy>
   market_depth_type _market_depth(const ChainArrayTy& array)
   { /*
      * calculate chain_size at each price level
-     */
+     *//*
     ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
-
+    return market_depth_type();
   }
 
   template< typename ChainArrayTy>
   size_type _chain_size(const ChainArrayTy& array, price_type price)
   { /*
      * calculate total volume in the chain
-     */
+     *//*
     ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
 
     size_type sz = 0;
@@ -230,7 +259,7 @@ private:
   void _dump_chain_array(ChainArrayTy& ca)
   { /*
      *dump (to stdout) a particular chain array
-     */
+     *//*
     ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
 
     size_type sz;
@@ -240,7 +269,7 @@ private:
       porders = &(ca[i]);
       sz = porders->size();
       if(sz)
-        std::cout<< this->_itop(i);
+        std::cout<< this->_ptrtop(i);
       for(typename ChainArrayTy::element_type::value_type& elem : *porders)
         std::cout<< " <" << elem.second.first << "> ";
       if(sz)
@@ -248,51 +277,11 @@ private:
     }
   }
 
-  template< typename ChainArrayTy>
-  void _check_removed_order(typename ChainArrayTy::element_type* porders,
-                            long long indx)
-  {
-    price_type price;
-
-    ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
-
-    if(!porders->empty())
-      return;
-
-    price = this->_itop(indx);
-    if( std::is_same<ChainArrayTy,limit_array_type>::value)
-    { /* if dealing with limit array */
-      if( (price - this->_ask_price) > -this->_incr_err)
-      {
-        if(price > this->_high_sell_limit)  /*limit sell side */
-          this->_high_sell_limit = price;
-      }
-      else
-      {
-        if(price < this->_low_buy_limit)  /*limit buy side */
-          this->_low_buy_limit = price;
-      }
-    }else{
-      if( (price - this->_ask_price) > -this->_incr_err)
-      {
-        if(price > this->_high_buy_stop)  /*stop buy side */
-          this->_high_buy_stop = price;
-      }else{
-        if(price < this->_low_sell_stop)  /*stop sell side */
-          this->_low_sell_stop = price;
-
-      }
-    }
-
-
-  }
-
-
   template< typename ChainArrayTy >
   bool _remove_order_from_chain_array(ChainArrayTy& ca, id_type id)
   { /*
      * remove order from particular chain array, return success boolean
-     */
+     *//*
     ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
 
     typename ChainArrayTy::element_type* porders;
@@ -302,7 +291,6 @@ private:
       for(typename ChainArrayTy::element_type::value_type& elem : *porders){
         if(elem.first == id){
           porders->erase(id);
-          this->_check_removed_order(porders,i);
           return true;
         }
       }
@@ -315,10 +303,10 @@ private:
   _find_order_chain(const ChainArrayTy& array, price_type price)
   { /*
      * get chain ptr by price
-     */
+     *//*
     ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
 
-    return &(array[this->_ptoi(price)]);
+    return &(array[this->_ptoptr(price)]);
   }
 
   /*
@@ -364,17 +352,15 @@ private:
   /***************************************************
    *** RESTRICT COPY / MOVE / ASSIGN ... (for now) ***
    **************************************************/
-  SimpleOrderbook(const SimpleOrderbook& vob);
-  SimpleOrderbook(SimpleOrderbook&& vob);
-  SimpleOrderbook& operator==(const SimpleOrderbook& vob);
+  SimpleOrderbook(const SimpleOrderbook& sob);
+  SimpleOrderbook(SimpleOrderbook&& sob);
+  SimpleOrderbook& operator==(const SimpleOrderbook& sob);
   /***************************************************
    *** RESTRICT COPY / MOVE / ASSIGN ... (for now) ***
    **************************************************/
 
 public:
-  SimpleOrderbook(price_type price, price_type incr, size_type mm_num,
-                   size_type mm_sz_low, size_type mm_sz_high,
-                   size_type mm_init_levels);
+  SimpleOrderbook(std::vector<MarketMaker>& mms);
 
   ~SimpleOrderbook();
 
@@ -403,7 +389,7 @@ public:
                                   fill_callback_type callback);
   /*
    * PUBLIC INTERFACE FOR DUMPING A 'CHAIN_ARRAY' (part of the orderbook)
-   */
+   *//*
   inline void dump_buy_limits(){ this->_dump_chain_array(this->_bid_limits); }
   inline void dump_sell_limits(){ this->_dump_chain_array(this->_ask_limits); }
   inline void dump_buy_stops(){ this->_dump_chain_array(this->_bid_stops); }
@@ -411,10 +397,10 @@ public:
 
   /*
    * PUBLIC INTERFACE FOR RETRIEVING BASIC MARKET INFO
-   */
-  inline price_type bid_price(){ return this->_align(this->_bid_price); }
-  inline price_type ask_price(){ return this->_align(this->_ask_price); }
-  inline price_type last_price(){ return this->_align(this->_last_price); }
+   *//*
+  inline price_type bid_price(){ return this->_align(this->_bid_plevel); }
+  inline price_type ask_price(){ return this->_align(this->_ask_plevel); }
+  inline price_type last_price(){ return this->_align(this->_last_plevel); }
   inline size_type bid_size(){ return this->_bid_size; }
   inline size_type ask_size(){ return this->_ask_size; }
   inline size_type last_size(){ return this->_last_size; }
@@ -438,7 +424,8 @@ inline std::string cat(T1 arg1, Ts... args)
   return std::string(arg1) + cat(args...);
 }
 
-
 };
+
+#include "simple_orderbook.tpp"
 
 #endif
