@@ -1,8 +1,9 @@
 namespace NativeLayer{
 
 
-/*
-void SimpleOrderbook::_on_trade_completion()
+
+SOB_TEMPLATE
+void SOB_CLASS::_on_trade_completion()
 {
   if(this->_is_dirty){
     this->_is_dirty = false;
@@ -16,30 +17,32 @@ void SimpleOrderbook::_on_trade_completion()
   }
 }
 
-void SimpleOrderbook::_trade_has_occured(price_type price,
-                                          size_type size,
-                                          id_type id_buyer,
-                                          id_type id_seller,
-                                          fill_callback_type& cb_buyer,
-                                          fill_callback_type& cb_seller,
-                                          bool took_offer)
+SOB_TEMPLATE
+void SOB_CLASS::_trade_has_occured(plevel plev,
+                                 size_type size,
+                                 id_type idbuy,
+                                 id_type idsell,
+                                 fill_callback_type& cbbuy,
+                                 fill_callback_type& cbsell,
+                                 bool took_offer)
 {/*
   * CAREFUL: we can't insert orders from here since we have yet to finish
   * processing the initial order (possible infinite loop);
   *
   * adjust state and use _on_trade_completion() method for earliest insert
-  *//*
+  */
   this->_deferred_callback_queue.push(
-    dfrd_cb_elem_type(cb_buyer, cb_seller, id_buyer, id_seller, price, size));
+    dfrd_cb_elem_type(cbbuy, cbsell, idbuy, idsell, this->_itop(plev), size));
 
   if(this->_t_and_s_full)
     this->_t_and_s.pop_back();
   else if(this->_t_and_s.size() >= (this->_t_and_s_max_sz - 1))
     this->_t_and_s_full = true;
 
-  this->_t_and_s.push_back(t_and_s_type(clock_type::now(),price,size));
+  this->_t_and_s.push_back(
+    t_and_s_type(clock_type::now(),this->_itop(plev),size));
 
-  this->_last_plevel = price;
+  this->_last = plev;
   this->_total_volume += size;
   this->_last_size = size;
   this->_is_dirty = true;
@@ -56,71 +59,58 @@ void SimpleOrderbook::_trade_has_occured(price_type price,
  *** The other possibility is FIFO irrespective of price              ***
  ************************************************************************
  ************************************************************************
- *//*
+ */
 
-void SimpleOrderbook::_look_for_triggered_stops()
-{
-  price_type low, high;
+SOB_TEMPLATE
+void SOB_CLASS::_look_for_triggered_stops()
+{ /* 
+   * we don't check against max/min, because of the cached high/lows 
+   */
+  plevel low, high;
 
-  for( low = this->_low_buy_stop_plevel ;
-       (this->_last_plevel - low) > -this->_incr_err ;
-       low = this->_align(low + this->_incr))
-  { /*
-     * low >= lowest stop order with error allowance
-     * we don't check against max/min, because of the cached high/lows
-     *//*
-    this->_handle_triggered_stop_chain(low,false);
-  }
+  for(low = this->_low_buy_stop ; low < this->_last ; ++low)    
+    this->_handle_triggered_stop_chain(low,false); 
 
-  for( high = this->_high_sell_stop_plevel ;
-       (this->_last_plevel - high) < this->_incr_err ;
-       high = this->_align(high - this->_incr))
-  {  /*
-     * high <= lowest stop order with error allowance
-     * we don't check against max/min, because of the cached high/lows
-     *//*
-    this->_handle_triggered_stop_chain(high,true);
-  }
+  for(high = this->_high_sell_stop ; high > this->_last ; --high)
+    this->_handle_triggered_stop_chain(high,true);  
 }
 
-void SimpleOrderbook::_handle_triggered_stop_chain(price_type price,
-                                                    bool ask_side)
+SOB_TEMPLATE
+void SOB_CLASS::_handle_triggered_stop_chain(plevel plev, bool ask_side)
 {
-  stop_chain_type *pchain, cchain;
-  price_type limit;
-
-  pchain = this->_find_order_chain(ask_side ? this->_ask_stops
-                                            : this->_bid_stops, price);
+  stop_chain_type cchain;
+  price_type limit;  
   /*
    * need to copy the relevant chain, delete original, THEN insert
    * if not we can hit the same order more than once / go into infinite loop
-   *//*
-  cchain = stop_chain_type(*pchain);
-  pchain->clear();
+   */
+  cchain = stop_chain_type(plev->second);
+  plev->second.clear();
 
   if(!cchain.empty()){
    /*
     * need to do this before we potentially recurse into new orders
-    *//*
+    */
     if(ask_side)
-      this->_high_sell_stop_plevel = this->_align(price - this->_incr);
+      this->_high_sell_stop = plev - 1;
     else
-      this->_low_buy_stop_plevel = this->_align(price + this->_incr);
+      this->_low_buy_stop = plev + 1;
   }
 
-  for(stop_chain_type::value_type& elem : cchain){
-    limit = elem.second.first.first;
+  for(stop_chain_type::value_type& e : cchain){
+    limit = std::get<1>(e.second).first;
    /*
     * note below we are calling the private versions of _insert,
     * so we can use the old order id as the new one; this allows caller
     * to maintain control via the same order id
-    *//*
+    */
     if(limit > 0)
-      this->_insert_limit_order(!ask_side, limit, elem.second.first.second,
-                                 elem.second.second, elem.first);
-    else
-      this->_insert_market_order(!ask_side, elem.second.first.second,
-                                 elem.second.second, elem.first);
+      this->_insert_limit_order(!ask_side, this->_ptoi(limit), 
+                                 std::get<1>(e.second).second, 
+                                 std::get<2>(e.second), e.first);
+  //  else
+ //     this->_insert_market_order(!ask_side, elem.second.first.second,
+  //                               elem.second.second, elem.first);
   }
 }
 
@@ -135,86 +125,80 @@ void SimpleOrderbook::_handle_triggered_stop_chain(price_type price,
  *** 2) Code is quite kludgy and overwritten, needs to be cleaned-up      ***
  ****************************************************************************
  ****************************************************************************
- *//*
-
-size_type SimpleOrderbook::_lift_offers(price_type price,
-                                       id_type id,
-                                       size_type size,
-                                       fill_callback_type& callback)
+ */
+SOB_TEMPLATE 
+size_type SOB_CLASS::_lift_offers(plevel plev,
+                                  id_type id,
+                                  size_type size,
+                                  fill_callback_type& callback)
 {
-  limit_chain_type *piask, *pmax;
   limit_chain_type::iterator del_iter;
   size_type amount, for_sale;
-  price_type inside_price;
+  plevel inside;
 
   bool tflag = false;
   long rmndr = 0;
-  inside_price = this->_ask_plevel;
-  piask = nullptr;
+  inside = this->_ask;  
+         
+  while( (inside < plev || !plev) 
+         && size > 0       
+         && (inside <= this->_end) )
+  {     
+    del_iter = inside->first.begin();
 
-         /* price >= inside_price (or <= 0) with error allowance *//*
-  while( ((price - inside_price) > -this->_incr_err || price <= 0)
-         && size > 0
-         /* inside_price <= max_price with error allowance *//*
-         && (inside_price - this->_max_plevel) < this->_incr_err )
-  {
-    piask = this->_find_order_chain(this->_ask_limits,inside_price);
-    del_iter = piask->begin();
-
-    for(limit_chain_type::value_type& elem : *piask){
+    for(limit_chain_type::value_type& elem : inside->first){
       /* check each order , FIFO, for that price level
-       * if here we must fill something *//*
+       * if here we must fill something */
       for_sale = elem.second.first;
       rmndr = size - for_sale;
       amount = std::min(size,for_sale);
-      this->_trade_has_occured(inside_price, amount, id, elem.first,
+      this->_trade_has_occured(inside, amount, id, elem.first,
                                callback, elem.second.second, true);
       tflag = true;
-      /* reduce the amount left to trade *//*
+      /* reduce the amount left to trade */
       size -= amount;
       /* if we don't need all adjust the outstanding order size,
-       * otherwise indicate order should be removed from the maping *//*
+       * otherwise indicate order should be removed from the maping */
       if(rmndr < 0)
         elem.second.first -= amount;
       else
         ++del_iter;
-      /* if we have nothing left, break early *//*
+      /* if we have nothing left, break early */
       if(size <= 0)
         break;
     }
-    piask->erase(piask->begin(),del_iter);
+    inside->first.erase(inside->first.begin(),del_iter);
 
-    try{
-      /* incase a market order runs the whole array, past max *//*
-      inside_price = this->_align(inside_price + this->_incr);
-    }catch(std::range_error& e){
-      this->_ask_plevel = inside_price;
-      this->_ask_size = this->_chain_size(this->_ask_limits, this->_ask_plevel);
+    try{ /* incase a market order runs the whole array, past max */
+      ++inside;
+    }catch(std::exception& e){
+      this->_ask = inside;
+      this->_ask_size = this->_chain_size(&(this->_ask->first));
       break;
     }
 
-    if(piask->empty())
-      this->_ask_plevel = inside_price;
+    if(inside->first.empty())
+      this->_ask = inside;
 
     if(tflag){
       tflag = false;
-      this->_ask_size = this->_chain_size(this->_ask_limits, this->_ask_plevel);
+      this->_ask_size = this->_chain_size(&(this->_ask->first));
     }
+    
   }
-  /* if we finish on an empty chain look for one that isn't *//*
-  if(piask && piask->empty())
-  {
-    for( ++piask, pmax = &(this->_ask_limits[this->_full_range-1]) ;
-         piask->empty() && piask < pmax ;
-         ++piask)
-    {
-      inside_price = this->_align(inside_price + this->_incr);
+  /* if we finish on an empty chain look for one that isn't */
+  if(inside->first.empty()){ 
+    for( ; inside->first.empty() && inside < this->_end; 
+        ++inside)
+    {      
     }
-    this->_ask_plevel = inside_price;
-    this->_ask_size = this->_chain_size(this->_ask_limits, this->_ask_plevel);
+    --inside; // <- make sure we get back in the range !
+    this->_ask = inside;
+    this->_ask_size = this->_chain_size((&inside->first));
   }
-  return size; /* what we couldn't fill *//*
+  return size; /* what we couldn't fill */
 }
+/*
 
 size_type SimpleOrderbook::_hit_bids(price_type price,
                                      id_type id,
@@ -228,59 +212,59 @@ size_type SimpleOrderbook::_hit_bids(price_type price,
 
   bool tflag = false;
   long rmndr = 0;
-  inside_price = this->_bid_plevel;
+  inside_price = this->_bid;
   pibid = nullptr;
 
-         /* price <= inside_price (or <= 0) with error allowance *//*
+          price <= inside_price (or <= 0) with error allowance 
   while( ((price - inside_price) < this->_incr_err || price <= 0)
          && size > 0
-         /* inside_price >= max_price with error allowance *//*
-         && (inside_price - this->_min_plevel) > -this->_incr_err )
+          inside_price >= max_price with error allowance 
+         && (inside_price - this->_beg) > -this->_incr_err )
   {
     pibid = this->_find_order_chain(this->_bid_limits,inside_price);
     del_iter = pibid->begin();
 
     for(limit_chain_type::value_type& elem : *pibid){
-      /* check each order , FIFO, for that price level
-       * if here we must fill something *//*
+       check each order , FIFO, for that price level
+       * if here we must fill something 
       for_bid = elem.second.first;
       rmndr = size - for_bid;
       amount = std::min(size,for_bid);
       this->_trade_has_occured(inside_price, amount, elem.first, id,
                                elem.second.second, callback, false);
       tflag = true;
-      /* reduce the amount left to trade *//*
+       reduce the amount left to trade 
       size -= amount;
-      /* if we don't need all adjust the outstanding order size,
-       * otherwise indicate order should be removed from the maping *//*
+       if we don't need all adjust the outstanding order size,
+       * otherwise indicate order should be removed from the maping 
       if(rmndr < 0)
         elem.second.first -= amount;
       else
         ++del_iter;
-      /* if we have nothing left, break early *//*
+       if we have nothing left, break early 
       if(size <= 0)
         break;
     }
     pibid->erase(pibid->begin(),del_iter);
 
     try{
-      /* in case a market order runs the whole array, past min*//*
+       in case a market order runs the whole array, past min/
       inside_price = this->_align(inside_price - this->_incr);
     }catch(std::range_error& e){
-      this->_bid_plevel = inside_price;
-      this->_bid_size = this->_chain_size(this->_bid_limits, this->_bid_plevel);
+      this->_bid = inside_price;
+      this->_bid_size = this->_chain_size(this->_bid_limits, this->_bid);
       break;
     }
 
     if(pibid->empty())
-      this->_bid_plevel = inside_price;
+      this->_bid = inside_price;
 
     if(tflag){
       tflag = false;
-      this->_bid_size = this->_chain_size(this->_bid_limits, this->_bid_plevel);
+      this->_bid_size = this->_chain_size(this->_bid_limits, this->_bid);
     }
   }
-  /* if we finish on an empty chain look for one that isn't *//*
+   if we finish on an empty chain look for one that isn't 
   if(pibid && pibid->empty())
   {
     for( --pibid, pmin = &(this->_bid_limits[0]) ;
@@ -289,18 +273,19 @@ size_type SimpleOrderbook::_hit_bids(price_type price,
     {
       inside_price = this->_align(inside_price - this->_incr);
     }
-    this->_bid_plevel = inside_price;
-    this->_bid_size = this->_chain_size(this->_bid_limits, this->_bid_plevel);
+    this->_bid = inside_price;
+    this->_bid_size = this->_chain_size(this->_bid_limits, this->_bid);
   }
-  return size; /* what we couldn't fill *//*
+  return size;  what we couldn't fill 
 }
+*/
 
-
+/*
 void SimpleOrderbook::_init(size_type levels_from_init, size_type end_from_init)
 {
   /* (crudely, for the time being,) initialize market makers *//*
   limit_order_type order;
-  size_type aanchor = this->_last_plevel / this->_incr - 1;
+  size_type aanchor = this->_last / this->_incr - 1;
 
   for(MarketMaker& elem : this->_market_makers)
   {
@@ -320,51 +305,51 @@ void SimpleOrderbook::_init(size_type levels_from_init, size_type end_from_init)
     }
   }
 }
-
-void SimpleOrderbook::_insert_limit_order(bool buy,
-                                          price_type limit,
-                                          size_type size,
-                                          fill_callback_type callback,
-                                          id_type id)
+*/
+SOB_TEMPLATE
+void SOB_CLASS::_insert_limit_order(bool buy,
+                                    plevel limit,
+                                    size_type size,
+                                    fill_callback_type callback,
+                                    id_type id)
 {
-  size_type rmndr = size;
-  const limit_array_type& la = buy ? this->_bid_limits : this->_ask_limits;
+  size_type rmndr = size; 
   /*
    * first look if there are matching orders on the offer side
    * pass ref to callback functor, we'll copy later if necessary
-   *//*
-  if(buy && limit >= this->_ask_plevel)
+   */
+  if(buy && limit >= this->_ask)
     rmndr = this->_lift_offers(limit,id,size,callback);
-  else if(!buy && limit <= this->_bid_plevel)
-    rmndr = this->_hit_bids(limit,id,size,callback);
+//  else if(!buy && limit <= this->_bid)
+ //   rmndr = this->_hit_bids(plev,id,size,callback);
 
   /*
    * then add what remains to bid side; copy callback functor, needs to persist
-   *//*
+   */
   if(rmndr > 0){
-    limit_chain_type* orders = this->_find_order_chain(la, limit);
+    limit_chain_type* orders = &limit->first;
 
     limit_bndl_type bndl = limit_bndl_type(rmndr,callback);
     orders->insert(limit_chain_type::value_type(id,std::move(bndl)));
 
-    if(buy && limit >= this->_bid_plevel){
-      this->_bid_plevel = limit;
-      this->_bid_size = this->_chain_size(this->_bid_limits,limit);
-    }else if(!buy && limit <= this->_ask_plevel){
-      this->_ask_plevel = limit;
-      this->_ask_size = this->_chain_size(this->_ask_limits,limit);
+    if(buy && limit >= this->_bid){
+      this->_bid = limit;
+      this->_bid_size = this->_chain_size(orders);
+    }else if(!buy && limit <= this->_ask){
+      this->_ask = limit;
+      this->_ask_size = this->_chain_size(orders);
     }
 
-    if(buy && limit < this->_low_buy_limit_plevel)
-      this->_low_buy_limit_plevel = limit;
-    else if(!buy && limit > this->_high_sell_limit_plevel)
-      this->_high_sell_limit_plevel = limit;
+    if(buy && limit < this->_low_buy_limit)
+      this->_low_buy_limit = limit;
+    else if(!buy && limit > this->_high_sell_limit)
+      this->_high_sell_limit = limit;
   }
 
   this->_on_trade_completion();
 }
 
-
+/*
 void SimpleOrderbook::_insert_market_order(bool buy,
                                            size_type size,
                                            fill_callback_type callback,
@@ -415,10 +400,10 @@ void SimpleOrderbook::_insert_stop_order(bool buy,
    *
    * adjust cached values if ncessary; (should we just maintain a pointer ??)
    *//*
-  if(buy && stop < this->_low_buy_stop_plevel)
-    this->_low_buy_stop_plevel = stop;
-  else if(!buy && stop > this->_high_sell_stop_plevel)
-    this->_high_sell_stop_plevel = stop;
+  if(buy && stop < this->_low_buy_stop)
+    this->_low_buy_stop = stop;
+  else if(!buy && stop > this->_high_sell_stop)
+    this->_high_sell_stop = stop;
 
   this->_on_trade_completion();
 }
@@ -427,14 +412,16 @@ SOB_TEMPLATE
 typename SOB_CLASS::plevel SOB_CLASS::_ptoi(price_type price)
 {
   plevel plev;
+  price_type incr_offset;
 
-  plev = this->_min_plevel + (safe_uint_type)round(price / incr)-1;
+  incr_offset = price / ((price_type)incr_r::num/incr_r::den);
+  plev = this->_beg + (size_type)round(incr_offset)-1;
 
-  if(plev < this->_min_plevel)
-    throw std::range_error( "chain_pair_type* < _min_plevel" );
+  if(plev < this->_beg)
+    throw std::range_error( "chain_pair_type* < _beg" );
 
-  if(plev >= this->_max_plevel )
-    throw std::range_error( "chain_pair_type* >= _max_plevel" );
+  if(plev >= this->_end )
+    throw std::range_error( "plevel >= _end" );
 
   return plev;
 }
@@ -442,17 +429,20 @@ typename SOB_CLASS::plevel SOB_CLASS::_ptoi(price_type price)
 SOB_TEMPLATE 
 price_type SOB_CLASS::_itop(plevel plev)
 {
-  price_type price;
+  price_type price, incr_offset;
+  long long offset;
 
-  if(plev < this->_min_plevel)
-    throw std::range_error( "chain_pair_type* < _min_plevel" );
+  if(plev < this->_beg)
+    throw std::range_error( "plevel < _beg" );
 
-  if(plev >= this->_max_plevel )
-    throw std::range_error( "chain_pair_type* >= _max_plevel" );
+  if(plev >= this->_end )
+    throw std::range_error( "plevel >= _end" );
 
-  price = (plev - this->_min_plevel) * incr + base;
+  offset = plev - this->_beg;
+  incr_offset = offset * (price_type)incr_r::num / incr_r::den;
+  price = (incr_offset*base_r::den + base_r::num) / base_r::den;
 
-  return floor(price*rounder) / rounder; 
+  return price; //floor(price*incr_denom) / incr_denom; 
 }
 
 SOB_TEMPLATE 
@@ -462,15 +452,15 @@ SOB_CLASS::SimpleOrderbook(std::vector<MarketMaker>& mms)
   _ask_size(0),
   _last_size(0), 
   _book(), 
-  _min_plevel( _book.begin() ),
-  _max_plevel( _book.end()),
-  _last_plevel( _book.begin() + lower_increments), 
-  _bid_plevel( this->_min_plevel ),
-  _ask_plevel( this->_max_plevel ),
-  _low_buy_limit_plevel( this->_last_plevel ),
-  _high_sell_limit_plevel( this->_last_plevel ),
-  _low_buy_stop_plevel( this->_max_plevel ),
-  _high_sell_stop_plevel(  this->_min_plevel ),
+  _beg( _book.begin() ),
+  _end( _book.end()), /* note: half-open range */
+  _last( _book.begin() + lower_increments), 
+  _bid( this->_beg ),
+  _ask( this->_end ),
+  _low_buy_limit( this->_last ),
+  _high_sell_limit( this->_last ),
+  _low_buy_stop( this->_end ),
+  _high_sell_stop(  this->_beg ),
   _total_volume(0),
   _last_id(0),
   _market_makers( mms ), /* do we want to copy,borrow or steal?? */
@@ -490,7 +480,7 @@ SOB_CLASS::~SimpleOrderbook()
 {
   std::cout<< "- SimpleOrderbook Destroyed\n";
 }
-/*
+
 SOB_TEMPLATE
 id_type SOB_CLASS::insert_limit_order(bool buy,
                                       price_type limit,
@@ -498,6 +488,7 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
                                       fill_callback_type callback)
 {
   id_type id;
+  plevel plev;
 
   if(!this->_check_order_price(limit))
     throw invalid_order("invalid order price");
@@ -505,13 +496,13 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
   if(!this->_check_order_size(size))
     throw invalid_order("invalid order size");
 
-  limit = this->_align( limit );
   id = this->_generate_id();
+  plev = this->_ptoi(limit);
 
-  this->_insert_limit_order(buy,limit,size,callback,id);
+  this->_insert_limit_order(buy,plev,size,callback,id);
   return id;
 }
-*/
+
 /*
 id_type SimpleOrderbook::insert_market_order(bool buy,
                                              size_type size,
@@ -618,9 +609,8 @@ id_type SimpleOrderbook::replace_with_stop_order(id_type id,
 */
 
 
-template< typename StartRatio, typename IncrementRatio>
-std::string SimpleOrderbook<StartRatio,IncrementRatio>::timestamp_to_str(
-          const SimpleOrderbook<StartRatio,IncrementRatio>::time_stamp_type& tp)
+SOB_TEMPLATE
+std::string SOB_CLASS::timestamp_to_str(const SOB_CLASS::time_stamp_type& tp)
 {
   std::time_t t = clock_type::to_time_t(tp);
   std::string ts = std::ctime(&t);

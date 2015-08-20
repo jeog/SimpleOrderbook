@@ -101,11 +101,10 @@ public:
   static void default_callback(id_type id, price_type price, size_type size);
 };
 
-#define SOB_TEMPLATE template< typename StartRatio, typename IncrementRatio>
-#define SOB_CLASS SimpleOrderbook<StartRatio,IncrementRatio>
+#define SOB_TEMPLATE template< size_type StartPrice, size_type DecimalPlaces>
+#define SOB_CLASS SimpleOrderbook<StartPrice,DecimalPlaces>
 
-template< typename StartRatio = std::ratio<50,1>,
-          typename IncrementRatio = std::ratio<1,100>  >
+template<size_type StartPrice = 50, size_type DecimalPlaces = 3>
 class SimpleOrderbook{
  /*
   * TODO add price and size limits, max increment precision
@@ -125,26 +124,27 @@ public:
 
 private:
 
-  typedef std::ratio<1,1>                               one_r;
-  typedef std::ratio<1,100>                             minimum_increment_r;
-  typedef std::ratio_divide<StartRatio,IncrementRatio>  raw_increments_r;
-  typedef std::ratio_subtract<raw_increments_r,one_r>   lower_increments_r;
-  typedef std::ratio_subtract<StartRatio,
-          std::ratio_multiply<lower_increments_r,IncrementRatio>>   base_r;
+  static_assert(DecimalPlaces > 0, "DecimalPlaces must be > 0" );
+  static_assert(DecimalPlaces < 5, "DecimalPlaces must be < 5" );
 
-  static constexpr size_type lower_increments = floor(lower_increments_r::num /
-                                                      lower_increments_r::den);
+  /* generate our lower price/increment values via ratio math */
+  typedef std::ratio<1,(size_type)pow(10,DecimalPlaces)>      incr_r;
+  typedef std::ratio<StartPrice,1>                            start_r;
+  typedef std::ratio_divide<start_r,incr_r>                   raw_incrs_r;
+  typedef std::ratio_subtract<raw_incrs_r,std::ratio<1,1>>    low_incrs_r;
+  typedef std::ratio_subtract<start_r,
+          std::ratio_multiply<low_incrs_r,incr_r>>            base_r;
+
+  /* transalte into scalar values */
+  static constexpr size_type lower_increments = floor(low_incrs_r::num /
+                                                      low_incrs_r::den);
   static constexpr size_type total_increments = lower_increments * 2 + 1;
   static constexpr size_type minimum_increments = 100;
+  static constexpr size_type maximum_increments = 40000; // 3.84MB
 
-  static_assert(!std::ratio_less<IncrementRatio,minimum_increment_r>::value,
-                "IncrementRatio to can not be less than 1/1000 " );
-
+  /* check size; stack allocation issues if too large */
   static_assert(total_increments >= minimum_increments, "not enough increments");
-
-  const price_type incr = (price_type)IncrementRatio::num / IncrementRatio::den;
-  const price_type base = (price_type)base_r::num / (base_r::den);
-  const price_type rounder = std::max<price_type>((price_type)1/incr, 1);
+  static_assert(total_increments <= maximum_increments, "too many increments");
 
   /* how callback info is stored in the deferred callback queue */
   typedef std::tuple<fill_callback_type,fill_callback_type,
@@ -159,8 +159,8 @@ private:
    * stop bundle type: holds the size and callback of each stop order
    * stop 'chain' type: holds all stop orders at a price(stop-limit/stop-market)
    */
-  typedef std::pair<limit_order_type, fill_callback_type>  stop_bndl_type;
-  typedef std::map<id_type, stop_bndl_type>                stop_chain_type;
+  typedef std::tuple<bool,limit_order_type, fill_callback_type>  stop_bndl_type;
+  typedef std::map<id_type, stop_bndl_type>                     stop_chain_type;
   /*
    * chain pair is the limit and stop chain at a particular price
    */
@@ -182,9 +182,8 @@ private:
   order_book_type _book;
 
   /* cached internal pointers(iterators) of the orderbook */
-  plevel _min_plevel, _max_plevel, _last_plevel, _bid_plevel, _ask_plevel,
-  _low_buy_limit_plevel, _high_sell_limit_plevel,
-  _low_buy_stop_plevel, _high_sell_stop_plevel;
+  plevel _beg, _end, _last, _bid, _ask, _low_buy_limit, _high_sell_limit,
+        _low_buy_stop, _high_sell_stop;
 
   large_size_type _total_volume, _last_id;
 
@@ -206,16 +205,11 @@ private:
   inline bool _check_order_size(size_type sz){ return sz > 0; }
   inline bool _check_order_price(price_type price)
   {
-    return this->_ptoi(price) <= this->_max_plevel;
+    return this->_ptoi(price) <= this->_end;
   }
 
   /* don't worry about overflow */
   inline large_size_type _generate_id(){ return ++(this->_last_id); }
-
-  inline price_type _align(price_type price)
-  { /* attempt to deal with internal floating point issues */
-    return this->_itop(this->_ptoi(price));
-  }
 
   /*
    * price-to-index and index-to-price utilities
@@ -225,6 +219,10 @@ public:
   price_type _itop(plevel plev);
 private:
 
+#define ASSERT_VALID_CHAIN(TYPE) \
+    static_assert(std::is_same<TYPE,limit_chain_type>::value || \
+                  std::is_same<TYPE,stop_chain_type>::value, \
+                  #TYPE " not limit_chain_type or stop_chain_type")
 /*
   template< typename ChainArrayTy>
   market_depth_type _market_depth(const ChainArrayTy& array)
@@ -234,44 +232,36 @@ private:
     ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
     return market_depth_type();
   }
-
-  template< typename ChainArrayTy>
-  size_type _chain_size(const ChainArrayTy& array, price_type price)
-  { /*
-     * calculate total volume in the chain
-     *//*
-    ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
+*/
+  template< typename ChainTy>
+  size_type _chain_size(ChainTy* chain)
+  { /* calculate total volume in the chain */
+    ASSERT_VALID_CHAIN(ChainTy);
 
     size_type sz = 0;
-    for( typename ChainArrayTy::element_type::value_type& e
-         : *(this->_find_order_chain(array,price))){
+    for(typename ChainTy::value_type& e : *chain)
       sz += e.second.first;
-    }
     return sz;
   }
 
-  template< typename ChainArrayTy >
-  void _dump_chain_array(ChainArrayTy& ca)
-  { /*
-     *dump (to stdout) a particular chain array
-     *//*
-    ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
+  template< bool BuyNotSell >
+  void _dump_limits()
+  { /* dump (to stdout) a particular chain array (TODO optimize for cache vals) */
+    plevel beg,end;
 
-    size_type sz;
-    typename ChainArrayTy::element_type* porders;
-
-    for(long long i = this->_full_range - 1; i >= 0; --i){
-      porders = &(ca[i]);
-      sz = porders->size();
-      if(sz)
-        std::cout<< this->_itop(i);
-      for(typename ChainArrayTy::element_type::value_type& elem : *porders)
-        std::cout<< " <" << elem.second.first << "> ";
-      if(sz)
+    beg = BuyNotSell ? this->_bid : this->_end;
+    end = BuyNotSell ? this->_beg : this->_ask;
+    for(; beg >= end; --beg)
+    {
+      if(!beg->first.empty()){
+        std::cout<< this->_itop(beg);
+        for(typename limit_chain_type::value_type& e : beg->first)
+          std::cout<< " <" << e.second.first << "> ";
         std::cout<< std::endl;
+      }
     }
   }
-
+/*
   template< typename ChainArrayTy >
   bool _remove_order_from_chain_array(ChainArrayTy& ca, id_type id)
   { /*
@@ -293,41 +283,30 @@ private:
     return false;
   }
 
-  template<typename ChainArrayTy>
-  inline typename ChainArrayTy::element_type*
-  _find_order_chain(const ChainArrayTy& array, price_type price)
-  { /*
-     * get chain ptr by price
-     *//*
-    ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
-
-    return &(array[this->_ptoi(price)]);
-  }
-
   /*
    * handle post-trade tasks
    */
   void _on_trade_completion();
   void _look_for_triggered_stops();
-  void _handle_triggered_stop_chain(price_type price,bool ask_side);
+  void _handle_triggered_stop_chain(plevel plev,bool ask_side);
 
   /*
    * execute if orders match
    */
-  size_type _lift_offers(price_type price, id_type id, size_type size,
+  size_type _lift_offers(plevel plev, id_type id, size_type size,
                          fill_callback_type& callback);
   size_type _hit_bids(price_type price, id_type id, size_type size,
                       fill_callback_type& callback);
   /*
    * signal trade has occurred(admin only, DONT INSERT NEW TRADES FROM HERE!)
    */
-  void _trade_has_occured(price_type price, size_type size, id_type id_buyer,
-                          id_type id_seller, fill_callback_type& cb_buyer,
-                          fill_callback_type& cb_seller, bool took_offer);
+  void _trade_has_occured(plevel plev, size_type size, id_type idbuy,
+                          id_type idsell, fill_callback_type& cbbuy,
+                          fill_callback_type& cbsell, bool took_offer);
   /*
    * internal insert orders once/if we have an id
    */
-  void _insert_limit_order(bool buy, price_type limit, size_type size,
+  void _insert_limit_order(bool buy, plevel limit, size_type size,
                             fill_callback_type callback, id_type id);
 
   void _insert_market_order(bool buy, size_type size,
@@ -384,18 +363,19 @@ public:
                                   fill_callback_type callback);
   /*
    * PUBLIC INTERFACE FOR DUMPING A 'CHAIN_ARRAY' (part of the orderbook)
-   *//*
-  inline void dump_buy_limits(){ this->_dump_chain_array(this->_bid_limits); }
-  inline void dump_sell_limits(){ this->_dump_chain_array(this->_ask_limits); }
+   */
+  inline void dump_buy_limits(){ this->_dump_limits<true>(); }
+  inline void dump_sell_limits(){ this->_dump_limits<false>(); }
+  /*
   inline void dump_buy_stops(){ this->_dump_chain_array(this->_bid_stops); }
   inline void dump_sell_stops(){ this->_dump_chain_array(this->_ask_stops); }
 
   /*
    * PUBLIC INTERFACE FOR RETRIEVING BASIC MARKET INFO
    *//*
-  inline price_type bid_price(){ return this->_align(this->_bid_plevel); }
-  inline price_type ask_price(){ return this->_align(this->_ask_plevel); }
-  inline price_type last_price(){ return this->_align(this->_last_plevel); }
+  inline price_type bid_price(){ return this->_align(this->_bid); }
+  inline price_type ask_price(){ return this->_align(this->_ask); }
+  inline price_type last_price(){ return this->_align(this->_last); }
   inline size_type bid_size(){ return this->_bid_size; }
   inline size_type ask_size(){ return this->_ask_size; }
   inline size_type last_size(){ return this->_last_size; }
