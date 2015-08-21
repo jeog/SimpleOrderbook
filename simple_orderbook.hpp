@@ -237,8 +237,8 @@ private:
   size_type _chain_size(ChainTy* chain)
   { /* calculate total volume in the chain */
     ASSERT_VALID_CHAIN(ChainTy);
-
     size_type sz = 0;
+    /* THIS HAS NO WAY OF KNOWING IF WE"RE PAST _end */
     for(typename ChainTy::value_type& e : *chain)
       sz += e.second.first;
     return sz;
@@ -249,7 +249,7 @@ private:
   { /* dump (to stdout) a particular chain array (TODO optimize for cache vals) */
     plevel beg,end;
 
-    beg = BuyNotSell ? this->_bid : this->_end;
+    beg = BuyNotSell ? this->_bid : this->_end - 1;
     end = BuyNotSell ? this->_beg : this->_ask;
     for(; beg >= end; --beg)
     {
@@ -295,7 +295,7 @@ private:
    */
   size_type _lift_offers(plevel plev, id_type id, size_type size,
                          fill_callback_type& callback);
-  size_type _hit_bids(price_type price, id_type id, size_type size,
+  size_type _hit_bids(plevel plev, id_type id, size_type size,
                       fill_callback_type& callback);
   /*
    * signal trade has occurred(admin only, DONT INSERT NEW TRADES FROM HERE!)
@@ -312,10 +312,10 @@ private:
   void _insert_market_order(bool buy, size_type size,
                              fill_callback_type callback, id_type id);
 
-  void _insert_stop_order(bool buy, price_type stop, size_type size,
+  void _insert_stop_order(bool buy, plevel stop, size_type size,
                            fill_callback_type callback, id_type id);
 
-  void _insert_stop_order(bool buy, price_type stop, price_type limit,
+  void _insert_stop_order(bool buy, plevel stop, plevel limit,
                            size_type size, fill_callback_type callback,
                            id_type id);
   /*
