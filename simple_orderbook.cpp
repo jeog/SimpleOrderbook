@@ -27,7 +27,8 @@ MarketMaker::MarketMaker(size_type sz_low, size_type sz_high)
   _sz_high(sz_high),
   _rand_engine( (clock_type::now() - MarketMaker::seedtp).count() *
                 (unsigned long long)this % std::numeric_limits<long>::max()),
-  _distr(sz_low, sz_high)
+  _distr(sz_low, sz_high),
+  _orderbook(nullptr)
     {
     }
 
@@ -38,16 +39,15 @@ MarketMaker::MarketMaker(const MarketMaker& mm)
   _sz_high(mm._sz_high),
   _rand_engine( (clock_type::now() - MarketMaker::seedtp).count() *
                 (unsigned long long)this % std::numeric_limits<long>::max()),
-  _distr(mm._sz_low, mm._sz_high)
+  _distr(mm._sz_low, mm._sz_high),
+  _orderbook(nullptr)
     {
     }
-
 
 limit_order_type MarketMaker::post_bid(price_type price)
 {
   return limit_order_type(price, this->_distr(this->_rand_engine));
 }
-
 
 limit_order_type MarketMaker::post_ask(price_type price)
 {

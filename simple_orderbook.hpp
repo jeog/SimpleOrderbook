@@ -77,6 +77,45 @@ public:
     }
 };
 
+class SimpleOrderbookI{
+protected:
+  SimpleOrderbookI()
+    {
+    }
+public:
+  ~SimpleOrderbookI()
+    {
+    }
+  virtual id_type insert_limit_order(bool buy, price_type limit, size_type size,
+                                    fill_callback_type callback) = 0;
+  virtual id_type insert_market_order(bool buy, size_type size,
+                                    fill_callback_type callback) = 0;
+  virtual id_type insert_stop_order(bool buy, price_type stop, size_type size,
+                                    fill_callback_type callback) = 0;
+  virtual id_type insert_stop_order(bool buy, price_type stop, price_type limit,
+                                    size_type size,
+                                    fill_callback_type callback) = 0;
+
+  virtual bool pull_order(id_type id) = 0;
+
+  virtual id_type replace_with_limit_order(id_type id, bool buy, price_type limit,
+                                           size_type size,
+                                           fill_callback_type callback) = 0;
+  virtual id_type replace_with_market_order(id_type id, bool buy, size_type size,
+                                            fill_callback_type callback) = 0;
+  virtual id_type replace_with_stop_order(id_type id, bool buy, price_type stop,
+                                          size_type size,
+                                          fill_callback_type callback) = 0;
+  virtual id_type replace_with_stop_order(id_type id, bool buy, price_type stop,
+                                          price_type limit, size_type size,
+                                          fill_callback_type callback) = 0;
+
+  virtual price_type bid_price() const = 0;
+  virtual price_type ask_price() const = 0;
+  virtual price_type last_price() const = 0;
+  virtual size_type bid_size() const = 0;
+  virtual size_type ask_size() const = 0;
+};
 
 class MarketMaker{
  /*
@@ -86,6 +125,7 @@ class MarketMaker{
   * SimpleOrderbook calls on post_bid/post_ask
   */
   size_type _sz_low, _sz_high;
+  const SimpleOrderbookI* _orderbook;
 
   std::default_random_engine _rand_engine;
   std::uniform_int_distribution<size_type> _distr;
@@ -95,26 +135,33 @@ class MarketMaker{
 public:
   MarketMaker( size_type sz_low, size_type sz_high );
   MarketMaker( const MarketMaker& mm );
+
+  void initialize(const SimpleOrderbookI* orderbook)
+  {
+    this->_orderbook = orderbook;
+
+  }
+
   limit_order_type post_bid(price_type price);
   limit_order_type post_ask(price_type price);
 
   static void default_callback(id_type id, price_type price, size_type size);
 };
 
+
+
 #define SOB_TEMPLATE template< size_type StartPrice, size_type DecimalPlaces>
 #define SOB_CLASS SimpleOrderbook<StartPrice,DecimalPlaces>
 
 template<size_type StartPrice = 50, size_type DecimalPlaces = 3>
-class SimpleOrderbook{
+class SimpleOrderbook : SimpleOrderbookI {
  /*
-  * TODO add price and size limits, max increment precision
   * TODO add 'this' consts where appropriate
-  * TODO decide on consistent bid/ask, buy/sell, offer syntax
   * TODO cache high/low limit orders in book to avoid checking entire thing
   * TODO adjust cached high/low stop/limit orders on execution AND pull/remove
-  * TOOD review how we copy/move/PY_INCREF callbacks
-  * TODO tighten up timestamp/t&s
-  * TODO use ratio to handle floats
+  * TODO review how we copy/move/PY_INCREF callbacks
+  * TODO callback for remove/pull , time-to-live orders
+  * TODO optimize dump and pull calls for cache limits(i.e don't search the whole array)
   */
 public:
   typedef typename clock_type::time_point                   time_stamp_type;
@@ -158,9 +205,10 @@ private:
   /*
    * stop bundle type: holds the size and callback of each stop order
    * stop 'chain' type: holds all stop orders at a price(stop-limit/stop-market)
+   * void* to avoid circular typedef of plevel
    */
-  typedef std::tuple<bool,limit_order_type, fill_callback_type>  stop_bndl_type;
-  typedef std::map<id_type, stop_bndl_type>                     stop_chain_type;
+  typedef std::tuple<bool,void*,size_type,fill_callback_type>  stop_bndl_type;
+  typedef std::map<id_type, stop_bndl_type>                    stop_chain_type;
   /*
    * chain pair is the limit and stop chain at a particular price
    */
@@ -214,10 +262,8 @@ private:
   /*
    * price-to-index and index-to-price utilities
    */
-public:
-  plevel _ptoi(price_type price);
-  price_type _itop(plevel plev);
-private:
+  plevel _ptoi(price_type price) const;
+  price_type _itop(plevel plev) const;
 
 #define ASSERT_VALID_CHAIN(TYPE) \
     static_assert(std::is_same<TYPE,limit_chain_type>::value || \
@@ -260,27 +306,6 @@ private:
         std::cout<< std::endl;
       }
     }
-  }
-/*
-  template< typename ChainArrayTy >
-  bool _remove_order_from_chain_array(ChainArrayTy& ca, id_type id)
-  { /*
-     * remove order from particular chain array, return success boolean
-     *//*
-    ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
-
-    typename ChainArrayTy::element_type* porders;
-
-    for(long long i = this->_full_range - 1; i >= 0; --i){
-      porders = &(ca[i]);
-      for(typename ChainArrayTy::element_type::value_type& elem : *porders){
-        if(elem.first == id){
-          porders->erase(id);
-          return true;
-        }
-      }
-    }
-    return false;
   }
 
   /*
@@ -372,14 +397,14 @@ public:
 
   /*
    * PUBLIC INTERFACE FOR RETRIEVING BASIC MARKET INFO
-   *//*
-  inline price_type bid_price(){ return this->_align(this->_bid); }
-  inline price_type ask_price(){ return this->_align(this->_ask); }
-  inline price_type last_price(){ return this->_align(this->_last); }
-  inline size_type bid_size(){ return this->_bid_size; }
-  inline size_type ask_size(){ return this->_ask_size; }
-  inline size_type last_size(){ return this->_last_size; }
-  inline large_size_type volume(){ return this->_total_volume; }
+   */
+  inline price_type bid_price() const { return this->_itop(this->_bid); }
+  inline price_type ask_price() const { return this->_itop(this->_ask); }
+  inline price_type last_price() const { return this->_itop(this->_last); }
+  inline size_type bid_size() const { return this->_bid_size; }
+  inline size_type ask_size() const { return this->_ask_size; }
+  inline size_type last_size() const { return this->_last_size; }
+  inline large_size_type volume() const { return this->_total_volume; }
 
   /* PUBLIC INTERFACE FOR RETRIEVING THE VECTOR OF TIME & SALES DATA */
   inline const time_and_sales_type& time_and_sales()
