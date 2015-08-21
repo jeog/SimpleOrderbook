@@ -475,23 +475,26 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
 
 SOB_TEMPLATE
 bool SOB_CLASS::pull_order(id_type id)
-{ 
+{   
   // search between min(low_buy_lim,low_sell_stp) and max(high_buy_lim,high_buy_stop)
   // get the cache updates working first, 
   // for now just search the whole array(either way should start from _last and go out)
   for(chain_pair_type& e : this->_book){
     for(const limit_chain_type::value_type& lc : e.first )
-      if(lc.first == id){
+      if(lc.first == id)       
+        goto erase_limit;     
+    for(const stop_chain_type::value_type& sc : e.second )
+      if(sc.first == id)
+        goto erase_stop;
+    continue;
+      erase_limit:
         e.first.erase(id);
         return true;
-      }
-    for(const stop_chain_type::value_type& sc : e.second )
-      if(sc.first == id){
+      erase_stop:
         e.second.erase(id);
-        return true;
-      }    
+        return true; 
   }
-  return false;
+  return false;   
 }
 
 

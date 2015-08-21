@@ -40,14 +40,11 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 
 namespace NativeLayer{
 
-//template< typename IncrementRatio = std::ratio<1,100>>
-//class SimpleOrderbook;
-
 typedef float               price_type;
 typedef double              price_diff_type;
 typedef unsigned long       size_type, id_type;
 typedef long long           size_diff_type;
-typedef unsigned long long  large_size_type, safe_uint_type;
+typedef unsigned long long  large_size_type;
 
 typedef std::pair<price_type,size_type>         limit_order_type;
 typedef std::pair<price_type,limit_order_type>  stop_order_type;
@@ -83,7 +80,7 @@ protected:
     {
     }
 public:
-  ~SimpleOrderbookI()
+  virtual ~SimpleOrderbookI()
     {
     }
   virtual id_type insert_limit_order(bool buy, price_type limit, size_type size,
@@ -272,7 +269,7 @@ private:
 /*
   template< typename ChainArrayTy>
   market_depth_type _market_depth(const ChainArrayTy& array)
-  { /*
+  { *//*
      * calculate chain_size at each price level
      *//*
     ASSERT_VALID_CHAIN_ARRAY(ChainArrayTy);
@@ -301,8 +298,30 @@ private:
     {
       if(!beg->first.empty()){
         std::cout<< this->_itop(beg);
-        for(typename limit_chain_type::value_type& e : beg->first)
+        for(const limit_chain_type::value_type& e : beg->first)
           std::cout<< " <" << e.second.first << "> ";
+        std::cout<< std::endl;
+      }
+    }
+  }
+
+  void _dump_stops()
+  { /*
+     * dump (to stdout) a particular chain array (TODO optimize for cache vals)
+     * currently just doing the whole array so we can debug the core pieces
+     */
+    plevel beg,end;
+
+    beg = this->_end - 1;
+    end = this->_ask;
+    for(; beg >= end; --beg)
+    {
+      if(!beg->second.empty()){
+        std::cout<< this->_itop(beg);
+        for(const stop_chain_type::value_type& e : beg->second)
+          std::cout<< " <" << (std::get<0>(e.second) ? "B " : "S ")
+                   << std::to_string(std::get<2>(e.second)) << " @ "
+                   << std::to_string(this->_itop(std::get<1>(e.second))) <<"> ";
         std::cout<< std::endl;
       }
     }
