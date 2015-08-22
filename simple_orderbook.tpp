@@ -1,6 +1,5 @@
 namespace NativeLayer{
-
-
+namespace SimpleOrderbook{
 
 SOB_TEMPLATE
 void SOB_CLASS::_on_trade_completion()
@@ -9,8 +8,8 @@ void SOB_CLASS::_on_trade_completion()
     this->_is_dirty = false;
     while(!this->_deferred_callback_queue.empty()){
       dfrd_cb_elem_type e = this->_deferred_callback_queue.front();
-      std::get<0>(e)(std::get<2>(e),std::get<4>(e),std::get<5>(e));
-      std::get<1>(e)(std::get<3>(e),std::get<4>(e),std::get<5>(e));
+      std::get<0>(e)(fill,std::get<2>(e),std::get<4>(e),std::get<5>(e));
+      std::get<1>(e)(fill,std::get<3>(e),std::get<4>(e),std::get<5>(e));
       this->_deferred_callback_queue.pop();
     }
     this->_look_for_triggered_stops();
@@ -67,14 +66,15 @@ void SOB_CLASS::_look_for_triggered_stops()
   plevel low, high;
 
   for(low = this->_low_buy_stop ; low <= this->_last ; ++low)    
-    this->_handle_triggered_stop_chain(low,false); 
+    this->_handle_triggered_stop_chain<false>(low); 
 
   for(high = this->_high_sell_stop ; high >= this->_last ; --high)
-    this->_handle_triggered_stop_chain(high,true);  
+    this->_handle_triggered_stop_chain<true>(high);  
 }
 
 SOB_TEMPLATE
-void SOB_CLASS::_handle_triggered_stop_chain(plevel plev, bool ask_side)
+template<bool BuyStops>
+void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
 {
   stop_chain_type cchain;
   plevel limit;  
@@ -85,12 +85,17 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev, bool ask_side)
   cchain = stop_chain_type(plev->second);
   plev->second.clear();
 
-  if(!cchain.empty()){ /* <-- before we potentially recurse into new orders */
-    if(ask_side)
-      this->_high_sell_stop = plev - 1;
-    else
-      this->_low_buy_stop = plev + 1;
+  if(BuyStops){
+    this->_low_buy_stop = plev + 1;
+    if(this->_low_buy_stop > this->_high_buy_stop)
+      this->_low_buy_stop = this->_high_buy_stop = this->_end;
   }
+  else{
+    this->_high_sell_stop = plev - 1;
+    if(this->_high_sell_stop < this->_low_sell_stop)
+      this->_high_sell_stop = this->_low_sell_stop = this->_beg;
+  }
+
 
   for(stop_chain_type::value_type& e : cchain){
     limit = (plevel)std::get<1>(e.second);
@@ -168,7 +173,11 @@ size_type SOB_CLASS::_lift_offers(plevel plev,
       this->_ask_size = 0;    
       break;
     }else
-      this->_ask_size = this->_chain_size(&this->_ask->first);    
+      this->_ask_size = this->_chain_size(&this->_ask->first);  
+    
+    /* adjust cached val */
+    if(this->_ask > this->_high_sell_limit)
+      this->_high_sell_limit = this->_ask;
   }
   return size; /* what we couldn't fill */
 }
@@ -184,7 +193,7 @@ size_type SOB_CLASS::_hit_bids(plevel plev,
   plevel inside;
 
   long rmndr = 0;
-  inside = this->_ask;  
+  inside = this->_bid;  
          
   while( (inside >= plev || !plev) && size > 0 && (inside >= this->_beg) )
   {     
@@ -220,7 +229,12 @@ size_type SOB_CLASS::_hit_bids(plevel plev,
       this->_bid_size = 0;    
       break;
     }else
-      this->_bid_size = this->_chain_size(&this->_bid->first);   }
+      this->_bid_size = this->_chain_size(&this->_bid->first);   
+    
+    /* adjust cached val */
+    if(this->_bid < this->_low_buy_limit)
+      this->_low_buy_limit = this->_bid;
+  }
   return size; /* what we couldn't fill */
 }
 
@@ -250,21 +264,26 @@ void SOB_CLASS::_insert_limit_order(bool buy,
 
     limit_bndl_type bndl = limit_bndl_type(rmndr,callback);
     orders->insert(limit_chain_type::value_type(id,std::move(bndl)));
-
-    if(buy && limit >= this->_bid){
-      this->_bid = limit;
-      this->_bid_size = this->_chain_size(orders);
-    }else if(!buy && limit <= this->_ask){
-      this->_ask = limit;
-      this->_ask_size = this->_chain_size(orders);
+    
+    if(buy)
+    {
+      if(limit >= this->_bid){
+        this->_bid = limit;
+        this->_bid_size = this->_chain_size(orders);
+      }
+      if(limit < this->_low_buy_limit)
+        this->_low_buy_limit = limit;
     }
-
-    if(buy && limit < this->_low_buy_limit)
-      this->_low_buy_limit = limit;
-    else if(!buy && limit > this->_high_sell_limit)
-      this->_high_sell_limit = limit;
+    else
+    {
+      if(limit <= this->_ask){
+        this->_ask = limit;
+        this->_ask_size = this->_chain_size(orders);
+      }
+      if(limit > this->_high_sell_limit)
+        this->_high_sell_limit = limit;
+    }
   }
-
   this->_on_trade_completion();
 }
 
@@ -310,15 +329,11 @@ void SOB_CLASS::_insert_stop_order(bool buy,
    * copy callback functor, needs to persist
    */
   stop_chain_type* orders = &stop->second;
-
-  /* use 0 limit price for market order */
   stop_bndl_type bndl = stop_bndl_type(buy,(void*)limit,size,callback);
   orders->insert(stop_chain_type::value_type(id,std::move(bndl)));
   /*
    * we maintain references to the most extreme stop prices so we can
    * avoid searching the entire array for triggered orders
-   *
-   * adjust cached values if ncessary; (should we just maintain a pointer ??)
    */
   if(buy && stop < this->_low_buy_stop)
     this->_low_buy_stop = stop;
@@ -326,6 +341,60 @@ void SOB_CLASS::_insert_stop_order(bool buy,
     this->_high_sell_stop = stop;
 
   this->_on_trade_completion();
+}
+
+SOB_TEMPLATE
+void SOB_CLASS::_adjust_limit_cache_vals(plevel plev)
+{  
+  if(plev > this->_high_sell_limit)
+    throw cache_value_error("can't remove limit higher than cached val");
+  else if(plev == this->_high_sell_limit)
+    --(this->_high_sell_limit); /*dont look for next valid plevel*/
+  
+  if(plev < this->_low_buy_limit)
+    throw cache_value_error("can't remove limit lower than cached val");
+  else if(plev == this->_low_buy_limit)
+    ++(this->_low_buy_limit); /*dont look for next valid plevel*/   
+}
+
+SOB_TEMPLATE
+template<bool BuyStop>
+void SOB_CLASS::_adjust_stop_cache_vals(plevel plev,stop_chain_type* c)
+{  
+  stop_chain_type::const_iterator biter, eiter, riter;  
+  
+  biter = c->cbegin();
+  eiter = c->cend();
+
+  riter = find_if(biter, eiter, [](const stop_chain_type::value_type& v){
+                                  return std::get<0>(v.second) == BuyStop;
+                                } );
+  if(riter == eiter){
+    if(BuyStop)
+    {
+      if(plev > this->_high_buy_stop)
+        throw cache_value_error("can't remove stop higher than cached val");
+      else if(plev == this->_high_buy_stop)
+        --(this->_high_buy_stop); /*dont look for next valid plevel*/ 
+      
+      if(plev < this->_low_buy_stop)
+        throw cache_value_error("can't remove stop lower than cached val");
+      else if(plev == this->_low_buy_stop)
+        ++(this->_low_buy_stop); /*dont look for next valid plevel*/   
+    }
+    else
+    {
+      if(plev > this->_high_sell_stop)
+        throw cache_value_error("can't remove stop higher than cached val");
+      else if(plev == this->_high_sell_stop)
+        --(this->_high_sell_stop); /*dont look for next valid plevel */   
+      
+      if(plev < this->_low_sell_stop)
+        throw cache_value_error("can't remove stop lower than cached val");
+      else if(plev == this->_low_sell_stop)
+        ++(this->_low_sell_stop); /*dont look for next valid plevel*/       
+    }    
+  }    
 }
 
 SOB_TEMPLATE
@@ -362,7 +431,7 @@ price_type SOB_CLASS::_itop(plevel plev) const
   incr_offset = offset * (price_type)incr_r::num / incr_r::den;
   price = (incr_offset*base_r::den + base_r::num) / base_r::den;
 
-  return price; //floor(price*incr_denom) / incr_denom; 
+  return price;
 }
 
 SOB_TEMPLATE 
@@ -380,7 +449,9 @@ SOB_CLASS::SimpleOrderbook(std::vector<MarketMaker>& mms)
   _low_buy_limit( this->_last ),
   _high_sell_limit( this->_last ),
   _low_buy_stop( this->_end ),
-  _high_sell_stop(  this->_beg ),
+  _high_buy_stop( this->_end ),
+  _low_sell_stop( this->_beg ),
+  _high_sell_stop( this->_beg ),
   _total_volume(0),
   _last_id(0),
   _market_makers( mms ), /* do we want to copy,borrow or steal?? */
@@ -393,7 +464,8 @@ SOB_CLASS::SimpleOrderbook(std::vector<MarketMaker>& mms)
     this->_t_and_s.reserve(this->_t_and_s_max_sz);
     
     for(MarketMaker& mm : mms)
-      mm.initialize(this);
+      mm.initialize(this,this->_itop(this->_last),
+                    (price_type)incr_r::num / incr_r::den);
     
     std::cout<< "+ SimpleOrderbook Created\n";
   }
@@ -459,6 +531,7 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
                                      fill_callback_type callback)
 {
   id_type id;
+  plevel plimit;
 
   if(!this->_check_order_price(stop))
     throw invalid_order("invalid stop price");
@@ -467,34 +540,22 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
     throw invalid_order("invalid order size");
 
   id = this->_generate_id();
+  plimit = limit ? this->_ptoi(limit) : nullptr;
 
-  this->_insert_stop_order(buy,this->_ptoi(stop),this->_ptoi(limit),size,
-                           callback,id);
+  this->_insert_stop_order(buy, this->_ptoi(stop), plimit, size, callback, id);
+  
   return id;
 }
 
 SOB_TEMPLATE
-bool SOB_CLASS::pull_order(id_type id)
+bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
 {   
-  // search between min(low_buy_lim,low_sell_stp) and max(high_buy_lim,high_buy_stop)
-  // get the cache updates working first, 
-  // for now just search the whole array(either way should start from _last and go out)
-  for(chain_pair_type& e : this->_book){
-    for(const limit_chain_type::value_type& lc : e.first )
-      if(lc.first == id)       
-        goto erase_limit;     
-    for(const stop_chain_type::value_type& sc : e.second )
-      if(sc.first == id)
-        goto erase_stop;
-    continue;
-      erase_limit:
-        e.first.erase(id);
-        return true;
-      erase_stop:
-        e.second.erase(id);
-        return true; 
-  }
-  return false;   
+  if(search_limits_first)
+    return this->_pull_order<limit_chain_type>(id) ||
+           this->_pull_order<stop_chain_type>(id);
+  else
+    return this->_pull_order<stop_chain_type>(id) ||
+           this->_pull_order<limit_chain_type>(id);    
 }
 
 
@@ -568,4 +629,5 @@ std::string SOB_CLASS::timestamp_to_str(const SOB_CLASS::time_stamp_type& tp)
   return ts;
 }
 
+};
 };

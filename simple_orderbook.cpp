@@ -25,22 +25,23 @@ MarketMaker::MarketMaker(size_type sz_low, size_type sz_high)
   :
   _sz_low(sz_low),
   _sz_high(sz_high),
+  _book(nullptr),
   _rand_engine( (clock_type::now() - MarketMaker::seedtp).count() *
                 (unsigned long long)this % std::numeric_limits<long>::max()),
   _distr(sz_low, sz_high),
-  _orderbook(nullptr)
+  _distr2(1, 5)
     {
     }
-
 
 MarketMaker::MarketMaker(const MarketMaker& mm)
   :
   _sz_low(mm._sz_low),
   _sz_high(mm._sz_high),
+  _book(nullptr),
   _rand_engine( (clock_type::now() - MarketMaker::seedtp).count() *
                 (unsigned long long)this % std::numeric_limits<long>::max()),
   _distr(mm._sz_low, mm._sz_high),
-  _orderbook(nullptr)
+  _distr2(1, 5)
     {
     }
 
@@ -54,10 +55,47 @@ limit_order_type MarketMaker::post_ask(price_type price)
   return limit_order_type(price, this->_distr(this->_rand_engine));
 }
 
-
-void MarketMaker::default_callback(id_type id, price_type price, size_type size)
+void MarketMaker::initialize(SimpleOrderbook::RestrictedInterface *book,
+                             price_type implied, price_type incr)
 {
-  std::cout<<"MM FILL: "<<' '<<id<<' '<<price<<' '<<size<<std::endl;
+  size_type mod, count, i;
+  price_type price;
+
+  this->_book = book;
+
+  mod = this->_distr2(this->_rand_engine);
+  count = this->_distr2(this->_rand_engine);
+  /* insert some random sell-limits */
+  for( i = 0, price = implied + 1 ;
+       i < count;
+       price += mod * incr, ++i )
+  {
+    book->insert_limit_order(false,price,this->_distr(this->_rand_engine),
+                             &MarketMaker::default_callback);
+  }
+  /* insert some random buy-limits */
+  for( i = 0, price = implied - 1 ;
+       i < count;
+       price -= mod * incr, ++i )
+  {
+    book->insert_limit_order(true,price,this->_distr(this->_rand_engine),
+                             &MarketMaker::default_callback);
+  }
+}
+
+void MarketMaker::default_callback(callback_msg msg, id_type id,
+                                   price_type price, size_type size)
+{
+  const char* cb_type;
+  switch(msg){
+  case fill:
+    cb_type =  "MM FILL: ";
+    break;
+  case cancel:
+    cb_type = "MM CANCEL: ";
+    break;
+  }
+  std::cout<< cb_type <<' '<<id<<' '<<price<<' '<<size<<std::endl;
 }
 
 
