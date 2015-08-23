@@ -30,7 +30,8 @@ _setup_dict = {
 
 _cpp_ext = Extension(
   "simpleorderbook",
-  sources=["simpleorderbook.cpp","../simple_orderbook.cpp"],
+  sources=["simpleorderbook.cpp","../simple_orderbook.tpp",
+           "../market_maker.cpp"],
   include_dirs=[py_include_dir,"../"],
   library_dirs=[py_library_dir],
   libraries=[py_library_name],

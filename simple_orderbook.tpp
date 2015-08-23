@@ -1,3 +1,6 @@
+#include "types.hpp"
+#include "simple_orderbook.hpp"
+
 namespace NativeLayer{
 namespace SimpleOrderbook{
 
@@ -121,8 +124,7 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
  *** to match limit/market orders against the order book, adjusting       ***
  *** state, checking for overflows, signaling etc.                        ***
  ***                                                                      ***
- *** 1) All the corner cases haven't been tested                          ***
- *** 2) Code is quite kludgy and overwritten, needs to be cleaned-up      ***
+ *** ... NEEDS MORE TESTING ...                                           ***
  ****************************************************************************
  ****************************************************************************
  */
@@ -540,10 +542,13 @@ SOB_TEMPLATE
 typename SOB_CLASS::plevel SOB_CLASS::_ptoi(price_type price) const
 {
   plevel plev;
-  price_type incr_offset;
-
-  incr_offset = price / ((price_type)incr_r::num/incr_r::den);
-  plev = this->_beg + (size_type)round(incr_offset)-1;
+  size_type incr_offset;
+ // price_type incr_offset;
+/*
+  incr_offset = price / ((price_type)_incr_r::num/_incr_r::den);
+  plev = this->_beg + (size_type)round(incr_offset)-1;*/
+  incr_offset = round((price - this->_base) * _incr_r::den / _incr_r::num);
+  plev = this->_beg + incr_offset;
 
   if(plev < this->_beg)
     throw std::range_error( "chain_pair_type* < _beg" );
@@ -567,30 +572,38 @@ price_type SOB_CLASS::_itop(plevel plev) const
     throw std::range_error( "plevel >= _end" );
 
   offset = plev - this->_beg;
-  incr_offset = offset * (price_type)incr_r::num / incr_r::den;
-  price = (incr_offset*base_r::den + base_r::num) / base_r::den;
+  incr_offset = (price_type)(offset) * _incr_r::num / _incr_r::den;
+  price = this->_base + incr_offset;
+  /*incr_offset = offset * (price_type)_incr_r::num / _incr_r::den;
+  price = (incr_offset*base_r::den + base_r::num) / base_r::den;*/
 
   return price;
 }
 
+
 SOB_TEMPLATE 
-SOB_CLASS::SimpleOrderbook(std::vector<MarketMaker>& mms)
+SOB_CLASS::SimpleOrderbook(price_type price, price_type min, price_type max,
+                           std::vector<MarketMaker>& mms)
   :
   _bid_size(0),
   _ask_size(0),
   _last_size(0), 
-  _book(), 
-  _beg( _book.begin() ),
-  _end( _book.end()), /* note: half-open range */
-  _last( _book.begin() + lower_increments), 
-  _bid( this->_beg ),
-  _ask( this->_end ),
-  _low_buy_limit( this->_last ),
-  _high_sell_limit( this->_last ),
-  _low_buy_stop( this->_end ),
-  _high_buy_stop( this->_end ),
-  _low_sell_stop( this->_beg ),
-  _high_sell_stop( this->_beg ),
+  _lower_incr(this->_incrs_in_range(min,price)),
+  _upper_incr(this->_incrs_in_range(price,max)),
+  _total_incr(_lower_incr + _upper_incr + 1),
+  _base( min ),
+  _book( _total_incr ), 
+  _beg( &(*_book.begin()) ),
+  _end( &(*_book.end()) ), /* note: half-open range */
+  _last( &(*(_book.begin()+_lower_incr)) ), 
+  _bid( &(*(this->_beg-1)) ),
+  _ask( &(*(this->_end-1)) ),
+  _low_buy_limit( &(*this->_last) ),
+  _high_sell_limit( &(*this->_last) ),
+  _low_buy_stop( &(*(this->_end-1)) ),
+  _high_buy_stop( &(*(this->_end-1)) ),
+  _low_sell_stop( &(*this->_beg) ),
+  _high_sell_stop( &(*this->_beg) ),
   _total_volume(0),
   _last_id(0),
   _market_makers( mms ), /* do we want to copy,borrow or steal?? */
@@ -600,11 +613,19 @@ SOB_CLASS::SimpleOrderbook(std::vector<MarketMaker>& mms)
   _t_and_s_max_sz(1000),
   _t_and_s_full(false)
   {
+    /* checks */
+    if( price <= min || price >= max || price < 0 || min <= 0 || max <= 0 
+        || this->_lower_incr < 1 || this->_upper_incr < 1 )
+    {
+      throw invalid_parameters("invalid price/min/max parameter(s)");
+    }
+    /* checks */ 
+      
     this->_t_and_s.reserve(this->_t_and_s_max_sz);
     
     for(MarketMaker& mm : mms)
       mm.initialize(this,this->_itop(this->_last),
-                    (price_type)incr_r::num / incr_r::den);
+                    (price_type)_incr_r::num / _incr_r::den);
     
     std::cout<< "+ SimpleOrderbook Created\n";
   }
@@ -621,19 +642,20 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
                                       size_type size,
                                       fill_callback_type callback) 
 {
-  id_type id;
   plevel plev;
-
-  if(!this->_check_order_price(limit))
-    throw invalid_order("invalid order price");
-
-  if(!this->_check_order_size(size))
+  id_type id;
+  
+  if(size <= 0)
     throw invalid_order("invalid order size");
 
-  id = this->_generate_id();
-  plev = this->_ptoi(limit);
-
-  this->_insert_limit_order(buy,plev,size,callback,id);
+  try{
+    plev = this->_ptoi(limit);
+    id = this->_generate_id();
+    this->_insert_limit_order(buy, plev, size, callback, id);
+  }catch(std::range_error){
+    throw invalid_order("invalid limit price");
+  }
+  
   return id;
 }
 
@@ -644,7 +666,7 @@ id_type SOB_CLASS::insert_market_order(bool buy,
 {
   id_type id;
 
-  if(!this->_check_order_size(size))
+  if(size <= 0)
     throw invalid_order("invalid order size");
 
   id = this->_generate_id();
@@ -669,19 +691,20 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
                                      size_type size,
                                      fill_callback_type callback)
 {
+  plevel plimit, pstop;
   id_type id;
-  plevel plimit;
 
-  if(!this->_check_order_price(stop))
-    throw invalid_order("invalid stop price");
-
-  if(!this->_check_order_size(size))
+  if(size <= 0)
     throw invalid_order("invalid order size");
 
-  id = this->_generate_id();
-  plimit = limit ? this->_ptoi(limit) : nullptr;
-
-  this->_insert_stop_order(buy, this->_ptoi(stop), plimit, size, callback, id);
+  try{
+    plimit = limit ? this->_ptoi(limit) : nullptr;
+    pstop = this->_ptoi(stop);
+    id = this->_generate_id();
+    this->_insert_stop_order(buy, pstop, plimit, size, callback, id);
+  }catch(std::range_error){
+    throw invalid_order("invalid price");
+  }  
   
   return id;
 }

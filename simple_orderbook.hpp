@@ -22,83 +22,28 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <vector>
 #include <memory>
 #include <iostream>
-#include <stdexcept>
 #include <utility>
 #include <algorithm>
 #include <cmath>
 #include <string>
-#include <random>
-#include <functional>
 #include <tuple>
 #include <queue>
-#include <stack>
-#include <chrono>
-#include <ctime>
 #include <string>
 #include <ratio>
 #include <array>
-#include <exception>
+
+#include "types.hpp"
+#include "market_maker.hpp"
 
 namespace NativeLayer{
 
-typedef float               price_type;
-typedef double              price_diff_type;
-typedef unsigned long       size_type, id_type;
-typedef long long           size_diff_type;
-typedef unsigned long long  large_size_type;
-
-typedef std::pair<price_type,size_type>         limit_order_type;
-typedef std::pair<price_type,limit_order_type>  stop_order_type;
-
-typedef typename std::chrono::steady_clock      clock_type;
-
-typedef const enum {
-    cancel = 0,
-    fill
-}callback_msg;
-
-typedef std::function<void(callback_msg,id_type,
-                           price_type,size_type)> fill_callback_type;
-
-std::ostream& operator<<(std::ostream& out, limit_order_type lim);
-std::ostream& operator<<(std::ostream& out, stop_order_type stp);
-
-class liquidity_exception : std::runtime_error{
-public:
-  liquidity_exception(const char* what)
-    :
-    std::runtime_error(what)
-    {
-    }
-};
-
-class invalid_order : std::invalid_argument{
-public:
-  invalid_order(const char* what)
-    :
-     std::invalid_argument(what)
-    {
-    }
-};
-
-class cache_value_error : std::runtime_error{
-public:
-  cache_value_error(const char* what)
-    :
-     std::runtime_error(what)
-    {
-    }
-};
-
-template<typename T1>
-inline std::string cat(T1 arg1){ return std::string(arg1); }
-template<typename T1, typename... Ts>
-inline std::string cat(T1 arg1, Ts... args)
-{
-  return std::string(arg1) + cat(args...);
-}
-
 namespace SimpleOrderbook{
+/* SimpleOrderbook::QueryInterface <-- the const calls for state info
+ * SimpleOrderbook::LimitInterface <-- insert/remove limit orders, pull orders
+ * SimpleOrderbook::FullInterface <-- insert/remove all orders
+ *
+ * SimpleOrderbook::SimpleOrderbook <-- the actual implementation
+ */
 
 class QueryInterface{
 protected:
@@ -147,13 +92,13 @@ public:
   virtual bool pull_order(id_type id, bool search_limits_first=true) = 0;
 };
 
-class Interface
+class FullInterface
     : protected LimitInterface{
 protected:
-  Interface()
+  FullInterface()
     {
     }
-  virtual ~Interface()
+  virtual ~FullInterface()
     {
     }
 public:
@@ -175,71 +120,27 @@ public:
                                           fill_callback_type callback) = 0;
 };
 
-};
+#define SOB_TEMPLATE template<typename IncrementRatio>
+#define SOB_CLASS SimpleOrderbook<IncrementRatio>
 
-class MarketMaker{
- /*
-  * an object that provides customizable orderflow from asymmetric market info
-  *
-  * currently just returns limit orders from a random range when
-  * SimpleOrderbook calls on post_bid/post_ask
-  */
-  size_type _sz_low, _sz_high;
-  SimpleOrderbook::LimitInterface *_book;
-  std::default_random_engine _rand_engine;
-  std::uniform_int_distribution<size_type> _distr;
-  std::uniform_int_distribution<size_type> _distr2;
-
-public:
-  MarketMaker( size_type sz_low, size_type sz_high );
-  MarketMaker( const MarketMaker& mm );
-  void initialize(SimpleOrderbook::LimitInterface *book,
-                  price_type implied, price_type incr);
-  limit_order_type post_bid(price_type price);
-  limit_order_type post_ask(price_type price);
-
-  static void default_callback(callback_msg msg,id_type id, price_type price,
-                               size_type size);
-private:
-  static const clock_type::time_point seedtp;
-};
-
-
-#define SOB_TEMPLATE template< size_type StartPrice, size_type DecimalPlaces>
-#define SOB_CLASS SimpleOrderbook<StartPrice,DecimalPlaces>
-
-namespace SimpleOrderbook{
-
-template<size_type StartPrice = 50, size_type DecimalPlaces = 3>
+template<typename IncrementRatio = std::ratio<1,100> >
 class SimpleOrderbook
-    : protected Interface{
+    : protected FullInterface{
  /*
   * TODO review how we copy/move/PY_INCREF callbacks
   * TODO time-to-live orders
   * TODO consider storing floating point price as two ints ( base1.base2 ) or ...
   *   a single int that represents the ronded floating point
   */
-  static_assert(DecimalPlaces > 0, "DecimalPlaces must be > 0" );
-  static_assert(DecimalPlaces < 5, "DecimalPlaces must be < 5" );
 
-  /* generate our lower price/increment values via ratio math */
-  typedef std::ratio<1,(size_type)pow(10,DecimalPlaces)>      incr_r;
-  typedef std::ratio<StartPrice,1>                            start_r;
-  typedef std::ratio_divide<start_r,incr_r>                   raw_incrs_r;
-  typedef std::ratio_subtract<raw_incrs_r,std::ratio<1,1>>    low_incrs_r;
-  typedef std::ratio_subtract<start_r,
-          std::ratio_multiply<low_incrs_r,incr_r>>            base_r;
+  static_assert(!std::ratio_less<IncrementRatio,std::ratio<1,10000>>::value,
+                "Increment Ratio < ratio<1,10000> " );
+  static_assert(!std::ratio_greater<IncrementRatio,std::ratio<1,1>>::value,
+                "Increment Ratio < ratio<1,1> " );
 
-  /* transalte into scalar values */
-  static constexpr size_type lower_increments = floor(low_incrs_r::num /
-                                                      low_incrs_r::den);
-  static constexpr size_type total_increments = lower_increments * 2 + 1;
-  static constexpr size_type minimum_increments = 100;
-  static constexpr size_type maximum_increments = 40000; // 3.84MB
-
-  /* check size; stack allocation issues if too large */
-  static_assert(total_increments >= minimum_increments, "not enough increments");
-  static_assert(total_increments <= maximum_increments, "too many increments");
+  typedef IncrementRatio _incr_r;
+  static constexpr double _incr_val = (double)_incr_r::num/(double)_incr_r::den;
+  static constexpr double _incr_inv = _incr_r::den/_incr_r::num;
 
   /* how callback info is stored in the deferred callback queue */
   typedef std::tuple<fill_callback_type,fill_callback_type,
@@ -250,8 +151,9 @@ class SimpleOrderbook
   typedef std::pair<size_type, fill_callback_type>         limit_bndl_type;
   typedef std::map<id_type, limit_bndl_type>               limit_chain_type;
 
+
+
   /* stop bundle type holds the size and callback of each stop order
-   * void* to avoid circular typedef of plevel
    * stop 'chain' type holds all stop orders at a price(limit or market) */
   typedef std::tuple<bool,void*,size_type,fill_callback_type>  stop_bndl_type;
   typedef std::map<id_type, stop_bndl_type>                    stop_chain_type;
@@ -261,15 +163,19 @@ class SimpleOrderbook
                   std::is_same<TYPE,stop_chain_type>::value, \
                   #TYPE " not limit_chain_type or stop_chain_type")
 
-  /* chain pair is the limit and stop chain at a particular price */
-  typedef std::pair<limit_chain_type,stop_chain_type>   chain_pair_type ;
+  /* chain pair is the limit and stop chain at a particular price
+   * use a (less safe) pointer for plevel rather than iterator because iterator
+   * is implemented as a class and creates a number of problems internally */
+  typedef std::pair<limit_chain_type,stop_chain_type> chain_pair_type, *plevel;
 
   /* an array of all chain pairs (how we reprsent the 'book' internally) */
-  typedef std::array<chain_pair_type,total_increments>   order_book_type;
-  typedef typename order_book_type::iterator             plevel;
+  typedef std::vector<chain_pair_type> order_book_type;
 
   /* state fields */
-  size_type _bid_size, _ask_size, _last_size;
+  size_type _bid_size, _ask_size, _last_size,
+            _lower_incr, _upper_incr, _total_incr;
+
+  price_type _base;
 
   /* THE ORDER BOOK */
   order_book_type _book;
@@ -294,19 +200,29 @@ class SimpleOrderbook
   size_type _t_and_s_max_sz;
   bool _t_and_s_full;
 
-  /* user input checks */
-  inline bool _check_order_size(size_type sz) const { return sz > 0; }
-  inline bool _check_order_price(price_type price) const
+
+  inline price_type _round_to_incr(price_type price)
   {
-    return this->_ptoi(price) < this->_end; // move in 1, Aug21
+    return round(price * _incr_inv) / _incr_inv;
+  }
+
+  size_type _incrs_in_range(price_type lprice, price_type hprice)
+  {
+    price_type l,h;
+
+    h = this->_round_to_incr(hprice);
+    l = this->_round_to_incr(lprice);
+    return (size_type)round((h-l)*_incr_r::den/_incr_r::num);
   }
 
   /* don't worry about overflow */
   inline large_size_type _generate_id(){ return ++(this->_last_id); }
 
+    public: /*DEBUG*/
   /* price-to-index and index-to-price utilities  */
   plevel _ptoi(price_type price) const;
   price_type _itop(plevel plev) const;
+    private:
 
   /* calculate chain_size of limit orders at each price level
    * use depth increments on each side of last */
@@ -375,7 +291,8 @@ class SimpleOrderbook
    **************************************************/
 
 public:
-  SimpleOrderbook(std::vector<MarketMaker>& mms);
+  SimpleOrderbook(price_type price, price_type min, price_type max,
+                 std::vector<MarketMaker>& mms);
 
   ~SimpleOrderbook();
 
@@ -433,6 +350,10 @@ public:
   /* convert time & sales chrono timepoint to str via ctime */
   static std::string timestamp_to_str(const time_stamp_type& tp);
 };
+
+typedef SimpleOrderbook<std::ratio<1,4>>     QuartersSimpleOrderbook;
+typedef SimpleOrderbook<std::ratio<1,100>>   DefaultSimpleOrderbook;
+typedef SimpleOrderbook<std::ratio<1,10000>> SubPennySimpleOrderbook;
 
 };
 

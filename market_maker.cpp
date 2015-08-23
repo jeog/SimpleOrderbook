@@ -20,7 +20,6 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 
 namespace NativeLayer{
 
-
 MarketMaker::MarketMaker(size_type sz_low, size_type sz_high)
   :
   _sz_low(sz_low),
@@ -44,16 +43,6 @@ MarketMaker::MarketMaker(const MarketMaker& mm)
   _distr2(1, 5)
     {
     }
-
-limit_order_type MarketMaker::post_bid(price_type price)
-{
-  return limit_order_type(price, this->_distr(this->_rand_engine));
-}
-
-limit_order_type MarketMaker::post_ask(price_type price)
-{
-  return limit_order_type(price, this->_distr(this->_rand_engine));
-}
 
 void MarketMaker::initialize(SimpleOrderbook::LimitInterface *book,
                              price_type implied, price_type incr)
@@ -100,17 +89,5 @@ void MarketMaker::default_callback(callback_msg msg, id_type id,
 
 
 const clock_type::time_point MarketMaker::seedtp = clock_type::now();
-
-
-std::ostream& operator<<(std::ostream& out, limit_order_type lim)
-{
-  std::cout<< lim.second << ',' << lim.first;
-  return out;
-}
-std::ostream& operator<<(std::ostream& out, stop_order_type stp)
-{
-  std::cout<< stp.first << ',' << stp.second;  // chain to limit overload
-  return out;
-}
 
 };
