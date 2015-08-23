@@ -100,12 +100,12 @@ inline std::string cat(T1 arg1, Ts... args)
 
 namespace SimpleOrderbook{
 
-class RestrictedInterface{
+class QueryInterface{
 protected:
-  RestrictedInterface()
+  QueryInterface()
     {
     }
-  virtual ~RestrictedInterface()
+  virtual ~QueryInterface()
     {
     }
 public:
@@ -115,24 +115,40 @@ public:
   typedef std::vector< t_and_s_type >                       time_and_sales_type;
   typedef std::map<price_type,size_type>                    market_depth_type;
 
-  virtual id_type insert_limit_order(bool buy, price_type limit, size_type size,
-                                    fill_callback_type callback) = 0;
-  virtual bool pull_order(id_type id,bool search_limits_first=true) = 0;
-  virtual id_type replace_with_limit_order(id_type id, bool buy,
-                                           price_type limit,
-                                           size_type size,
-                                           fill_callback_type callback) = 0;
   virtual price_type bid_price() const = 0;
   virtual price_type ask_price() const = 0;
   virtual price_type last_price() const = 0;
   virtual size_type bid_size() const = 0;
   virtual size_type ask_size() const = 0;
+  virtual size_type last_size() const = 0;
+  virtual large_size_type volume() const = 0;
+  virtual large_size_type last_id() const = 0;
   virtual market_depth_type bid_depth(size_type depth=8) const = 0;
   virtual market_depth_type ask_depth(size_type depth=8) const = 0;
-  };
+  virtual const time_and_sales_type& time_and_sales() const = 0;
+};
+
+class LimitInterface
+    : protected QueryInterface{
+protected:
+  LimitInterface()
+    {
+    }
+  virtual ~LimitInterface()
+    {
+    }
+public:
+  virtual id_type insert_limit_order(bool buy, price_type limit, size_type size,
+                                    fill_callback_type callback) = 0;
+  virtual id_type replace_with_limit_order(id_type id, bool buy,
+                                           price_type limit,
+                                           size_type size,
+                                           fill_callback_type callback) = 0;
+  virtual bool pull_order(id_type id, bool search_limits_first=true) = 0;
+};
 
 class Interface
-    : protected RestrictedInterface{
+    : protected LimitInterface{
 protected:
   Interface()
     {
@@ -145,24 +161,18 @@ public:
                                     fill_callback_type callback) = 0;
   virtual id_type insert_stop_order(bool buy, price_type stop, size_type size,
                                     fill_callback_type callback) = 0;
-  virtual id_type insert_stop_order(bool buy, price_type stop,
-                                    price_type limit,
+  virtual id_type insert_stop_order(bool buy, price_type stop, price_type limit,
                                     size_type size,
                                     fill_callback_type callback) = 0;
   virtual id_type replace_with_market_order(id_type id, bool buy,
                                             size_type size,
                                             fill_callback_type callback) = 0;
-  virtual id_type replace_with_stop_order(id_type id, bool buy,
-                                          price_type stop,
+  virtual id_type replace_with_stop_order(id_type id, bool buy, price_type stop,
                                           size_type size,
                                           fill_callback_type callback) = 0;
-  virtual id_type replace_with_stop_order(id_type id, bool buy,
-                                          price_type stop,
+  virtual id_type replace_with_stop_order(id_type id, bool buy, price_type stop,
                                           price_type limit, size_type size,
                                           fill_callback_type callback) = 0;
-  virtual size_type last_size() const = 0;
-  virtual large_size_type volume() const = 0;
-  virtual const time_and_sales_type& time_and_sales() const = 0;
 };
 
 };
@@ -175,7 +185,7 @@ class MarketMaker{
   * SimpleOrderbook calls on post_bid/post_ask
   */
   size_type _sz_low, _sz_high;
-  const SimpleOrderbook::RestrictedInterface *_book;
+  SimpleOrderbook::LimitInterface *_book;
   std::default_random_engine _rand_engine;
   std::uniform_int_distribution<size_type> _distr;
   std::uniform_int_distribution<size_type> _distr2;
@@ -183,7 +193,7 @@ class MarketMaker{
 public:
   MarketMaker( size_type sz_low, size_type sz_high );
   MarketMaker( const MarketMaker& mm );
-  void initialize(SimpleOrderbook::RestrictedInterface *book,
+  void initialize(SimpleOrderbook::LimitInterface *book,
                   price_type implied, price_type incr);
   limit_order_type post_bid(price_type price);
   limit_order_type post_ask(price_type price);
@@ -204,12 +214,8 @@ template<size_type StartPrice = 50, size_type DecimalPlaces = 3>
 class SimpleOrderbook
     : protected Interface{
  /*
-  * TODO add 'this' consts where appropriate
-  * TODO cache high/low limit orders in book to avoid checking entire thing
-  * TODO adjust cached high/low stop/limit orders on execution AND pull/remove
   * TODO review how we copy/move/PY_INCREF callbacks
-  * TODO callback for remove/pull , time-to-live orders
-  * TODO optimize dump and pull calls for cache limits(i.e don't search the whole array)
+  * TODO time-to-live orders
   * TODO consider storing floating point price as two ints ( base1.base2 ) or ...
   *   a single int that represents the ronded floating point
   */
@@ -249,6 +255,11 @@ class SimpleOrderbook
    * stop 'chain' type holds all stop orders at a price(limit or market) */
   typedef std::tuple<bool,void*,size_type,fill_callback_type>  stop_bndl_type;
   typedef std::map<id_type, stop_bndl_type>                    stop_chain_type;
+
+#define ASSERT_VALID_CHAIN(TYPE) \
+    static_assert(std::is_same<TYPE,limit_chain_type>::value || \
+                  std::is_same<TYPE,stop_chain_type>::value, \
+                  #TYPE " not limit_chain_type or stop_chain_type")
 
   /* chain pair is the limit and stop chain at a particular price */
   typedef std::pair<limit_chain_type,stop_chain_type>   chain_pair_type ;
@@ -297,174 +308,60 @@ class SimpleOrderbook
   plevel _ptoi(price_type price) const;
   price_type _itop(plevel plev) const;
 
+  /* calculate chain_size of limit orders at each price level
+   * use depth increments on each side of last */
   template< bool BuyNotSell>
-  market_depth_type _market_depth(size_type depth) const
-  { /*
-     * calculate chain_size at each price level, return as map (optimize this)
-     * depth refers to absolute increments, not just those with orders
-     */
-    plevel beg,end;
-    market_depth_type md;
+  market_depth_type _market_depth(size_type depth) const;
 
-    /* from high to low */
-    beg = BuyNotSell ? this->_bid
-                     : (plevel)min(this->_ask + depth - 1, this->_end - 1);
-    end = BuyNotSell ? (plevel)max(this->_beg, this->_bid - depth +1)
-                     : this->_ask;
-
-    for( ; beg >= end; --beg)
-      if(!beg->first.empty())
-        md.insert( market_depth_type::value_type(
-                     this->_itop(beg), this->_chain_size(&beg->first)) );
-    return md;
-  }
-
-#define ASSERT_VALID_CHAIN(TYPE) \
-    static_assert(std::is_same<TYPE,limit_chain_type>::value || \
-                  std::is_same<TYPE,stop_chain_type>::value, \
-                  #TYPE " not limit_chain_type or stop_chain_type")
-
+  /* calculate total volume in the chain */
   template< typename ChainTy>
-  size_type _chain_size(ChainTy* chain) const
-  { /* calculate total volume in the chain */
-    ASSERT_VALID_CHAIN(ChainTy);
-    size_type sz = 0;
-    /* THIS HAS NO WAY OF KNOWING IF WE"RE PAST _end */
-    for(typename ChainTy::value_type& e : *chain)
-      sz += e.second.first;
-    return sz;
-  }
+  size_type _chain_size(ChainTy* chain) const;
 
+  /* remove a particular order */
   template< typename ChainTy>
-  bool _pull_order(id_type id)
-  {
-    plevel beg, end, hstop, lstop;
-    ChainTy* c;
-    bool buystop;
+  bool _pull_order(id_type id);
 
-    constexpr bool islim = std::is_same<ChainTy,limit_chain_type>::value;
-    ASSERT_VALID_CHAIN(ChainTy);
-
-    lstop = (plevel)min((plevel)min(this->_low_sell_stop,this->_low_buy_stop),
-                        (plevel)min(this->_high_sell_stop,this->_high_buy_stop));
-    hstop = (plevel)max((plevel)max(this->_low_sell_stop,this->_low_buy_stop),
-                        (plevel)max(this->_high_sell_stop,this->_high_buy_stop));
-    /* form low to high */
-    beg = islim ? this->_low_buy_limit : lstop;
-    end = islim ? this->_high_sell_limit : hstop;
-    /* THIS HAS NO WAY OF KNOWING IF WE"RE PAST _end */
-
-    for( ; beg <= end; ++beg)
-    {
-      c = islim ? (ChainTy*)&beg->first : (ChainTy*)&beg->second;
-      for(typename ChainTy::value_type& e : *c)
-      {
-        if(e.first == id){
-          if(!islim)
-            buystop = std::get<0>(e.second);
-          c->erase(e.first);
-          if(islim && c->empty())
-            this->_adjust_limit_cache_vals(beg);
-          else if(!islim){
-            if( buystop )
-              this->_adjust_stop_cache_vals<true>(beg,(stop_chain_type*)c);
-            else
-              this->_adjust_stop_cache_vals<false>(beg,(stop_chain_type*)c);
-          }
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  void _adjust_limit_cache_vals(plevel plev);
+  /* called from _pull order to update cached pointers */
   template<bool BuyStop>
   void _adjust_stop_cache_vals(plevel plev, stop_chain_type* c);
+  void _adjust_limit_cache_vals(plevel plev);
 
+  /* dump (to stdout) a particular chain array */
   template< bool BuyNotSell >
-  void _dump_limits() const
-  { /* dump (to stdout) a particular chain array (TODO optimize for cache vals) */
-    plevel beg,end;
+  void _dump_limits() const;
 
-    /* from high to low */
-    beg = BuyNotSell ? this->_bid : this->_end - 1;
-    end = BuyNotSell ? this->_beg : this->_ask;
+  /* dump (to stdout) a particular chain array */
+  template< bool BuyNotSell >
+  void _dump_stops() const;
 
-    for(; beg >= end; --beg)
-    {
-      if(!beg->first.empty()){
-        std::cout<< this->_itop(beg);
-        for(const limit_chain_type::value_type& e : beg->first)
-          std::cout<< " <" << e.second.first << "> ";
-        std::cout<< std::endl;
-      }
-    }
-  }
-
-  void _dump_stops() const
-  { /*
-     * dump (to stdout) a particular chain array (TODO optimize for cache vals)
-     * currently just doing the whole array so we can debug the core pieces
-     */
-    plevel beg,end, plim;
-
-    beg = this->_end - 1;
-    for(; beg >= this->_beg; --beg)
-    {
-      if(!beg->second.empty()){
-        std::cout<< this->_itop(beg);
-        for(const stop_chain_type::value_type& e : beg->second){
-          plim = (plevel)std::get<1>(e.second);
-          std::cout<< " <" << (std::get<0>(e.second) ? "B " : "S ")
-                   << std::to_string(std::get<2>(e.second)) << " @ "
-                   << (plim ? std::to_string(this->_itop(plim)) : "MKT")<<"> ";
-        }
-        std::cout<< std::endl;
-      }
-    }
-  }
-
-  /*
-   * handle post-trade tasks
-   */
+  /* handle post-trade tasks */
   void _on_trade_completion();
   void _look_for_triggered_stops();
-
   template< bool BuyStops>
   void _handle_triggered_stop_chain(plevel plev);
 
-  /*
-   * execute if orders match
-   */
+  /* execute if orders match */
   size_type _lift_offers(plevel plev, id_type id, size_type size,
                          fill_callback_type& callback);
   size_type _hit_bids(plevel plev, id_type id, size_type size,
                       fill_callback_type& callback);
-  /*
-   * signal trade has occurred(admin only, DONT INSERT NEW TRADES FROM HERE!)
-   */
+
+  /* signal trade has occurred(admin only, DONT INSERT NEW TRADES FROM HERE!) */
   void _trade_has_occured(plevel plev, size_type size, id_type idbuy,
                           id_type idsell, fill_callback_type& cbbuy,
                           fill_callback_type& cbsell, bool took_offer);
-  /*
-   * internal insert orders once/if we have an id
-   */
+
+  /* internal insert orders once/if we have an id */
   void _insert_limit_order(bool buy, plevel limit, size_type size,
                             fill_callback_type callback, id_type id);
-
   void _insert_market_order(bool buy, size_type size,
                              fill_callback_type callback, id_type id);
-
   void _insert_stop_order(bool buy, plevel stop, size_type size,
                            fill_callback_type callback, id_type id);
+  void _insert_stop_order(bool buy, plevel stop, plevel limit, size_type size,
+                          fill_callback_type callback, id_type id);
 
-  void _insert_stop_order(bool buy, plevel stop, plevel limit,
-                           size_type size, fill_callback_type callback,
-                           id_type id);
-  /*
-   * initialize book and market makers; CAREFUL: called from constructor
-   */
+  /* initialize book and market makers; CAREFUL: called from constructor */
   void _init(size_type begin_from_init, size_type end_from_init);
 
   /***************************************************
@@ -505,32 +402,10 @@ public:
 
   inline void dump_buy_limits() const { this->_dump_limits<true>(); }
   inline void dump_sell_limits() const { this->_dump_limits<false>(); }
-  // to offer buy/sell versions
-  inline void dump_stops() const { this->_dump_stops(); }
-  /*
-  inline void dump_buy_stops(){ this->_dump_chain_array(this->_bid_stops); }
-  inline void dump_sell_stops(){ this->_dump_chain_array(this->_ask_stops); }
-   */
+  inline void dump_buy_stops() const { this->_dump_stops<true>(); }
+  inline void dump_sell_stops() const { this->_dump_stops<false>(); }
 
-  void dump_cached_plevels() const
-  { /* DEBUG */
-    std::cout<< "CACHED PLEVELS" << std::endl;
-    std::cout<< "_high_sell_limit: "
-           << std::to_string(this->_itop(this->_high_sell_limit)) << std::endl;
-    std::cout<< "_high_buy_stop: "
-           << std::to_string(this->_itop(this->_low_buy_stop)) << std::endl;
-    std::cout<< "_low_buy_stop: "
-           << std::to_string(this->_itop(this->_low_buy_stop)) << std::endl;
-    std::cout<< "LAST: "
-           << std::to_string(this->_itop(this->_last)) << std::endl;
-    std::cout<< "_high_sell_stop: "
-             << std::to_string(this->_itop(this->_high_sell_stop)) << std::endl;
-    std::cout<< "_low_sell_stop: "
-            << std::to_string(this->_itop(this->_low_sell_stop)) << std::endl;
-    std::cout<< "_low_buy_limit: "
-             << std::to_string(this->_itop(this->_low_buy_limit)) << std::endl;
-
-  }
+  void dump_cached_plevels() const;
 
   inline market_depth_type bid_depth(size_type depth=8) const
   {
@@ -548,6 +423,7 @@ public:
   inline size_type ask_size() const { return this->_ask_size; }
   inline size_type last_size() const { return this->_last_size; }
   inline large_size_type volume() const { return this->_total_volume; }
+  inline large_size_type last_id() const { return this->_last_id; }
 
   inline const time_and_sales_type& time_and_sales() const
   {

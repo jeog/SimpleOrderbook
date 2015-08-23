@@ -344,6 +344,81 @@ void SOB_CLASS::_insert_stop_order(bool buy,
 }
 
 SOB_TEMPLATE
+template< bool BuyNotSell>
+typename SOB_CLASS::market_depth_type 
+SOB_CLASS::_market_depth(size_type depth) const
+{
+  plevel beg,end;
+  market_depth_type md;
+
+  /* from high to low */
+  beg = BuyNotSell ? this->_bid
+                   : (plevel)min(this->_ask + depth - 1, this->_end - 1);
+  end = BuyNotSell ? (plevel)max(this->_beg, this->_bid - depth +1)
+                   : this->_ask;
+
+  for( ; beg >= end; --beg)
+    if(!beg->first.empty())
+      md.insert( market_depth_type::value_type(
+                   this->_itop(beg), this->_chain_size(&beg->first)) );
+  return md;
+}
+
+SOB_TEMPLATE
+template< typename ChainTy>
+size_type SOB_CLASS::_chain_size(ChainTy* chain) const
+{ 
+  ASSERT_VALID_CHAIN(ChainTy);
+  size_type sz = 0;
+  for(typename ChainTy::value_type& e : *chain)
+    sz += e.second.first;
+  return sz;
+}
+
+SOB_TEMPLATE
+template< typename ChainTy>
+bool SOB_CLASS::_pull_order(id_type id)
+{
+  plevel beg, end, hstop, lstop;
+  ChainTy* c;
+  bool buystop;
+  
+  constexpr bool islim = std::is_same<ChainTy,limit_chain_type>::value;
+  ASSERT_VALID_CHAIN(ChainTy);
+  
+  lstop = (plevel)min((plevel)min(this->_low_sell_stop,this->_low_buy_stop),
+                      (plevel)min(this->_high_sell_stop,this->_high_buy_stop));
+  hstop = (plevel)max((plevel)max(this->_low_sell_stop,this->_low_buy_stop),
+                      (plevel)max(this->_high_sell_stop,this->_high_buy_stop));
+  /* form low to high */
+  beg = islim ? this->_low_buy_limit : lstop;
+  end = islim ? this->_high_sell_limit : hstop; 
+  
+  for( ; beg <= end; ++beg)
+  {
+   c = islim ? (ChainTy*)&beg->first : (ChainTy*)&beg->second;
+   for(typename ChainTy::value_type& e : *c)
+   {
+     if(e.first == id){
+       if(!islim)
+         buystop = std::get<0>(e.second);
+       c->erase(e.first);
+       if(islim && c->empty())
+         this->_adjust_limit_cache_vals(beg);
+       else if(!islim){
+         if( buystop )
+           this->_adjust_stop_cache_vals<true>(beg,(stop_chain_type*)c);
+         else
+           this->_adjust_stop_cache_vals<false>(beg,(stop_chain_type*)c);
+       }
+       return true;
+     }
+   }
+  }
+  return false;
+}
+
+SOB_TEMPLATE
 void SOB_CLASS::_adjust_limit_cache_vals(plevel plev)
 {  
   if(plev > this->_high_sell_limit)
@@ -395,6 +470,70 @@ void SOB_CLASS::_adjust_stop_cache_vals(plevel plev,stop_chain_type* c)
         ++(this->_low_sell_stop); /*dont look for next valid plevel*/       
     }    
   }    
+}
+
+SOB_TEMPLATE
+template< bool BuyNotSell >
+void SOB_CLASS::_dump_limits() const
+{ 
+  plevel beg,end;
+
+  /* from high to low */
+  beg = BuyNotSell ? this->_bid : this->_high_sell_limit;
+  end = BuyNotSell ? this->_low_buy_limit : this->_ask;
+
+  for( ; beg >= end; --beg)  
+    if(!beg->first.empty())
+    {
+      std::cout<< this->_itop(beg);
+      for(const limit_chain_type::value_type& e : beg->first)
+        std::cout<< " <" << e.second.first << "> ";
+      std::cout<< std::endl;
+    } 
+}
+
+SOB_TEMPLATE
+template< bool BuyNotSell >
+void SOB_CLASS::_dump_stops() const
+{ 
+  plevel beg,end, plim;
+
+  /* from high to low */
+  beg = BuyNotSell ? this->_high_buy_stop : this->_high_sell_stop;
+  end = BuyNotSell ? this->_low_buy_stop : this->_low_sell_stop;
+  
+  for( ; beg >= end; --beg) 
+    if(!beg->second.empty())
+    {
+      std::cout<< this->_itop(beg);
+      for(const stop_chain_type::value_type& e : beg->second){
+        plim = (plevel)std::get<1>(e.second);
+        std::cout<< " <" << (std::get<0>(e.second) ? "B " : "S ")
+                 << std::to_string(std::get<2>(e.second)) << " @ "
+                 << (plim ? std::to_string(this->_itop(plim)) : "MKT")<<"> ";
+      }
+      std::cout<< std::endl;
+    } 
+}
+
+SOB_TEMPLATE
+void SOB_CLASS::dump_cached_plevels() const
+{ /* DEBUG */
+  std::cout<< "CACHED PLEVELS" << std::endl;
+  std::cout<< "_high_sell_limit: "
+         << std::to_string(this->_itop(this->_high_sell_limit)) << std::endl;
+  std::cout<< "_high_buy_stop: "
+         << std::to_string(this->_itop(this->_low_buy_stop)) << std::endl;
+  std::cout<< "_low_buy_stop: "
+         << std::to_string(this->_itop(this->_low_buy_stop)) << std::endl;
+  std::cout<< "LAST: "
+         << std::to_string(this->_itop(this->_last)) << std::endl;
+  std::cout<< "_high_sell_stop: "
+           << std::to_string(this->_itop(this->_high_sell_stop)) << std::endl;
+  std::cout<< "_low_sell_stop: "
+          << std::to_string(this->_itop(this->_low_sell_stop)) << std::endl;
+  std::cout<< "_low_buy_limit: "
+           << std::to_string(this->_itop(this->_low_buy_limit)) << std::endl;
 }
 
 SOB_TEMPLATE
@@ -480,7 +619,7 @@ SOB_TEMPLATE
 id_type SOB_CLASS::insert_limit_order(bool buy,
                                       price_type limit,
                                       size_type size,
-                                      fill_callback_type callback)
+                                      fill_callback_type callback) 
 {
   id_type id;
   plevel plev;

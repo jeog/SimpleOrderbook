@@ -55,7 +55,7 @@ limit_order_type MarketMaker::post_ask(price_type price)
   return limit_order_type(price, this->_distr(this->_rand_engine));
 }
 
-void MarketMaker::initialize(SimpleOrderbook::RestrictedInterface *book,
+void MarketMaker::initialize(SimpleOrderbook::LimitInterface *book,
                              price_type implied, price_type incr)
 {
   size_type mod, count, i;
