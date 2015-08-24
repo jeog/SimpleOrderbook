@@ -545,9 +545,9 @@ typename SOB_CLASS::plevel SOB_CLASS::_ptoi(price_type price) const
   size_type incr_offset;
  // price_type incr_offset;
 /*
-  incr_offset = price / ((price_type)_incr_r::num/_incr_r::den);
+  incr_offset = price / ((price_type)tick_ratio::num/tick_ratio::den);
   plev = this->_beg + (size_type)round(incr_offset)-1;*/
-  incr_offset = round((price - this->_base) * _incr_r::den / _incr_r::num);
+  incr_offset = round((price - this->_base) * tick_ratio::den/tick_ratio::num);
   plev = this->_beg + incr_offset;
 
   if(plev < this->_beg)
@@ -572,12 +572,22 @@ price_type SOB_CLASS::_itop(plevel plev) const
     throw std::range_error( "plevel >= _end" );
 
   offset = plev - this->_beg;
-  incr_offset = (price_type)(offset) * _incr_r::num / _incr_r::den;
+  incr_offset = (price_type)(offset) * tick_ratio::num / tick_ratio::den;
   price = this->_base + incr_offset;
-  /*incr_offset = offset * (price_type)_incr_r::num / _incr_r::den;
+  /*incr_offset = offset * (price_type)tick_ratio::num / tick_ratio::den;
   price = (incr_offset*base_r::den + base_r::num) / base_r::den;*/
 
   return price;
+}
+
+SOB_TEMPLATE
+size_type SOB_CLASS::_incrs_in_range(price_type lprice, price_type hprice)
+{
+  price_type l,h;
+
+  h = this->_round_to_incr(hprice);
+  l = this->_round_to_incr(lprice);
+  return (size_type)round((h-l)*tick_ratio::den/tick_ratio::num);
 }
 
 
@@ -592,12 +602,12 @@ SOB_CLASS::SimpleOrderbook(price_type price, price_type min, price_type max,
   _upper_incr(this->_incrs_in_range(price,max)),
   _total_incr(_lower_incr + _upper_incr + 1),
   _base( min ),
-  _book( _total_incr ), 
-  _beg( &(*_book.begin()) ),
-  _end( &(*_book.end()) ), /* note: half-open range */
-  _last( &(*(_book.begin()+_lower_incr)) ), 
+  _book( _total_incr + 1), /* pad the beg sid so we can go past w/o seg fault */
+  _beg( &(*_book.begin()) + 1 ),
+  _end( &(*_book.end())), 
+  _last( this->_beg + _lower_incr ), 
   _bid( &(*(this->_beg-1)) ),
-  _ask( &(*(this->_end-1)) ),
+  _ask( &(*(this->_end)) ),
   _low_buy_limit( &(*this->_last) ),
   _high_sell_limit( &(*this->_last) ),
   _low_buy_stop( &(*(this->_end-1)) ),
@@ -614,18 +624,20 @@ SOB_CLASS::SimpleOrderbook(price_type price, price_type min, price_type max,
   _t_and_s_full(false)
   {
     /* checks */
-    if( price <= min || price >= max || price < 0 || min <= 0 || max <= 0 
-        || this->_lower_incr < 1 || this->_upper_incr < 1 )
-    {
-      throw invalid_parameters("invalid price/min/max parameter(s)");
-    }
-    /* checks */ 
-      
+    if(price < 0 || min <= 0 || max <= 0)    
+      throw invalid_parameters("price/min/max < 0");
+    
+    if(price <= min || price >= max)
+      throw invalid_parameters("price outside min-max range");
+   
+    if(this->_lower_incr < 1 || this->_upper_incr < 1)  
+      throw invalid_parameters("parameters don't generate enough increments"); 
+    /* checks */       
     this->_t_and_s.reserve(this->_t_and_s_max_sz);
     
     for(MarketMaker& mm : mms)
       mm.initialize(this,this->_itop(this->_last),
-                    (price_type)_incr_r::num / _incr_r::den);
+                    (price_type)tick_ratio::num / tick_ratio::den);
     
     std::cout<< "+ SimpleOrderbook Created\n";
   }

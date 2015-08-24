@@ -120,27 +120,28 @@ public:
                                           fill_callback_type callback) = 0;
 };
 
-#define SOB_TEMPLATE template<typename IncrementRatio>
-#define SOB_CLASS SimpleOrderbook<IncrementRatio>
+#define SOB_TEMPLATE template<typename TickRatio>
+#define SOB_CLASS SimpleOrderbook<TickRatio>
 
-template<typename IncrementRatio = std::ratio<1,100> >
+template<typename TickRatio = std::ratio<1,100> >
 class SimpleOrderbook
     : protected FullInterface{
  /*
   * TODO review how we copy/move/PY_INCREF callbacks
   * TODO time-to-live orders
   * TODO consider storing floating point price as two ints ( base1.base2 ) or ...
-  *   a single int that represents the ronded floating point
+  *   a single int that represents the rounded float or a ratio
   */
+public:
+  typedef TickRatio tick_ratio;
+  static constexpr double increment_size = (double)tick_ratio::num / tick_ratio::den;
+  static constexpr double increments_per_unit = tick_ratio::den / tick_ratio::num;
 
-  static_assert(!std::ratio_less<IncrementRatio,std::ratio<1,10000>>::value,
+private:
+  static_assert(!std::ratio_less<TickRatio,std::ratio<1,10000>>::value,
                 "Increment Ratio < ratio<1,10000> " );
-  static_assert(!std::ratio_greater<IncrementRatio,std::ratio<1,1>>::value,
+  static_assert(!std::ratio_greater<TickRatio,std::ratio<1,1>>::value,
                 "Increment Ratio < ratio<1,1> " );
-
-  typedef IncrementRatio _incr_r;
-  static constexpr double _incr_val = (double)_incr_r::num/(double)_incr_r::den;
-  static constexpr double _incr_inv = _incr_r::den/_incr_r::num;
 
   /* how callback info is stored in the deferred callback queue */
   typedef std::tuple<fill_callback_type,fill_callback_type,
@@ -200,29 +201,21 @@ class SimpleOrderbook
   size_type _t_and_s_max_sz;
   bool _t_and_s_full;
 
-
-  inline price_type _round_to_incr(price_type price)
-  {
-    return round(price * _incr_inv) / _incr_inv;
-  }
-
-  size_type _incrs_in_range(price_type lprice, price_type hprice)
-  {
-    price_type l,h;
-
-    h = this->_round_to_incr(hprice);
-    l = this->_round_to_incr(lprice);
-    return (size_type)round((h-l)*_incr_r::den/_incr_r::num);
-  }
-
   /* don't worry about overflow */
   inline large_size_type _generate_id(){ return ++(this->_last_id); }
 
-    public: /*DEBUG*/
   /* price-to-index and index-to-price utilities  */
   plevel _ptoi(price_type price) const;
   price_type _itop(plevel plev) const;
-    private:
+
+
+  inline price_type _round_to_incr(price_type price)
+  {
+    return round(price * tick_ratio::den / tick_ratio::num) \
+           * tick_ratio::num / tick_ratio::den;
+  }
+
+  size_type _incrs_in_range(price_type lprice, price_type hprice);
 
   /* calculate chain_size of limit orders at each price level
    * use depth increments on each side of last */
@@ -262,7 +255,7 @@ class SimpleOrderbook
   size_type _hit_bids(plevel plev, id_type id, size_type size,
                       fill_callback_type& callback);
 
-  /* signal trade has occurred(admin only, DONT INSERT NEW TRADES FROM HERE!) */
+  /* signal trade has occurred(admin only, DONT INSERT NEW TRADES IN HERE!) */
   void _trade_has_occured(plevel plev, size_type size, id_type idbuy,
                           id_type idsell, fill_callback_type& cbbuy,
                           fill_callback_type& cbsell, bool took_offer);
@@ -351,9 +344,12 @@ public:
   static std::string timestamp_to_str(const time_stamp_type& tp);
 };
 
-typedef SimpleOrderbook<std::ratio<1,4>>     QuartersSimpleOrderbook;
-typedef SimpleOrderbook<std::ratio<1,100>>   DefaultSimpleOrderbook;
-typedef SimpleOrderbook<std::ratio<1,10000>> SubPennySimpleOrderbook;
+typedef SimpleOrderbook<std::ratio<1,4>>     QuarterTick;
+typedef SimpleOrderbook<std::ratio<1,10>>    TenthTick;
+typedef SimpleOrderbook<std::ratio<1,32>>    ThirtySecondthTick;
+typedef SimpleOrderbook<std::ratio<1,100>>   HundredthTick, PennyTick, Default;
+typedef SimpleOrderbook<std::ratio<1,1000>>  ThousandthTick;
+typedef SimpleOrderbook<std::ratio<1,10000>> TenThousandthTick;
 
 };
 

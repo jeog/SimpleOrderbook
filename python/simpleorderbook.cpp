@@ -65,8 +65,8 @@ typedef struct {
 #define CALLDOWN_FOR_STATE_WITH_TRY_BLOCK(apicall,sobcall) \
   static PyObject* VOB_ ## sobcall(pySOB* self){ \
     try{ \
-      NativeLayer::SimpleOrderbook::DefaultSimpleOrderbook* sob = \
-        (NativeLayer::SimpleOrderbook::DefaultSimpleOrderbook*)self->_sob; \
+      NativeLayer::SimpleOrderbook::Default* sob = \
+        (NativeLayer::SimpleOrderbook::Default*)self->_sob; \
       return apicall( sob->sobcall()); \
     }catch(std::exception& e){ \
       PyErr_SetString(PyExc_Exception, e.what()); \
@@ -85,8 +85,8 @@ CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLongLong, volume )
 #define CALLDOWN_TO_DUMP_WITH_TRY_BLOCK(sobcall) \
   static PyObject* VOB_ ## sobcall(pySOB* self){ \
     try{ \
-      NativeLayer::SimpleOrderbook::DefaultSimpleOrderbook* sob = \
-        (NativeLayer::SimpleOrderbook::DefaultSimpleOrderbook*)self->_sob; \
+      NativeLayer::SimpleOrderbook::Default* sob = \
+        (NativeLayer::SimpleOrderbook::Default*)self->_sob; \
       sob->sobcall(); \
     }catch(std::exception& e){ \
       PyErr_SetString(PyExc_Exception, e.what()); \
@@ -148,14 +148,13 @@ bool get_order_args(PyObject* args,
 }
 
 /*
- * NOTE: the order of args passed into the python call (*args, *kwds)
+ * NOTE: the order of args passed into the python call (*args,  *kwds)
  *  is different than what we pass into get_order_args because of varargs...
  */
 template<bool BuyNotSell, bool Replace>
 PyObject* VOB_trade_limit_(pySOB* self, PyObject* args, PyObject* kwds)
 {
   using namespace NativeLayer;
-  using namespace NativeLayer::SimpleOrderbook;
 
   price_type limit;
   size_type size;
@@ -179,7 +178,7 @@ PyObject* VOB_trade_limit_(pySOB* self, PyObject* args, PyObject* kwds)
     return NULL;
 
   try{
-    DefaultSimpleOrderbook* sob = (DefaultSimpleOrderbook*)self->_sob;
+    SimpleOrderbook::Default* sob = (SimpleOrderbook::Default*)self->_sob;
     /*
      * be careful with copy contruction/ ref passing of CallbackWrapper object
      * we need to copy into the order_map, can pass by reference elsewhere
@@ -202,7 +201,6 @@ template< bool BuyNotSell, bool Replace >
 PyObject* VOB_trade_market_(pySOB* self, PyObject* args, PyObject* kwds)
 {
   using namespace NativeLayer;
-  using namespace NativeLayer::SimpleOrderbook;
 
   size_type size;
   PyObject* callback;
@@ -224,7 +222,7 @@ PyObject* VOB_trade_market_(pySOB* self, PyObject* args, PyObject* kwds)
     return NULL;
 
   try{
-    DefaultSimpleOrderbook* sob = (DefaultSimpleOrderbook*)self->_sob;
+    SimpleOrderbook::Default* sob = (SimpleOrderbook::Default*)self->_sob;
     /*
      * be careful with copy contruction/ ref passing of CallbackWrapper object
      * we need to copy into the order_map, can pass by reference elsewhere
@@ -247,7 +245,6 @@ template<bool BuyNotSell, bool Replace>
 PyObject* VOB_trade_stop_(pySOB* self,PyObject* args,PyObject* kwds)
 {
   using namespace NativeLayer;
-  using namespace NativeLayer::SimpleOrderbook;
 
   price_type stop;
   size_type size;
@@ -271,7 +268,7 @@ PyObject* VOB_trade_stop_(pySOB* self,PyObject* args,PyObject* kwds)
     return NULL;
 
   try{
-    DefaultSimpleOrderbook* sob = (DefaultSimpleOrderbook*)self->_sob;
+    SimpleOrderbook::Default* sob = (SimpleOrderbook::Default*)self->_sob;
     /*
      * be careful with copy contruction/ ref passing of CallbackWrapper object
      * we need to copy into the order_map, can pass by reference elsewhere
@@ -293,7 +290,6 @@ template<bool BuyNotSell, bool Replace>
 PyObject* VOB_trade_stop_limit_(pySOB* self, PyObject* args, PyObject* kwds)
 {
   using namespace NativeLayer;
-  using namespace NativeLayer::SimpleOrderbook;
 
   price_type stop;
   price_type limit;
@@ -318,7 +314,7 @@ PyObject* VOB_trade_stop_limit_(pySOB* self, PyObject* args, PyObject* kwds)
     return NULL;
 
   try{
-    DefaultSimpleOrderbook* sob = (DefaultSimpleOrderbook*)self->_sob;
+    SimpleOrderbook::Default* sob = (SimpleOrderbook::Default*)self->_sob;
     /*
      * be careful with copy contruction/ ref passing of CallbackWrapper object
      * we need to copy into the order_map, can pass by reference elsewhere
@@ -340,7 +336,6 @@ UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( stop_limit )
 PyObject* VOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
 {
   using namespace NativeLayer;
-  using namespace NativeLayer::SimpleOrderbook;
 
   bool rval;
   id_type id;
@@ -351,7 +346,7 @@ PyObject* VOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
     return NULL;
 
   try{
-    rval = ((DefaultSimpleOrderbook*)self->_sob)->pull_order(id);
+    rval = ((SimpleOrderbook::Default*)self->_sob)->pull_order(id);
 
   }catch(std::exception& e){
     PyErr_SetString(PyExc_Exception, e.what());
@@ -364,9 +359,8 @@ PyObject* VOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
 static PyObject* VOB_time_and_sales(pySOB* self, PyObject* args)
 {
   using namespace NativeLayer;
-  using namespace NativeLayer::SimpleOrderbook;
 
-  DefaultSimpleOrderbook* sob;
+  SimpleOrderbook::Default* sob;
   long arg;
   size_type num;
   PyObject *list, *tup;
@@ -377,8 +371,11 @@ static PyObject* VOB_time_and_sales(pySOB* self, PyObject* args)
   }
 
   try{
-    sob = (DefaultSimpleOrderbook*)self->_sob;
-    const QueryInterface::time_and_sales_type& vec = sob->time_and_sales();
+    sob = (SimpleOrderbook::Default*)self->_sob;
+
+    const SimpleOrderbook::QueryInterface::time_and_sales_type& vec =
+        sob->time_and_sales();
+
     auto biter = vec.cbegin();
     auto eiter = vec.cend();
     num = arg <= 0 ? vec.size() : (size_type)arg;
@@ -388,7 +385,7 @@ static PyObject* VOB_time_and_sales(pySOB* self, PyObject* args)
     for(size_type i = 0; i < num && biter != eiter; ++i, ++biter)
     {
       std::string s =
-        DefaultSimpleOrderbook::timestamp_to_str(std::get<0>(*biter));
+        SimpleOrderbook::Default::timestamp_to_str(std::get<0>(*biter));
       tup = Py_BuildValue("(s,f,k)", s.c_str(), std::get<1>(*biter),
                           std::get<2>(*biter));
       PyList_SET_ITEM(list, i, tup);
@@ -478,7 +475,6 @@ static PyMethodDef pySOB_methods[] =
 static PyObject* VOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 {
   using namespace NativeLayer;
-  using namespace NativeLayer::SimpleOrderbook;
 
   pySOB* self;
   price_type price,low,high;
@@ -503,12 +499,12 @@ static PyObject* VOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
       /* use defaults for now */
       pmms = new market_makers_type(mms, MarketMaker(szl,szh));
 
-      if(!self->_mms)
-        throw std::runtime_error("self->_sob was not constructed");
+      if(!pmms)
+        throw std::runtime_error("self->_mms was not constructed");
       else
         self->_mms = (PyObject*)pmms;
 
-      self->_sob = (PyObject*)new DefaultSimpleOrderbook(price,low,high,*pmms);
+      self->_sob = (PyObject*)new SimpleOrderbook::Default(price,low,high,*pmms);
 
       if(!self->_sob)
         throw std::runtime_error("self->_sob was not constructed");
@@ -531,7 +527,7 @@ static PyObject* VOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 
 static void VOB_Delete(pySOB* self)
 {
-  delete (NativeLayer::SimpleOrderbook::DefaultSimpleOrderbook*)(self->_sob);
+  delete (NativeLayer::SimpleOrderbook::Default*)(self->_sob);
   delete (std::vector<NativeLayer::MarketMaker>*)(self->_mms);
   Py_TYPE(self)->tp_free((PyObject*)self);
 }
