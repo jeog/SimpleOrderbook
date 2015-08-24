@@ -583,13 +583,36 @@ price_type SOB_CLASS::_itop(plevel plev) const
 SOB_TEMPLATE
 size_type SOB_CLASS::_incrs_in_range(price_type lprice, price_type hprice)
 {
-  price_type l,h;
+  price_type l,h,i;  
 
   h = this->_round_to_incr(hprice);
   l = this->_round_to_incr(lprice);
-  return (size_type)round((h-l)*tick_ratio::den/tick_ratio::num);
+  i = round((h-l)*tick_ratio::den/tick_ratio::num);
+  
+  if(lprice < 0 || hprice < 0)
+    throw invalid_parameters("price/min/max values can not be < 0"); 
+  
+  if(i < 0)
+    throw invalid_parameters("invalid price/min/max price value(s)");
+    
+  return (size_type)i;
 }
 
+SOB_TEMPLATE
+size_type SOB_CLASS::_generate_and_check_total_incr()
+{
+  size_type i;
+  
+  if(this->_lower_incr < 1 || this->_upper_incr < 1)  
+    throw invalid_parameters("parameters don't generate enough increments"); 
+  
+  i = this->_lower_incr + this->_upper_incr + 1;
+  
+  if(this->_total_incr > max_ticks)
+    throw invalid_parameters("tick range requested would exceed MaxMemory");
+  
+  return i;
+}
 
 SOB_TEMPLATE 
 SOB_CLASS::SimpleOrderbook(price_type price, price_type min, price_type max,
@@ -600,7 +623,7 @@ SOB_CLASS::SimpleOrderbook(price_type price, price_type min, price_type max,
   _last_size(0), 
   _lower_incr(this->_incrs_in_range(min,price)),
   _upper_incr(this->_incrs_in_range(price,max)),
-  _total_incr(_lower_incr + _upper_incr + 1),
+  _total_incr(this->_generate_and_check_total_incr()),
   _base( min ),
   _book( _total_incr + 1), /* pad the beg sid so we can go past w/o seg fault */
   _beg( &(*_book.begin()) + 1 ),
@@ -622,22 +645,11 @@ SOB_CLASS::SimpleOrderbook(price_type price, price_type min, price_type max,
   _t_and_s(),
   _t_and_s_max_sz(1000),
   _t_and_s_full(false)
-  {
-    /* checks */
-    if(price < 0 || min <= 0 || max <= 0)    
-      throw invalid_parameters("price/min/max < 0");
-    
-    if(price <= min || price >= max)
-      throw invalid_parameters("price outside min-max range");
-   
-    if(this->_lower_incr < 1 || this->_upper_incr < 1)  
-      throw invalid_parameters("parameters don't generate enough increments"); 
-    /* checks */       
+  {       
     this->_t_and_s.reserve(this->_t_and_s_max_sz);
     
     for(MarketMaker& mm : mms)
-      mm.initialize(this,this->_itop(this->_last),
-                    (price_type)tick_ratio::num / tick_ratio::den);
+      mm.initialize(this,price,increment_size);
     
     std::cout<< "+ SimpleOrderbook Created\n";
   }

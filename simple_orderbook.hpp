@@ -84,7 +84,7 @@ protected:
     }
 public:
   virtual id_type insert_limit_order(bool buy, price_type limit, size_type size,
-                                    fill_callback_type callback) = 0;
+                                     fill_callback_type callback) = 0;
   virtual id_type replace_with_limit_order(id_type id, bool buy,
                                            price_type limit,
                                            size_type size,
@@ -120,15 +120,15 @@ public:
                                           fill_callback_type callback) = 0;
 };
 
-#define SOB_TEMPLATE template<typename TickRatio>
-#define SOB_CLASS SimpleOrderbook<TickRatio>
+#define SOB_TEMPLATE template<typename TickRatio,size_type MaxMemory>
+#define SOB_CLASS SimpleOrderbook<TickRatio,MaxMemory>
 
-template<typename TickRatio = std::ratio<1,100> >
+template< typename TickRatio = std::ratio<1,100>,
+         size_type MaxMemory = 1024 * 1024 * 1024 >
 class SimpleOrderbook
     : protected FullInterface{
  /*
   * TODO review how we copy/move/PY_INCREF callbacks
-  * TODO time-to-live orders
   * TODO consider storing floating point price as two ints ( base1.base2 ) or ...
   *   a single int that represents the rounded float or a ratio
   */
@@ -152,8 +152,6 @@ private:
   typedef std::pair<size_type, fill_callback_type>         limit_bndl_type;
   typedef std::map<id_type, limit_bndl_type>               limit_chain_type;
 
-
-
   /* stop bundle type holds the size and callback of each stop order
    * stop 'chain' type holds all stop orders at a price(limit or market) */
   typedef std::tuple<bool,void*,size_type,fill_callback_type>  stop_bndl_type;
@@ -165,11 +163,14 @@ private:
                   #TYPE " not limit_chain_type or stop_chain_type")
 
   /* chain pair is the limit and stop chain at a particular price
-   * use a (less safe) pointer for plevel rather than iterator because iterator
+   * use a (less safe) pointer for plevel because iterator
    * is implemented as a class and creates a number of problems internally */
+
   typedef std::pair<limit_chain_type,stop_chain_type> chain_pair_type, *plevel;
 
-  /* an array of all chain pairs (how we reprsent the 'book' internally) */
+  static constexpr size_type max_ticks = MaxMemory / sizeof(chain_pair_type);
+
+  /* a vector of all chain pairs (how we reprsent the 'book' internally) */
   typedef std::vector<chain_pair_type> order_book_type;
 
   /* state fields */
@@ -216,6 +217,7 @@ private:
   }
 
   size_type _incrs_in_range(price_type lprice, price_type hprice);
+  size_type _generate_and_check_total_incr();
 
   /* calculate chain_size of limit orders at each price level
    * use depth increments on each side of last */
