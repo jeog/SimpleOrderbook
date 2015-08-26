@@ -57,7 +57,7 @@ public:
     }
   operator double() const
   {
-    return AdjustFunc(((double)(*this)) * _round_adj) / _round_adj;
+    return AdjustFunc((whole + incr * increment_size) * _round_adj) / _round_adj;
   }
 };
 
