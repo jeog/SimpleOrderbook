@@ -27,6 +27,8 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 
 namespace NativeLayer{
 
+
+
 typedef float               price_type;
 typedef double              price_diff_type;
 typedef unsigned long       size_type, id_type;
@@ -45,6 +47,7 @@ typedef const enum {
 
 typedef std::function<void(callback_msg,id_type,
                            price_type,size_type)> fill_callback_type;
+
 
 
 inline std::ostream& operator<<(std::ostream& out, limit_order_type lim)

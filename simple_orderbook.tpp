@@ -649,7 +649,7 @@ SOB_CLASS::SimpleOrderbook(price_type price, price_type min, price_type max,
     this->_t_and_s.reserve(this->_t_and_s_max_sz);
     
     for(MarketMaker& mm : mms)
-      mm.initialize(this,price,increment_size);
+      mm.initialize(this,price,tick_size);
     
     std::cout<< "+ SimpleOrderbook Created\n";
   }

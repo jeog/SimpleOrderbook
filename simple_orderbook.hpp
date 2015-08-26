@@ -134,14 +134,14 @@ class SimpleOrderbook
   */
 public:
   typedef TickRatio tick_ratio;
-  static constexpr double increment_size = (double)tick_ratio::num / tick_ratio::den;
-  static constexpr double increments_per_unit = tick_ratio::den / tick_ratio::num;
+  static constexpr double tick_size = (double)tick_ratio::num / tick_ratio::den;
+  static constexpr double ticks_per_unit = tick_ratio::den / tick_ratio::num;
 
 private:
   static_assert(!std::ratio_less<TickRatio,std::ratio<1,10000>>::value,
                 "Increment Ratio < ratio<1,10000> " );
   static_assert(!std::ratio_greater<TickRatio,std::ratio<1,1>>::value,
-                "Increment Ratio < ratio<1,1> " );
+                "Increment Ratio > ratio<1,1> " );
 
   /* how callback info is stored in the deferred callback queue */
   typedef std::tuple<fill_callback_type,fill_callback_type,
