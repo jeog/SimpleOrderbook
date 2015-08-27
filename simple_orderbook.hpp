@@ -134,12 +134,13 @@ class SimpleOrderbook
   *   a single int that represents the rounded float or a ratio
   */
 public:
-  typedef TickRatio tick_ratio;
-  static constexpr double tick_size = (double)tick_ratio::num / tick_ratio::den;
-  static constexpr double ticks_per_unit = tick_ratio::den / tick_ratio::num;
   typedef SimpleOrderbook<TickRatio,MaxMemory> my_type;
   typedef FullInterface my_base_type;
   typedef TrimmedRational<TickRatio> my_price_type;
+  typedef TickRatio tick_ratio;
+
+  static constexpr double tick_size = (double)tick_ratio::num / tick_ratio::den;
+  static constexpr double ticks_per_unit = tick_ratio::den / tick_ratio::num;
 
 private:
   static_assert(!std::ratio_less<TickRatio,std::ratio<1,10000>>::value,
@@ -193,7 +194,7 @@ private:
   large_size_type _total_volume, _last_id;
 
   /* autonomous market makers */
-  std::vector<MarketMaker> _market_makers;
+  std::vector<MarketMakerBase> _market_makers;
 
   /* trade has occurred but we've deferred 'handling' it */
   bool _is_dirty;
@@ -291,7 +292,7 @@ private:
 
 public:
   SimpleOrderbook(my_price_type price, my_price_type min, my_price_type max,
-                 std::vector<MarketMaker>& mms);
+                 std::vector<MarketMakerBase>& mms);
 
   ~SimpleOrderbook();
 

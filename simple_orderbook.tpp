@@ -650,7 +650,7 @@ size_type SOB_CLASS::_generate_and_check_total_incr()
 
 SOB_TEMPLATE 
 SOB_CLASS::SimpleOrderbook(my_price_type price, my_price_type min, 
-                           my_price_type max, std::vector<MarketMaker>& mms)
+                           my_price_type max, std::vector<MarketMakerBase>& mms)
   :
   _bid_size(0),
   _ask_size(0),
@@ -682,8 +682,8 @@ SOB_CLASS::SimpleOrderbook(my_price_type price, my_price_type min,
   {       
     this->_t_and_s.reserve(this->_t_and_s_max_sz);
     
-    for(MarketMaker& mm : mms)
-      mm.initialize(this,price,tick_size);
+    for(MarketMakerBase& mm : mms)
+      mm.start(this,price,tick_size);
     
     std::cout<< "+ SimpleOrderbook Created\n";
   }

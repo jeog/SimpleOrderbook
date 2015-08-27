@@ -40,7 +40,7 @@ typedef std::pair<price_type,limit_order_type>  stop_order_type;
 
 typedef typename std::chrono::steady_clock      clock_type;
 
-typedef const enum {
+typedef enum {
     cancel = 0,
     fill
 }callback_msg;

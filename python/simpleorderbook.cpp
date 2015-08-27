@@ -528,7 +528,7 @@ static PyObject* VOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 static void VOB_Delete(pySOB* self)
 {
   delete (NativeLayer::SimpleOrderbook::Default*)(self->_sob);
-  delete (std::vector<NativeLayer::MarketMaker>*)(self->_mms);
+  delete (NativeLayer::market_makers_type*)(self->_mms);
   Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
