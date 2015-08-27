@@ -129,6 +129,7 @@ template< typename TickRatio = std::ratio<1,100>,
 class SimpleOrderbook
     : protected FullInterface{
  /*
+  * TODO check ownership of market_maker smart_pointers
   * TODO review how we copy/move/PY_INCREF callbacks
   * TODO consider storing floating point price as two ints ( base1.base2 ) or ...
   *   a single int that represents the rounded float or a ratio
@@ -194,7 +195,7 @@ private:
   large_size_type _total_volume, _last_id;
 
   /* autonomous market makers */
-  std::vector<MarketMaker> _market_makers;
+  market_makers_type _market_makers;
 
   /* trade has occurred but we've deferred 'handling' it */
   bool _is_dirty;
@@ -292,7 +293,7 @@ private:
 
 public:
   SimpleOrderbook(my_price_type price, my_price_type min, my_price_type max,
-                 std::vector<MarketMaker>& mms);
+                 market_makers_type&& mms);
 
   ~SimpleOrderbook();
 

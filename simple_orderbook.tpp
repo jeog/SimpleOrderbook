@@ -650,7 +650,7 @@ size_type SOB_CLASS::_generate_and_check_total_incr()
 
 SOB_TEMPLATE 
 SOB_CLASS::SimpleOrderbook(my_price_type price, my_price_type min, 
-                           my_price_type max, market_makers_type& mms)
+                           my_price_type max, market_makers_type&& mms)
   :
   _bid_size(0),
   _ask_size(0),
@@ -673,7 +673,7 @@ SOB_CLASS::SimpleOrderbook(my_price_type price, my_price_type min,
   _high_sell_stop( &(*this->_beg) ),
   _total_volume(0),
   _last_id(0),
-  _market_makers( mms ), /* do we want to copy,borrow or steal?? */
+  _market_makers( std::move(mms) ), /* steal the market_maker smart_pointers */
   _is_dirty(false),
   _deferred_callback_queue(),
   _t_and_s(),
@@ -682,8 +682,8 @@ SOB_CLASS::SimpleOrderbook(my_price_type price, my_price_type min,
   {       
     this->_t_and_s.reserve(this->_t_and_s_max_sz);
     
-    for(MarketMaker& mm : mms)
-      mm.start(this,price,tick_size);
+    for(pMarketMaker& mm : this->_market_makers)
+      mm->start(this,price,tick_size);
     
     std::cout<< "+ SimpleOrderbook Created\n";
   }

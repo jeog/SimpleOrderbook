@@ -496,15 +496,17 @@ static PyObject* VOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
   self->_sob = nullptr;
   if(self != NULL){
     try{
-      /* use defaults for now */
-      pmms = new market_makers_type(mms, MarketMaker_Random(szl,szh));
+      pmms = new market_makers_type;
+      while( mms-- )
+        pmms->push_back( pMarketMaker(new MarketMaker_Random(szl,szh)) );
 
       if(!pmms)
         throw std::runtime_error("self->_mms was not constructed");
       else
         self->_mms = (PyObject*)pmms;
 
-      self->_sob = (PyObject*)new SimpleOrderbook::Default(price,low,high,*pmms);
+      self->_sob = (PyObject*)new SimpleOrderbook::Default(price, low, high,
+                                                           std::move(*pmms));
 
       if(!self->_sob)
         throw std::runtime_error("self->_sob was not constructed");
