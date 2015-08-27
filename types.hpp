@@ -42,11 +42,12 @@ typedef typename std::chrono::steady_clock      clock_type;
 
 typedef enum {
     cancel = 0,
-    fill
+    fill,
+    stop
 }callback_msg;
 
 typedef std::function<void(callback_msg,id_type,
-                           price_type,size_type)> fill_callback_type;
+                           price_type,size_type)> callback_type;
 
 
 

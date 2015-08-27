@@ -29,47 +29,57 @@ namespace SimpleOrderbook{
 class LimitInterface;
 }
 
-class MarketMakerBase{
+class MarketMaker{
   SimpleOrderbook::LimitInterface *_book;
-  fill_callback_type _my_callback;
+  callback_type _callback;
   bool _is_running;
 
 public:
-  MarketMakerBase(fill_callback_type fill_callback=&default_callback);
-  virtual ~MarketMakerBase()
+  MarketMaker(callback_type callback=&default_callback)
+    :
+      _book(nullptr),
+      _callback(callback),
+      _is_running(false)
+    {
+    }
+  virtual ~MarketMaker()
     {
     };
-
   virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
                      price_type incr);
   virtual void stop();
 
   static void default_callback(callback_msg msg,id_type id, price_type price,
                                size_type size);
+protected:
+  void bid(price_type price, size_type size) const;
+  void offer(price_type price, size_type size) const;
 };
 
-class MarketMaker
-    : public MarketMakerBase{
+class MarketMaker_Random
+    : public MarketMaker{
  /*
   * an object that provides customizable orderflow from asymmetric market info
   * uses SimpleOrderbook's LimitInterface
   */
   size_type _sz_low, _sz_high;
-
   std::default_random_engine _rand_engine;
   std::uniform_int_distribution<size_type> _distr, _distr2;
-  static const clock_type::time_point seedtp;
+  unsigned long long _gen_seed();
 
 public:
-  typedef MarketMakerBase my_base_type;
+  typedef MarketMaker my_base_type;
 
-  MarketMaker(size_type sz_low, size_type sz_high,
-              fill_callback_type fill_callback=&my_base_type::default_callback);
-  MarketMaker(const MarketMaker& mm );
+  MarketMaker_Random(size_type sz_low, size_type sz_high,
+              callback_type callback=&my_base_type::default_callback);
+  MarketMaker_Random(const MarketMaker_Random& mm );
   void start(SimpleOrderbook::LimitInterface *book, price_type implied,
                   price_type incr);
+
+private:
+  static const clock_type::time_point seedtp;
 };
 
-typedef std::vector<MarketMakerBase> market_makers_type;
+typedef std::vector<MarketMaker> market_makers_type;
 };
 #endif

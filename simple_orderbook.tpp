@@ -24,8 +24,8 @@ void SOB_CLASS::_trade_has_occured(plevel plev,
                                  size_type size,
                                  id_type idbuy,
                                  id_type idsell,
-                                 fill_callback_type& cbbuy,
-                                 fill_callback_type& cbsell,
+                                 callback_type& cbbuy,
+                                 callback_type& cbsell,
                                  bool took_offer)
 {/*
   * CAREFUL: we can't insert orders from here since we have yet to finish
@@ -132,7 +132,7 @@ SOB_TEMPLATE
 size_type SOB_CLASS::_lift_offers(plevel plev,
                                   id_type id,
                                   size_type size,
-                                  fill_callback_type& callback)
+                                  callback_type& callback)
 {
   limit_chain_type::iterator del_iter;
   size_type amount, for_sale;
@@ -188,7 +188,7 @@ SOB_TEMPLATE
 size_type SOB_CLASS::_hit_bids(plevel plev,
                                id_type id,
                                size_type size,
-                               fill_callback_type& callback)
+                               callback_type& callback)
 {
   limit_chain_type::iterator del_iter;
   size_type amount, to_buy;
@@ -245,7 +245,7 @@ SOB_TEMPLATE
 void SOB_CLASS::_insert_limit_order(bool buy,
                                     plevel limit,
                                     size_type size,
-                                    fill_callback_type callback,
+                                    callback_type callback,
                                     id_type id)
 {
   size_type rmndr = size; 
@@ -292,7 +292,7 @@ void SOB_CLASS::_insert_limit_order(bool buy,
 SOB_TEMPLATE
 void SOB_CLASS::_insert_market_order(bool buy,
                                      size_type size,
-                                     fill_callback_type callback,
+                                     callback_type callback,
                                      id_type id)
 {
   size_type rmndr = size;
@@ -309,7 +309,7 @@ SOB_TEMPLATE
 void SOB_CLASS::_insert_stop_order(bool buy,
                                    plevel stop,
                                    size_type size,
-                                   fill_callback_type callback,
+                                   callback_type callback,
                                    id_type id)
 {
   this->_insert_stop_order(buy, stop, nullptr, size, std::move(callback), id);
@@ -320,7 +320,7 @@ void SOB_CLASS::_insert_stop_order(bool buy,
                                    plevel stop,
                                    plevel limit,
                                    size_type size,
-                                   fill_callback_type callback,
+                                   callback_type callback,
                                    id_type id)
 { /*
    * we need an actual trade @/through the stop, i.e can't assume
@@ -650,7 +650,7 @@ size_type SOB_CLASS::_generate_and_check_total_incr()
 
 SOB_TEMPLATE 
 SOB_CLASS::SimpleOrderbook(my_price_type price, my_price_type min, 
-                           my_price_type max, std::vector<MarketMakerBase>& mms)
+                           my_price_type max, market_makers_type& mms)
   :
   _bid_size(0),
   _ask_size(0),
@@ -682,7 +682,7 @@ SOB_CLASS::SimpleOrderbook(my_price_type price, my_price_type min,
   {       
     this->_t_and_s.reserve(this->_t_and_s_max_sz);
     
-    for(MarketMakerBase& mm : mms)
+    for(MarketMaker& mm : mms)
       mm.start(this,price,tick_size);
     
     std::cout<< "+ SimpleOrderbook Created\n";
@@ -698,7 +698,7 @@ SOB_TEMPLATE
 id_type SOB_CLASS::insert_limit_order(bool buy,
                                       price_type limit,
                                       size_type size,
-                                      fill_callback_type callback) 
+                                      callback_type callback) 
 {
   plevel plev;
   id_type id;
@@ -720,7 +720,7 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
 SOB_TEMPLATE
 id_type SOB_CLASS::insert_market_order(bool buy,
                                        size_type size,
-                                       fill_callback_type callback)
+                                       callback_type callback)
 {
   id_type id;
 
@@ -737,7 +737,7 @@ SOB_TEMPLATE
 id_type SOB_CLASS::insert_stop_order(bool buy,
                                      price_type stop,
                                      size_type size,
-                                     fill_callback_type callback)
+                                     callback_type callback)
 {
   return this->insert_stop_order(buy,stop,0,size,callback);
 }
@@ -747,7 +747,7 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
                                      price_type stop,
                                      price_type limit,
                                      size_type size,
-                                     fill_callback_type callback)
+                                     callback_type callback)
 {
   plevel plimit, pstop;
   id_type id;
@@ -784,7 +784,7 @@ id_type SOB_CLASS::replace_with_limit_order(id_type id,
                                             bool buy,
                                             price_type limit,
                                             size_type size,
-                                            fill_callback_type callback)
+                                            callback_type callback)
 {
   id_type id_new = 0;
   
@@ -798,7 +798,7 @@ SOB_TEMPLATE
 id_type SOB_CLASS::replace_with_market_order(id_type id,
                                              bool buy,
                                              size_type size,
-                                             fill_callback_type callback)
+                                             callback_type callback)
 {
   id_type id_new = 0;
   
@@ -813,7 +813,7 @@ id_type SOB_CLASS::replace_with_stop_order(id_type id,
                                            bool buy,
                                            price_type stop,
                                            size_type size,
-                                           fill_callback_type callback)
+                                           callback_type callback)
 {
   id_type id_new = 0;
   
@@ -829,7 +829,7 @@ id_type SOB_CLASS::replace_with_stop_order(id_type id,
                                            price_type stop,
                                            price_type limit,
                                            size_type size,
-                                           fill_callback_type callback)
+                                           callback_type callback)
 {
   id_type id_new = 0;
   

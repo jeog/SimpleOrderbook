@@ -21,17 +21,9 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 
 namespace NativeLayer{
 
-MarketMakerBase::MarketMakerBase(fill_callback_type fill_callback)
-  :
-    _book(nullptr),
-    _my_callback(fill_callback),
-    _is_running(false)
-  {
-  }
-
-void MarketMakerBase::start(SimpleOrderbook::LimitInterface *book,
-                                    price_type implied,
-                                    price_type incr)
+void MarketMaker::start(SimpleOrderbook::LimitInterface *book,
+                        price_type implied,
+                        price_type incr)
 {
   if(!book)
     std::invalid_argument("book can not be null(ptr)");
@@ -41,58 +33,80 @@ void MarketMakerBase::start(SimpleOrderbook::LimitInterface *book,
   }
 }
 
-void MarketMakerBase::stop()
+void MarketMaker::stop()
 {
   this->_is_running = false;
   this->_book = nullptr;
 }
 
-void MarketMakerBase::default_callback(callback_msg msg,
-                                       id_type id,
-                                       price_type price,
-                                       size_type size)
+void MarketMaker::bid(price_type price, size_type size) const
+{
+  this->_book->insert_limit_order( true, price, size, this->_callback);
+}
+
+void MarketMaker::offer(price_type price, size_type size) const
+{
+  this->_book->insert_limit_order( false, price, size, this->_callback);
+}
+
+void MarketMaker::default_callback(callback_msg msg,
+                                   id_type id,
+                                   price_type price,
+                                   size_type size)
 {
   const char* cb_type;
   switch(msg){
-  case fill:
+  case callback_msg::fill:
     cb_type =  "MM FILL: ";
     break;
-  case cancel:
+  case callback_msg::cancel:
     cb_type = "MM CANCEL: ";
+    break;
+  case callback_msg::stop:
+    cb_type = "MM STOP: ";
     break;
   }
   std::cout<< cb_type <<' '<<id<<' '<<price<<' '<<size<<std::endl;
 }
 
 
+/***/
 
-MarketMaker::MarketMaker(size_type sz_low, size_type sz_high,
-                         fill_callback_type fill_callback)
+
+MarketMaker_Random::MarketMaker_Random(size_type sz_low,
+                                       size_type sz_high,
+                                       callback_type callback)
   :
-  my_base_type(fill_callback),
-  _sz_low(sz_low),
-  _sz_high(sz_high),
-  _rand_engine( (clock_type::now() - MarketMaker::seedtp).count() *
-                (unsigned long long)this % std::numeric_limits<long>::max()),
-  _distr(sz_low, sz_high),
-  _distr2(1, 5)
-    {
-    }
+    my_base_type(callback),
+    _sz_low(sz_low),
+    _sz_high(sz_high),
+    _rand_engine(this->_gen_seed()),
+    _distr(sz_low, sz_high),
+    _distr2(1, 5)
+  {
+  }
 
-MarketMaker::MarketMaker(const MarketMaker& mm)
+MarketMaker_Random::MarketMaker_Random(const MarketMaker_Random& mm)
   :
-  my_base_type(mm),
-  _sz_low(mm._sz_low),
-  _sz_high(mm._sz_high),
-  _rand_engine( (clock_type::now() - MarketMaker::seedtp).count() *
-                (unsigned long long)this % std::numeric_limits<long>::max()),
-  _distr(mm._sz_low, mm._sz_high),
-  _distr2(1, 5)
-    {
-    }
+    my_base_type(mm),
+    _sz_low(mm._sz_low),
+    _sz_high(mm._sz_high),
+    _rand_engine(this->_gen_seed()),
+    _distr(mm._sz_low, mm._sz_high),
+    _distr2(1, 5)
+  {
+  }
 
-void MarketMaker::start(SimpleOrderbook::LimitInterface *book,
-                        price_type implied, price_type incr)
+unsigned long long MarketMaker_Random::_gen_seed()
+{
+  return (clock_type::now() - MarketMaker_Random::seedtp).count()
+         * (unsigned long long)this
+         % std::numeric_limits<long>::max();
+}
+
+void MarketMaker_Random::start(SimpleOrderbook::LimitInterface *book,
+                               price_type implied,
+                               price_type incr)
 {
   size_type mod, count, i;
   price_type price;
@@ -102,23 +116,13 @@ void MarketMaker::start(SimpleOrderbook::LimitInterface *book,
   mod = this->_distr2(this->_rand_engine);
   count = this->_distr2(this->_rand_engine);
   /* insert some random sell-limits */
-  for( i = 0, price = implied + 1 ;
-       i < count;
-       price += mod * incr, ++i )
-  {
-    book->insert_limit_order(false,price,this->_distr(this->_rand_engine),
-                             &MarketMaker::default_callback);
-  }
+  for( i = 0, price = implied + 1 ; i < count; price += mod * incr, ++i )
+    this->offer(price, this->_distr(this->_rand_engine));
   /* insert some random buy-limits */
-  for( i = 0, price = implied - 1 ;
-       i < count;
-       price -= mod * incr, ++i )
-  {
-    book->insert_limit_order(true,price,this->_distr(this->_rand_engine),
-                             &MarketMaker::default_callback);
-  }
+  for( i = 0, price = implied - 1 ; i < count; price -= mod * incr, ++i )
+    this->bid(price, this->_distr(this->_rand_engine));
 }
 
-const clock_type::time_point MarketMaker::seedtp = clock_type::now();
+const clock_type::time_point MarketMaker_Random::seedtp = clock_type::now();
 
 };

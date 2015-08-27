@@ -85,11 +85,11 @@ protected:
     }
 public:
   virtual id_type insert_limit_order(bool buy, price_type limit, size_type size,
-                                     fill_callback_type callback) = 0;
+                                     callback_type callback) = 0;
   virtual id_type replace_with_limit_order(id_type id, bool buy,
                                            price_type limit,
                                            size_type size,
-                                           fill_callback_type callback) = 0;
+                                           callback_type callback) = 0;
   virtual bool pull_order(id_type id, bool search_limits_first=true) = 0;
 };
 
@@ -104,21 +104,21 @@ protected:
     }
 public:
   virtual id_type insert_market_order(bool buy, size_type size,
-                                    fill_callback_type callback) = 0;
+                                    callback_type callback) = 0;
   virtual id_type insert_stop_order(bool buy, price_type stop, size_type size,
-                                    fill_callback_type callback) = 0;
+                                    callback_type callback) = 0;
   virtual id_type insert_stop_order(bool buy, price_type stop, price_type limit,
                                     size_type size,
-                                    fill_callback_type callback) = 0;
+                                    callback_type callback) = 0;
   virtual id_type replace_with_market_order(id_type id, bool buy,
                                             size_type size,
-                                            fill_callback_type callback) = 0;
+                                            callback_type callback) = 0;
   virtual id_type replace_with_stop_order(id_type id, bool buy, price_type stop,
                                           size_type size,
-                                          fill_callback_type callback) = 0;
+                                          callback_type callback) = 0;
   virtual id_type replace_with_stop_order(id_type id, bool buy, price_type stop,
                                           price_type limit, size_type size,
-                                          fill_callback_type callback) = 0;
+                                          callback_type callback) = 0;
 };
 
 #define SOB_TEMPLATE template<typename TickRatio,size_type MaxMemory>
@@ -149,17 +149,17 @@ private:
                 "Increment Ratio > ratio<1,1> " );
 
   /* how callback info is stored in the deferred callback queue */
-  typedef std::tuple<fill_callback_type,fill_callback_type,
+  typedef std::tuple<callback_type,callback_type,
                      id_type, id_type, price_type,size_type>  dfrd_cb_elem_type;
 
   /* limit bundle type holds the size and callback of each limit order
    * limit 'chain' type holds all limit orders at a price */
-  typedef std::pair<size_type, fill_callback_type>         limit_bndl_type;
+  typedef std::pair<size_type, callback_type>         limit_bndl_type;
   typedef std::map<id_type, limit_bndl_type>               limit_chain_type;
 
   /* stop bundle type holds the size and callback of each stop order
    * stop 'chain' type holds all stop orders at a price(limit or market) */
-  typedef std::tuple<bool,void*,size_type,fill_callback_type>  stop_bndl_type;
+  typedef std::tuple<bool,void*,size_type,callback_type>  stop_bndl_type;
   typedef std::map<id_type, stop_bndl_type>                    stop_chain_type;
 
 #define ASSERT_VALID_CHAIN(TYPE) \
@@ -194,7 +194,7 @@ private:
   large_size_type _total_volume, _last_id;
 
   /* autonomous market makers */
-  std::vector<MarketMakerBase> _market_makers;
+  std::vector<MarketMaker> _market_makers;
 
   /* trade has occurred but we've deferred 'handling' it */
   bool _is_dirty;
@@ -258,24 +258,24 @@ private:
 
   /* execute if orders match */
   size_type _lift_offers(plevel plev, id_type id, size_type size,
-                         fill_callback_type& callback);
+                         callback_type& callback);
   size_type _hit_bids(plevel plev, id_type id, size_type size,
-                      fill_callback_type& callback);
+                      callback_type& callback);
 
   /* signal trade has occurred(admin only, DONT INSERT NEW TRADES IN HERE!) */
   void _trade_has_occured(plevel plev, size_type size, id_type idbuy,
-                          id_type idsell, fill_callback_type& cbbuy,
-                          fill_callback_type& cbsell, bool took_offer);
+                          id_type idsell, callback_type& cbbuy,
+                          callback_type& cbsell, bool took_offer);
 
   /* internal insert orders once/if we have an id */
   void _insert_limit_order(bool buy, plevel limit, size_type size,
-                            fill_callback_type callback, id_type id);
+                            callback_type callback, id_type id);
   void _insert_market_order(bool buy, size_type size,
-                             fill_callback_type callback, id_type id);
+                             callback_type callback, id_type id);
   void _insert_stop_order(bool buy, plevel stop, size_type size,
-                           fill_callback_type callback, id_type id);
+                           callback_type callback, id_type id);
   void _insert_stop_order(bool buy, plevel stop, plevel limit, size_type size,
-                          fill_callback_type callback, id_type id);
+                          callback_type callback, id_type id);
 
   /* initialize book and market makers; CAREFUL: called from constructor */
   void _init(size_type begin_from_init, size_type end_from_init);
@@ -292,30 +292,30 @@ private:
 
 public:
   SimpleOrderbook(my_price_type price, my_price_type min, my_price_type max,
-                 std::vector<MarketMakerBase>& mms);
+                 std::vector<MarketMaker>& mms);
 
   ~SimpleOrderbook();
 
   id_type insert_limit_order(bool buy, price_type limit, size_type size,
-                             fill_callback_type callback);
+                             callback_type callback);
   id_type insert_market_order(bool buy, size_type size,
-                              fill_callback_type callback);
+                              callback_type callback);
   id_type insert_stop_order(bool buy, price_type stop, size_type size,
-                            fill_callback_type callback);
+                            callback_type callback);
   id_type insert_stop_order(bool buy, price_type stop, price_type limit,
-                            size_type size, fill_callback_type callback);
+                            size_type size, callback_type callback);
 
   bool pull_order(id_type id,bool search_limits_first=true);
 
   id_type replace_with_limit_order(id_type id, bool buy, price_type limit,
-                                   size_type size, fill_callback_type callback);
+                                   size_type size, callback_type callback);
   id_type replace_with_market_order(id_type id, bool buy, size_type size,
-                                    fill_callback_type callback);
+                                    callback_type callback);
   id_type replace_with_stop_order(id_type id, bool buy, price_type stop,
-                                  size_type size, fill_callback_type callback);
+                                  size_type size, callback_type callback);
   id_type replace_with_stop_order(id_type id, bool buy, price_type stop,
                                   price_type limit, size_type size,
-                                  fill_callback_type callback);
+                                  callback_type callback);
 
   inline void dump_buy_limits() const { this->_dump_limits<true>(); }
   inline void dump_sell_limits() const { this->_dump_limits<false>(); }
