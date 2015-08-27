@@ -25,9 +25,9 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <iostream>
 #include <functional>
 
+#include "trimmed_rational.hpp"
+
 namespace NativeLayer{
-
-
 
 typedef float               price_type;
 typedef double              price_diff_type;

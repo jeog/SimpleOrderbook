@@ -537,7 +537,7 @@ void SOB_CLASS::dump_cached_plevels() const
   std::cout<< "_low_buy_limit: "
            << std::to_string(this->_itop(this->_low_buy_limit)) << std::endl;
 }
-
+/*
 SOB_TEMPLATE
 typename SOB_CLASS::plevel SOB_CLASS::_ptoi(price_type price) const
 {
@@ -546,7 +546,7 @@ typename SOB_CLASS::plevel SOB_CLASS::_ptoi(price_type price) const
  // price_type incr_offset;
 /*
   incr_offset = price / ((price_type)tick_ratio::num/tick_ratio::den);
-  plev = this->_beg + (size_type)round(incr_offset)-1;*/
+  plev = this->_beg + (size_type)round(incr_offset)-1;*//*
   incr_offset = round((price - this->_base) * tick_ratio::den/tick_ratio::num);
   plev = this->_beg + incr_offset;
 
@@ -575,19 +575,53 @@ price_type SOB_CLASS::_itop(plevel plev) const
   incr_offset = (price_type)(offset) * tick_ratio::num / tick_ratio::den;
   price = this->_base + incr_offset;
   /*incr_offset = offset * (price_type)tick_ratio::num / tick_ratio::den;
-  price = (incr_offset*base_r::den + base_r::num) / base_r::den;*/
+  price = (incr_offset*base_r::den + base_r::num) / base_r::den;*//*
 
   return price;
+}*/
+
+SOB_TEMPLATE
+typename SOB_CLASS::plevel SOB_CLASS::_ptoi(my_price_type price) const
+{
+  plevel plev;
+  size_type incr_offset;
+
+  incr_offset = round((price - this->_base) * tick_ratio::den/tick_ratio::num);
+  plev = this->_beg + incr_offset;
+
+  if(plev < this->_beg)
+    throw std::range_error( "chain_pair_type* < _beg" );
+
+  if(plev >= this->_end )
+    throw std::range_error( "plevel >= _end" );
+
+  return plev;
+}
+
+SOB_TEMPLATE 
+typename SOB_CLASS::my_price_type SOB_CLASS::_itop(plevel plev) const
+{
+  price_type incr_offset;
+  long long offset;
+
+  if(plev < this->_beg)
+    throw std::range_error( "plevel < _beg" );
+
+  if(plev >= this->_end )
+    throw std::range_error( "plevel >= _end" );
+
+  offset = plev - this->_beg;
+  incr_offset = (double)offset * tick_ratio::num / tick_ratio::den;
+
+  return this->_base + my_price_type(incr_offset);
 }
 
 SOB_TEMPLATE
-size_type SOB_CLASS::_incrs_in_range(price_type lprice, price_type hprice)
+size_type SOB_CLASS::_incrs_in_range(my_price_type lprice, my_price_type hprice)
 {
-  price_type l,h,i;  
-
-  h = this->_round_to_incr(hprice);
-  l = this->_round_to_incr(lprice);
-  i = round((h-l)*tick_ratio::den/tick_ratio::num);
+  my_price_type h(this->_round_to_incr(hprice));
+  my_price_type l(this->_round_to_incr(lprice));
+  size_type i = round((double)(h-l)*tick_ratio::den/tick_ratio::num);
   
   if(lprice < 0 || hprice < 0)
     throw invalid_parameters("price/min/max values can not be < 0"); 
@@ -608,15 +642,15 @@ size_type SOB_CLASS::_generate_and_check_total_incr()
   
   i = this->_lower_incr + this->_upper_incr + 1;
   
-  if(this->_total_incr > max_ticks)
+  if(i > max_ticks)
     throw invalid_parameters("tick range requested would exceed MaxMemory");
   
   return i;
 }
 
 SOB_TEMPLATE 
-SOB_CLASS::SimpleOrderbook(price_type price, price_type min, price_type max,
-                           std::vector<MarketMaker>& mms)
+SOB_CLASS::SimpleOrderbook(my_price_type price, my_price_type min, 
+                           my_price_type max, std::vector<MarketMaker>& mms)
   :
   _bid_size(0),
   _ask_size(0),

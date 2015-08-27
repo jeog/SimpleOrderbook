@@ -52,6 +52,13 @@ public:
       incr(_tmp_dt.rem + (_tmp_dt.rem >= 0 ? 0 : increments_per_unit))
     {
     }
+  explicit TrimmedRational(long long incr)
+    :
+      _tmp_dt(div(incr,increments_per_unit)),
+      whole(whole + (_tmp_dt.rem >= 0 ? _tmp_dt.quot : -_tmp_dt.quot-1)),
+      incr(_tmp_dt.rem + (_tmp_dt.rem >= 0 ? 0 : increments_per_unit))
+    {
+    }
   TrimmedRational(double r)
     : /* careful, non explicit constr */
       whole( r >= 0 ? (long long)r : (long long)r - 1),
@@ -70,7 +77,7 @@ public:
   {
     return my_type(this->whole - r.whole, this->incr - r.incr);
   }
-  inline long long as_incr() const
+  inline long long to_incr() const
   {
     return (this->whole * increments_per_unit + this->incr);
   }

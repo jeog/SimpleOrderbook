@@ -35,6 +35,7 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include "types.hpp"
 #include "market_maker.hpp"
 
+
 namespace NativeLayer{
 
 namespace SimpleOrderbook{
@@ -136,6 +137,9 @@ public:
   typedef TickRatio tick_ratio;
   static constexpr double tick_size = (double)tick_ratio::num / tick_ratio::den;
   static constexpr double ticks_per_unit = tick_ratio::den / tick_ratio::num;
+  typedef SimpleOrderbook<TickRatio,MaxMemory> my_type;
+  typedef FullInterface my_base_type;
+  typedef TrimmedRational<TickRatio> my_price_type;
 
 private:
   static_assert(!std::ratio_less<TickRatio,std::ratio<1,10000>>::value,
@@ -177,7 +181,7 @@ private:
   size_type _bid_size, _ask_size, _last_size,
             _lower_incr, _upper_incr, _total_incr;
 
-  price_type _base;
+  my_price_type _base;
 
   /* THE ORDER BOOK */
   order_book_type _book;
@@ -206,17 +210,17 @@ private:
   inline large_size_type _generate_id(){ return ++(this->_last_id); }
 
   /* price-to-index and index-to-price utilities  */
-  plevel _ptoi(price_type price) const;
-  price_type _itop(plevel plev) const;
+  plevel _ptoi(my_price_type price) const;
+  my_price_type _itop(plevel plev) const;
 
 
-  inline price_type _round_to_incr(price_type price)
+  inline my_price_type _round_to_incr(my_price_type price)
   {
-    return round(price * tick_ratio::den / tick_ratio::num) \
+    return round((double)price * tick_ratio::den / tick_ratio::num) \
            * tick_ratio::num / tick_ratio::den;
   }
 
-  size_type _incrs_in_range(price_type lprice, price_type hprice);
+  size_type _incrs_in_range(my_price_type lprice, my_price_type hprice);
   size_type _generate_and_check_total_incr();
 
   /* calculate chain_size of limit orders at each price level
@@ -286,7 +290,7 @@ private:
    **************************************************/
 
 public:
-  SimpleOrderbook(price_type price, price_type min, price_type max,
+  SimpleOrderbook(my_price_type price, my_price_type min, my_price_type max,
                  std::vector<MarketMaker>& mms);
 
   ~SimpleOrderbook();
