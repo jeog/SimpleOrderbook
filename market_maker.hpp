@@ -22,6 +22,8 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <random>
 #include <vector>
 #include <functional>
+#include <memory>
+#include <map>
 
 namespace NativeLayer{
 
@@ -29,24 +31,31 @@ namespace SimpleOrderbook{
 class LimitInterface;
 }
 
-using namespace std::placeholders;
+class MarketMaker;
+typedef std::unique_ptr<MarketMaker> pMarketMaker;
+typedef std::vector<pMarketMaker> market_makers_type;
+
+market_makers_type operator+(market_makers_type& l, market_makers_type& r);
+
 
 class MarketMaker{
   SimpleOrderbook::LimitInterface *_book;
   callback_type _callback;
   bool _is_running;
+
+public:
+  typedef std::tuple<bool,price_type,size_type> order_bndl_type;
+  typedef std::map<id_type,order_bndl_type> orders_map_type;
+  typedef orders_map_type::value_type orders_value_type;
+
 protected:
   typedef MarketMaker my_base_type;
   price_type _increment;
+  orders_map_type _my_orders;
+  void _insert(bool buy,price_type price, size_type size);
+
 public:
-  MarketMaker(callback_type callback=&default_callback)
-    :
-      _book(nullptr),
-      _callback(callback),
-      _is_running(false),
-      _increment(0)
-    {
-    }
+  MarketMaker(callback_type callback=&default_callback);
   virtual ~MarketMaker()
     {
     };
@@ -59,29 +68,25 @@ public:
   /* don't check id > 0 */
   id_type bid(price_type price, size_type size) const;
   id_type offer(price_type price, size_type size) const;
+
+  static market_makers_type Factory(std::initializer_list<callback_type> il);
+  static market_makers_type Factory(unsigned int n);
 };
 
 
 class MarketMaker_Simple1
     : public MarketMaker{
 
-  typedef std::tuple<bool,price_type,size_type> order_bndl_type;
-  typedef std::map<id_type,order_bndl_type> orders_map_type;
-  typedef orders_map_type::value_type orders_value_type;
   size_type _sz;
-  orders_map_type _my_orders;
   void _callback(callback_msg msg, id_type id, price_type price, size_type size);
-  void _insert(bool buy,price_type price, size_type size);
-public:
 
-  MarketMaker_Simple1(size_type sz)
-  :
-    MarketMaker( std::bind(&MarketMaker_Simple1::_callback,this,_1,_2,_3,_4) ),
-    _sz(sz)
-  {
-  }
+public:
+  MarketMaker_Simple1(size_type sz);
   virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
              price_type incr);
+
+  static market_makers_type Factory(std::initializer_list<size_type> il);
+  static market_makers_type Factory(unsigned int n, size_type sz);
 };
 
 
@@ -90,20 +95,24 @@ class MarketMaker_Random
   size_type _sz_low, _sz_high;
   std::default_random_engine _rand_engine;
   std::uniform_int_distribution<size_type> _distr, _distr2;
+  void _callback(callback_msg msg, id_type id, price_type price, size_type size);
   unsigned long long _gen_seed();
 
 public:
-  MarketMaker_Random(size_type sz_low, size_type sz_high,
-              callback_type callback=&my_base_type::default_callback);
-  MarketMaker_Random(const MarketMaker_Random& mm );
+  MarketMaker_Random(size_type sz_low, size_type sz_high);
+  MarketMaker_Random(const MarketMaker_Random& mm);
   virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
                   price_type incr);
 
+  static market_makers_type
+  Factory(std::initializer_list<std::pair<size_type,size_type>> il);
+  static market_makers_type
+  Factory(unsigned int n, size_type sz_low, size_type sz_high);
 private:
   static const clock_type::time_point seedtp;
 };
 
-typedef std::unique_ptr<MarketMaker> pMarketMaker;
-typedef std::vector<pMarketMaker> market_makers_type;
+
+
 };
 #endif

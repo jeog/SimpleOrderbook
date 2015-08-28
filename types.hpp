@@ -103,6 +103,16 @@ public:
     }
 };
 
+class invalid_state
+    : public std::runtime_error{
+public:
+  invalid_state(const char* what)
+    :
+     std::runtime_error(what)
+    {
+    }
+};
+
 template<typename T1>
 inline std::string cat(T1 arg1){ return std::string(arg1); }
 template<typename T1, typename... Ts>
