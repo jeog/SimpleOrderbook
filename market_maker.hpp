@@ -41,19 +41,24 @@ market_makers_type operator+(market_makers_type& l, market_makers_type& r);
 class MarketMaker{
   SimpleOrderbook::LimitInterface *_book;
   callback_type _callback;
-  callback_type _callback_d;
   bool _is_running;
 
-public:
+  void _base_callback(callback_msg msg,id_type id, price_type price,
+                      size_type size);
+
+protected:
+  typedef MarketMaker my_base_type;
   typedef std::tuple<bool,price_type,size_type> order_bndl_type;
   typedef std::map<id_type,order_bndl_type> orders_map_type;
   typedef orders_map_type::value_type orders_value_type;
 
-protected:
-  typedef MarketMaker my_base_type;
-  price_type _increment;
-  orders_map_type _my_orders;
-  order_bndl_type _last_fill;
+  price_type tick;
+  orders_map_type my_orders;
+
+  bool last_fill_was_buy;
+  price_type last_fill_price;
+  size_type last_fill_size;
+  id_type last_fill_id;
 
 public:
   MarketMaker(callback_type callback);
@@ -61,11 +66,11 @@ public:
   virtual ~MarketMaker()
     {
     };
+
+  /* derived need to call down to start / stop */
   virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
                      price_type incr);
   virtual void stop();
-
-  void base_callback(callback_msg msg,id_type id, price_type price, size_type size);
 
   template<bool BuyNotSell>
   void insert(price_type price, size_type size);
