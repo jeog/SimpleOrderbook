@@ -21,12 +21,12 @@ void SOB_CLASS::_on_trade_completion()
 
 SOB_TEMPLATE
 void SOB_CLASS::_trade_has_occured(plevel plev,
-                                 size_type size,
-                                 id_type idbuy,
-                                 id_type idsell,
-                                 callback_type& cbbuy,
-                                 callback_type& cbsell,
-                                 bool took_offer)
+                                   size_type size,
+                                   id_type idbuy,
+                                   id_type idsell,
+                                   callback_type& cbbuy,
+                                   callback_type& cbsell,
+                                   bool took_offer)
 {/*
   * CAREFUL: we can't insert orders from here since we have yet to finish
   * processing the initial order (possible infinite loop);

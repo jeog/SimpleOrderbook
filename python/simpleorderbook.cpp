@@ -478,15 +478,16 @@ static PyObject* VOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 
   pySOB* self;
   price_type price,low,high;
-  size_type mms, szl, szh;
+  size_type mms, szl, szh, max;
   market_makers_type* pmms;
 
-  static char kws[][16] = { "price", "low", "high",
-                            "mm_num", "mm_sz_low", "mm_sz_high" };
-  static char* kwlist[] = { kws[0],kws[1],kws[2],kws[3],kws[4],kws[5],NULL };
+  static char kws[][16] =
+    {"price", "low", "high", "mm_num", "mm_sz_low", "mm_sz_high", "mm_max_pos"};
+  static char* kwlist[] =
+    {kws[0], kws[1], kws[2], kws[3], kws[4], kws[5], kws[6], NULL};
 
-  if(!PyArg_ParseTupleAndKeywords(args,kwds,"fffkkk",kwlist, &price, &low,
-                                  &high, &mms, &szl, &szh))
+  if(!PyArg_ParseTupleAndKeywords(args,kwds,"fffkkkk",kwlist, &price, &low,
+                                  &high, &mms, &szl, &szh, &max))
   {
     PyErr_SetString(PyExc_ValueError, "error parsing args to __new__");
     return NULL;
@@ -498,7 +499,7 @@ static PyObject* VOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
     try{
       pmms = new market_makers_type;
       while( mms-- )
-        pmms->push_back( pMarketMaker(new MarketMaker_Random(szl,szh)) );
+        pmms->push_back( pMarketMaker(new MarketMaker_Random(szl,szh,max)) );
 
       if(!pmms)
         throw std::runtime_error("self->_mms was not constructed");

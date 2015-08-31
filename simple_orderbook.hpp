@@ -130,9 +130,7 @@ class SimpleOrderbook
     : protected FullInterface{
  /*
   * TODO check ownership of market_maker smart_pointers
-  * TODO review how we copy/move/PY_INCREF callbacks
-  * TODO consider storing floating point price as two ints ( base1.base2 ) or ...
-  *   a single int that represents the rounded float or a ratio
+  * TODO review how we copy/move/PY_INCREF callbacks 
   */
 public:
   typedef SimpleOrderbook<TickRatio,MaxMemory> my_type;

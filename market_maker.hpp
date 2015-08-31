@@ -60,6 +60,11 @@ protected:
   size_type last_fill_size;
   id_type last_fill_id;
 
+  /* this still allows a situation for pos > max */
+  size_type bid_out;
+  size_type offer_out;
+  long long pos;
+
 public:
   MarketMaker(callback_type callback);
   MarketMaker();
@@ -69,7 +74,7 @@ public:
 
   /* derived need to call down to start / stop */
   virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
-                     price_type incr);
+                     price_type tick);
   virtual void stop();
 
   template<bool BuyNotSell>
@@ -83,37 +88,41 @@ public:
 class MarketMaker_Simple1
     : public MarketMaker{
 
-  size_type _sz;
+  size_type _sz, _max_pos;
   void _callback(callback_msg msg, id_type id, price_type price, size_type size);
 
 public:
-  MarketMaker_Simple1(size_type sz);
+  MarketMaker_Simple1(size_type sz, size_type max_pos);
   virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
-             price_type incr);
+                     price_type tick);
 
-  static market_makers_type Factory(std::initializer_list<size_type> il);
-  static market_makers_type Factory(unsigned int n, size_type sz);
+  static market_makers_type
+  Factory(std::initializer_list<std::pair<size_type,size_type>> il);
+  static market_makers_type
+  Factory(unsigned int n, size_type sz, size_type max_pos);
 };
 
 
 class MarketMaker_Random
     : public MarketMaker{
-  size_type _sz_low, _sz_high;
+
+  size_type _sz_low, _sz_high, _max_pos;
   std::default_random_engine _rand_engine;
   std::uniform_int_distribution<size_type> _distr, _distr2;
   void _callback(callback_msg msg, id_type id, price_type price, size_type size);
   unsigned long long _gen_seed();
 
 public:
-  MarketMaker_Random(size_type sz_low, size_type sz_high);
+  MarketMaker_Random(size_type sz_low, size_type sz_high, size_type max_pos);
   MarketMaker_Random(const MarketMaker_Random& mm);
   virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
-                  price_type incr);
+                  price_type tick);
 
   static market_makers_type
-  Factory(std::initializer_list<std::pair<size_type,size_type>> il);
+  Factory(std::initializer_list<std::tuple<size_type,size_type,size_type>> il);
   static market_makers_type
-  Factory(unsigned int n, size_type sz_low, size_type sz_high);
+  Factory(unsigned int n, size_type sz_low, size_type sz_high, size_type max_pos);
+
 private:
   static const clock_type::time_point seedtp;
 };
