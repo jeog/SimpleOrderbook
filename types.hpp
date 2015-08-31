@@ -49,7 +49,25 @@ typedef enum {
 typedef std::function<void(callback_msg,id_type,
                            price_type,size_type)> callback_type;
 
+/*
+template< typename T, typename Pt1, typename Pt2 >
+class TypeTag
+    : public std::pair<Pt1,Pt2>
+{
+public:
+  typedef T tag_type;
+  TypeTag(Pt1 arg1, Pt2 arg2)
+    :
+      std::pair<Pt1,Pt2>(arg1,arg2)
+    {
+    }
+};
 
+template<typename T>
+constexpr TypeTag<T,int,std::string> make_ttp(int i, std::string str)
+{
+  return TypeTag<T,int,std::string>(i,str);
+}*/
 
 inline std::ostream& operator<<(std::ostream& out, limit_order_type lim)
 {

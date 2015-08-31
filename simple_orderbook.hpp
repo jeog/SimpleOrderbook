@@ -51,15 +51,17 @@ protected:
   QueryInterface()
     {
     }
+
+public:
   virtual ~QueryInterface()
     {
     }
-public:
   /* where in the hierachy these go depends on what we give to whom */
   typedef typename clock_type::time_point                   time_stamp_type;
   typedef std::tuple<time_stamp_type,price_type,size_type>  t_and_s_type;
   typedef std::vector< t_and_s_type >                       time_and_sales_type;
   typedef std::map<price_type,size_type>                    market_depth_type;
+  typedef std::function<QueryInterface*(size_type,size_type,size_type)> cnstr_type;
 
   virtual price_type bid_price() const = 0;
   virtual price_type ask_price() const = 0;
@@ -72,18 +74,25 @@ public:
   virtual market_depth_type bid_depth(size_type depth=8) const = 0;
   virtual market_depth_type ask_depth(size_type depth=8) const = 0;
   virtual const time_and_sales_type& time_and_sales() const = 0;
+
+  /* convert time & sales chrono timepoint to str via ctime */
+  static std::string timestamp_to_str(const time_stamp_type& tp);
 };
 
+
 class LimitInterface
-    : protected QueryInterface{
+    : public QueryInterface{
 protected:
   LimitInterface()
     {
     }
+
+public:
   virtual ~LimitInterface()
     {
     }
-public:
+  typedef std::function<LimitInterface*(size_type,size_type,size_type)> cnstr_type;
+
   virtual id_type insert_limit_order(bool buy, price_type limit, size_type size,
                                      callback_type callback) = 0;
   virtual id_type replace_with_limit_order(id_type id, bool buy,
@@ -93,16 +102,21 @@ public:
   virtual bool pull_order(id_type id, bool search_limits_first=true) = 0;
 };
 
+
 class FullInterface
-    : protected LimitInterface{
+    : public LimitInterface{
 protected:
   FullInterface()
     {
     }
+
+public:
   virtual ~FullInterface()
     {
     }
-public:
+  typedef std::function<FullInterface*(size_type,size_type,size_type)> cnstr_type;
+
+  virtual void add_market_makers(market_makers_type&& mms) = 0;
   virtual id_type insert_market_order(bool buy, size_type size,
                                     callback_type callback) = 0;
   virtual id_type insert_stop_order(bool buy, price_type stop, size_type size,
@@ -119,7 +133,13 @@ public:
   virtual id_type replace_with_stop_order(id_type id, bool buy, price_type stop,
                                           price_type limit, size_type size,
                                           callback_type callback) = 0;
+
+  virtual void dump_buy_limits() const = 0;
+  virtual void dump_sell_limits() const = 0;
+  virtual void dump_buy_stops() const = 0;
+  virtual void dump_sell_stops() const = 0;
 };
+
 
 #define SOB_TEMPLATE template<typename TickRatio,size_type MaxMemory>
 #define SOB_CLASS SimpleOrderbook<TickRatio,MaxMemory>
@@ -127,9 +147,8 @@ public:
 template< typename TickRatio = std::ratio<1,100>,
          size_type MaxMemory = 1024 * 1024 * 1024 >
 class SimpleOrderbook
-    : protected FullInterface{
+    : public FullInterface{ //protected FullInterface{
  /*
-  * TODO check ownership of market_maker smart_pointers
   * TODO review how we copy/move/PY_INCREF callbacks 
   */
 public:
@@ -290,10 +309,11 @@ private:
    **************************************************/
 
 public:
-  SimpleOrderbook(my_price_type price, my_price_type min, my_price_type max,
-                 market_makers_type&& mms);
+  SimpleOrderbook(my_price_type price, my_price_type min, my_price_type max);
 
   ~SimpleOrderbook();
+
+  void add_market_makers(market_makers_type&& mms);
 
   id_type insert_limit_order(bool buy, price_type limit, size_type size,
                              callback_type callback);
@@ -345,9 +365,6 @@ public:
   {
     return this->_t_and_s;
   }
-
-  /* convert time & sales chrono timepoint to str via ctime */
-  static std::string timestamp_to_str(const time_stamp_type& tp);
 };
 
 typedef SimpleOrderbook<std::ratio<1,4>>     QuarterTick;
@@ -357,6 +374,14 @@ typedef SimpleOrderbook<std::ratio<1,100>>   HundredthTick, PennyTick, Default;
 typedef SimpleOrderbook<std::ratio<1,1000>>  ThousandthTick;
 typedef SimpleOrderbook<std::ratio<1,10000>> TenThousandthTick;
 
+template< typename IfaceTy, typename ImplTy >
+static inline IfaceTy* New(price_type price,price_type min,price_type max)
+{
+  static_assert(std::is_base_of<QueryInterface,ImplTy>::value
+                && std::is_base_of<IfaceTy,ImplTy>::value,
+                "New() : invalid type(s)");
+  return new ImplTy(price,min,max);
+}
 };
 
 };

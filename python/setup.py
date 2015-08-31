@@ -11,7 +11,7 @@
 # GNU General Public License for more details.
 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see http://www.gnu.org/licenses.
+# along with this program.  If not, see http://www.gnu.org/licenses. 
 
 from distutils.core import setup,Extension
 
@@ -30,7 +30,7 @@ _setup_dict = {
 
 _cpp_ext = Extension(
   "simpleorderbook",
-  sources=["simpleorderbook.cpp","../market_maker.cpp"],
+  sources=["simpleorderbook.cpp","../simple_orderbook.cpp","../market_maker.cpp"],
   include_dirs=[py_include_dir,"../"],
   library_dirs=[py_library_dir],
   libraries=[py_library_name],

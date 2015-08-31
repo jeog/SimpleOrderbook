@@ -537,48 +537,6 @@ void SOB_CLASS::dump_cached_plevels() const
   std::cout<< "_low_buy_limit: "
            << std::to_string(this->_itop(this->_low_buy_limit)) << std::endl;
 }
-/*
-SOB_TEMPLATE
-typename SOB_CLASS::plevel SOB_CLASS::_ptoi(price_type price) const
-{
-  plevel plev;
-  size_type incr_offset;
- // price_type incr_offset;
-/*
-  incr_offset = price / ((price_type)tick_ratio::num/tick_ratio::den);
-  plev = this->_beg + (size_type)round(incr_offset)-1;*//*
-  incr_offset = round((price - this->_base) * tick_ratio::den/tick_ratio::num);
-  plev = this->_beg + incr_offset;
-
-  if(plev < this->_beg)
-    throw std::range_error( "chain_pair_type* < _beg" );
-
-  if(plev >= this->_end )
-    throw std::range_error( "plevel >= _end" );
-
-  return plev;
-}
-
-SOB_TEMPLATE 
-price_type SOB_CLASS::_itop(plevel plev) const
-{
-  price_type price, incr_offset;
-  long long offset;
-
-  if(plev < this->_beg)
-    throw std::range_error( "plevel < _beg" );
-
-  if(plev >= this->_end )
-    throw std::range_error( "plevel >= _end" );
-
-  offset = plev - this->_beg;
-  incr_offset = (price_type)(offset) * tick_ratio::num / tick_ratio::den;
-  price = this->_base + incr_offset;
-  /*incr_offset = offset * (price_type)tick_ratio::num / tick_ratio::den;
-  price = (incr_offset*base_r::den + base_r::num) / base_r::den;*//*
-
-  return price;
-}*/
 
 SOB_TEMPLATE
 typename SOB_CLASS::plevel SOB_CLASS::_ptoi(my_price_type price) const
@@ -649,8 +607,9 @@ size_type SOB_CLASS::_generate_and_check_total_incr()
 }
 
 SOB_TEMPLATE 
-SOB_CLASS::SimpleOrderbook(my_price_type price, my_price_type min, 
-                           my_price_type max, market_makers_type&& mms)
+SOB_CLASS::SimpleOrderbook(my_price_type price, 
+                           my_price_type min, 
+                           my_price_type max)
   :
   _bid_size(0),
   _ask_size(0),
@@ -673,25 +632,30 @@ SOB_CLASS::SimpleOrderbook(my_price_type price, my_price_type min,
   _high_sell_stop( &(*this->_beg) ),
   _total_volume(0),
   _last_id(0),
-  _market_makers( std::move(mms) ), /* steal the market_maker smart_pointers */
+  _market_makers(), 
   _is_dirty(false),
   _deferred_callback_queue(),
   _t_and_s(),
   _t_and_s_max_sz(1000),
   _t_and_s_full(false)
   {       
-    this->_t_and_s.reserve(this->_t_and_s_max_sz);
-    
-    for(pMarketMaker& mm : this->_market_makers)
-      mm->start(this,price,tick_size);
-    
-    std::cout<< "+ SimpleOrderbook Created\n";
+    this->_t_and_s.reserve(this->_t_and_s_max_sz);   
+    std::cout<< "+ SimpleOrderbook(" << typeid(*this).name() << ") Created\n";
   }
 
 SOB_TEMPLATE 
 SOB_CLASS::~SimpleOrderbook()
 {
   std::cout<< "- SimpleOrderbook Destroyed\n";
+}
+
+SOB_TEMPLATE
+void SOB_CLASS::add_market_makers(market_makers_type&& mms)
+{ /* start and steal the market_maker smart_pointers */
+  for(pMarketMaker& mm : mms){
+    mm->start(this, this->_itop(this->_last), tick_size);
+    this->_market_makers.push_back(std::move(mm));
+  }
 }
 
 SOB_TEMPLATE
@@ -705,6 +669,12 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
   
   if(size <= 0)
     throw invalid_order("invalid order size");
+  
+  /*
+   * if we want to do this, need to allow MMs to insert ...
+   * 
+  if(this->_market_makers.empty())
+    throw invalid_state("orderbook has no market makers"); */
 
   try{
     plev = this->_ptoi(limit);
@@ -726,6 +696,9 @@ id_type SOB_CLASS::insert_market_order(bool buy,
 
   if(size <= 0)
     throw invalid_order("invalid order size");
+  
+  if(this->_market_makers.empty())
+    throw invalid_state("orderbook has no market makers");
 
   id = this->_generate_id();
 
@@ -754,6 +727,9 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
 
   if(size <= 0)
     throw invalid_order("invalid order size");
+  
+  if(this->_market_makers.empty())
+    throw invalid_state("orderbook has no market makers");
 
   try{
     plimit = limit ? this->_ptoi(limit) : nullptr;
@@ -837,16 +813,6 @@ id_type SOB_CLASS::replace_with_stop_order(id_type id,
     id_new = this->insert_stop_order(buy,stop,limit,size,callback);
   
   return id_new;
-}
-
-
-SOB_TEMPLATE
-std::string SOB_CLASS::timestamp_to_str(const SOB_CLASS::time_stamp_type& tp)
-{
-  std::time_t t = clock_type::to_time_t(tp);
-  std::string ts = std::ctime(&t);
-  ts.resize(ts.size() -1);
-  return ts;
 }
 
 };
