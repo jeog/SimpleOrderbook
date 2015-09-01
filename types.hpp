@@ -56,7 +56,7 @@ typedef enum {
 typedef std::function<void(callback_msg,id_type,
                            price_type,size_type)> callback_type;
 
-typedef std::function<void(id_type)> pre_lim_compl_cb_type;
+typedef std::function<void(id_type)> post_exec_callback_type;
 
 /*
 template< typename T, typename Pt1, typename Pt2 >

@@ -95,11 +95,11 @@ public:
 
   virtual id_type insert_limit_order(bool buy, price_type limit, size_type size,
                                      callback_type callback,
-                                     pre_lim_compl_cb_type plccb = nullptr) = 0;
+                                     post_exec_callback_type plccb = nullptr) = 0;
   virtual id_type
   replace_with_limit_order(id_type id, bool buy, price_type limit,
                            size_type size, callback_type callback,
-                           pre_lim_compl_cb_type plccb = nullptr) = 0;
+                           post_exec_callback_type plccb = nullptr) = 0;
   virtual bool pull_order(id_type id, bool search_limits_first=true) = 0;
 };
 
@@ -173,7 +173,7 @@ private:
 
                /* type, buy/sell, limit, stop, size, callback, limit-callback */
   typedef std::tuple<order_type,bool,price_type,price_type,size_type,
-                     callback_type,pre_lim_compl_cb_type> order_queue_elem_type;
+                     callback_type,post_exec_callback_type> order_queue_elem_type;
 
   /* limit bundle type holds the size and callback of each limit order
    * limit 'chain' type holds all limit orders at a price */
@@ -299,7 +299,7 @@ private:
   /* internal insert orders once/if we have an id */
   void _insert_limit_order(bool buy, plevel limit, size_type size,
                            callback_type callback, id_type id,
-                           pre_lim_compl_cb_type plccb = nullptr);
+                           post_exec_callback_type plccb = nullptr);
   void _insert_market_order(bool buy, size_type size,
                             callback_type callback, id_type id);
   void _insert_stop_order(bool buy, plevel stop, size_type size,
@@ -334,7 +334,7 @@ public:
 
   id_type insert_limit_order(bool buy, price_type limit, size_type size,
                              callback_type callback,
-                             pre_lim_compl_cb_type plccb = nullptr);
+                             post_exec_callback_type plccb = nullptr);
   id_type insert_market_order(bool buy, size_type size,
                               callback_type callback);
   id_type insert_stop_order(bool buy, price_type stop, size_type size,
@@ -346,7 +346,7 @@ public:
 
   id_type replace_with_limit_order(id_type id, bool buy, price_type limit,
                                    size_type size, callback_type callback,
-                                   pre_lim_compl_cb_type plccb = nullptr);
+                                   post_exec_callback_type plccb = nullptr);
   id_type replace_with_market_order(id_type id, bool buy, size_type size,
                                     callback_type callback);
   id_type replace_with_stop_order(id_type id, bool buy, price_type stop,

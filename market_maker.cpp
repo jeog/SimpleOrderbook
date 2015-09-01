@@ -93,7 +93,7 @@ void MarketMaker::insert(price_type price, size_type size)
 
   this->_book->insert_limit_order(BuyNotSell,price,size,this->_callback,
     /*
-     * the pre-completion callback
+     * the post-insertion / pre-completion callback
      *
      * this guarantees to complete before a standard callback for
      * this order can be triggered

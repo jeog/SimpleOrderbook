@@ -289,7 +289,7 @@ void SOB_CLASS::_insert_limit_order(bool buy,
                                     size_type size,
                                     callback_type callback,
                                     id_type id,
-                                    pre_lim_compl_cb_type plccb)
+                                    post_exec_callback_type plccb)
 {
   size_type rmndr = size; 
   /*
@@ -713,7 +713,7 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
                                       price_type limit,
                                       size_type size,
                                       callback_type callback,
-                                      pre_lim_compl_cb_type plccb) 
+                                      post_exec_callback_type plccb) 
 {
   plevel plev;
   id_type id;
@@ -826,7 +826,7 @@ SOB_CLASS::replace_with_limit_order(id_type id,
                                     price_type limit,
                                     size_type size,
                                     callback_type callback,
-                                    pre_lim_compl_cb_type plccb)
+                                    post_exec_callback_type plccb)
 {
   id_type id_new = 0;
   
