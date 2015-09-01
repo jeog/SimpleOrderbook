@@ -44,6 +44,7 @@ MarketMaker::MarketMaker(callback_type callback)
                   callback(a,b,c,d);
                 } ),
     _is_running(false),
+    _my_lock(),
     tick(0),
     bid_out(0),
     offer_out(0),
@@ -56,6 +57,7 @@ MarketMaker::MarketMaker()
     _book(nullptr),
     _callback(std::bind(&MarketMaker::_base_callback,this,_1,_2,_3,_4)),
     _is_running(false),
+    _my_lock(),
     tick(0),
     bid_out(0),
     offer_out(0),
@@ -89,11 +91,26 @@ void MarketMaker::insert(price_type price, size_type size)
   if(!this->_is_running)
     throw invalid_state("market/market-maker is not in a running state");
 
+  std::cout<<"MM PRE INSERT " << std::to_string(((NativeLayer::SimpleOrderbook::Default*)(this->_book))->_last_id) <<' '<<std::to_string(size)<<std::endl;
+
+  /* DEADLOCKING */
+  std::lock_guard<std::mutex> _(this->_my_lock); /* DEADLOCKING */
+  /* DEADLOCKING */
+
   id = this->_book->insert_limit_order(BuyNotSell,price,size,this->_callback);
+
+  /*
+   * BUG BUG BUG (see lock_guard above and in callback)
+   *
+   * we need to make sure this returns before we handle more callbacks,
+   * if we our order triggers callbacks immediately, we may look
+   * to access my_orders before the initial order has been added
+   */
 
   if(id == 0)
     throw invalid_order("order could not be inserted");
   else{
+    std::cout<< "MM INSERT " << std::to_string(id) << ' ' << std::to_string(size) << std::endl;
     this->my_orders.insert( orders_value_type(id,
                                order_bndl_type(BuyNotSell,price,size)) );
     if(BuyNotSell)
@@ -111,27 +128,34 @@ void MarketMaker::_base_callback(callback_msg msg,
 {
   order_bndl_type ob;
 
+  /* DEADLOCKING */
+  std::lock_guard<std::mutex> _(this->_my_lock); /* DEADLOCKING */
+  /* DEADLOCKING */
+
   switch(msg){
   case callback_msg::fill:
     {
+      std::cout<< "BEFORE " <<std::to_string(id) << ' ' <<std::to_string(size) << '\n';
       ob = order_bndl_type(this->my_orders.at(id)); // throw
+      std::cout<< "AFTER\n";
       this->last_fill_was_buy = std::get<0>(ob);
       this->last_fill_price = price;
       this->last_fill_size = size;
       this->last_fill_id = id;
 
-      if(this->last_fill_was_buy)
+      if(this->last_fill_was_buy){
         this->pos += size;
-      else
-        this->pos -= size;
-
-      if(size >= std::get<2>(ob))
-        this->my_orders.erase(id);
-
-      if(this->last_fill_was_buy)
         this->bid_out -= size;
-      else
+      }else{
+        this->pos -= size;
         this->offer_out -= size;
+      }
+
+      if(size >= std::get<2>(ob)){
+        std::cout<< "ERASE " <<std::to_string(id) << ' '<< std::to_string(size) << '\n';
+        this->my_orders.erase(id);
+      }
+
     }
     break;
   case callback_msg::cancel:
@@ -256,7 +280,7 @@ MarketMaker_Random::MarketMaker_Random(size_type sz_low,
   }
 MarketMaker_Random::MarketMaker_Random(const MarketMaker_Random& mm)
   :
-    my_base_type(mm),
+    my_base_type( std::bind(&MarketMaker_Random::_callback,this,_1,_2,_3,_4) ),
     _sz_low(mm._sz_low),
     _sz_high(mm._sz_high),
     _max_pos(mm._max_pos),

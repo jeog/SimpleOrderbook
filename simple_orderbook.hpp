@@ -209,7 +209,9 @@ private:
   plevel _beg, _end, _last, _bid, _ask, _low_buy_limit, _high_sell_limit,
         _low_buy_stop, _high_buy_stop, _low_sell_stop, _high_sell_stop;
 
+public: /*DEBUG */
   large_size_type _total_volume, _last_id;
+private:
 
   /* autonomous market makers */
   market_makers_type _market_makers;

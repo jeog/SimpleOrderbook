@@ -24,6 +24,8 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <functional>
 #include <memory>
 #include <map>
+#include <mutex>
+
 
 namespace NativeLayer{
 
@@ -45,6 +47,7 @@ class MarketMaker{
 
   void _base_callback(callback_msg msg,id_type id, price_type price,
                       size_type size);
+  std::mutex _my_lock;
 
 protected:
   typedef MarketMaker my_base_type;
@@ -68,6 +71,7 @@ protected:
 public:
   MarketMaker(callback_type callback);
   MarketMaker();
+  // how to handle copy constr ??
   virtual ~MarketMaker()
     {
     };

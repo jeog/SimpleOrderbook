@@ -83,7 +83,7 @@ const std::map<int,sob_type_entry> SOB_TYPES = {
   MAKE_SOB(SOB_QUARTER_TICK,"SOB_QUARTER_TICK",QuarterTick),
   MAKE_SOB(SOB_TENTH_TICK,"SOB_TENTH_TICK",TenthTick),
   MAKE_SOB(SOB_THIRTYSECONDTH_TICK,"SOB_THIRTYSECONDTH_TICK",ThirtySecondthTick),
-  MAKE_SOB(SOB_HUNDREDTH_TICK,"SOB_HUNDRETH_TICK",HundredthTick),
+  MAKE_SOB(SOB_HUNDREDTH_TICK,"SOB_HUNDREDTH_TICK",HundredthTick),
   MAKE_SOB(SOB_THOUSANDTH_TICK,"SOB_THOUSANDTH_TICK",ThousandthTick),
   MAKE_SOB(SOB_TENTHOUSANDTH_TICK,"SOB_TENTHOUSANDTH_TICK",TenThousandthTick)
 };
@@ -271,8 +271,11 @@ PyObject* VOB_trade_market_(pySOB* self, PyObject* args, PyObject* kwds)
      */
     callback_type cb = callback_type(CallbackWrapper(callback));
 
+    std::cout<< "TRADER INSERT... " ;
+
     id = Replace ? sob->replace_with_market_order(id, BuyNotSell, size, cb)
                  : sob->insert_market_order(BuyNotSell, size, cb);
+
 
   }catch(std::exception& e){
     PyErr_SetString(PyExc_Exception, e.what());
@@ -478,7 +481,7 @@ static PyObject* VOB_add_market_makers(pySOB* self, PyObject* args)
         break;
       case(MM_SIMPLE1):
         {
-          if(mm_2 < mm_1 || m_1 == 0)
+          if(mm_2 < mm_1 || mm_1 == 0)
             throw std::invalid_argument("invalid args (type,num,sz,max)");
           pmms->push_back(pMarketMaker(new MarketMaker_Simple1(mm_1,mm_2)));
         }
@@ -589,11 +592,11 @@ static PyObject* VOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
   int sobty;
   SimpleOrderbook::FullInterface* sob;
 
-  static char kws[][16] = {"price", "low", "high", "sob_type"};
+  static char kws[][16] = {"sob_type","price", "low", "high"};
   static char* kwlist[] = {kws[0], kws[1], kws[2], kws[3], NULL};
 
-  if(!PyArg_ParseTupleAndKeywords(args, kwds, "fffi", kwlist, &price, &low,
-                                  &high, &sobty))
+  if(!PyArg_ParseTupleAndKeywords(args, kwds, "ifff", kwlist, &sobty, &price,
+                                  &low, &high))
   {
     PyErr_SetString(PyExc_ValueError, "error parsing args to __new__");
     return NULL;
@@ -601,10 +604,13 @@ static PyObject* VOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 
   self = (pySOB*)type->tp_alloc(type,0);
   self->_sob = nullptr;
+
   if(self != NULL){
     try{
-      sob = SOB_TYPES.at(sobty).second(price,low,high);
+      if(price < low || high < price)
+        throw std::invalid_argument("invalid args (type,price,low,high)");
 
+      sob = SOB_TYPES.at(sobty).second(price,low,high);
       if(!sob)
         throw std::runtime_error("self->_sob was not constructed");
       else

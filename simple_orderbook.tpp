@@ -679,6 +679,7 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
   try{
     plev = this->_ptoi(limit);
     id = this->_generate_id();
+    std::cout<< "ID " << std::to_string(id) << " from insert_limit\n";
     this->_insert_limit_order(buy, plev, size, callback, id);
   }catch(std::range_error){
     throw invalid_order("invalid limit price");
@@ -700,8 +701,10 @@ id_type SOB_CLASS::insert_market_order(bool buy,
   if(this->_market_makers.empty())
     throw invalid_state("orderbook has no market makers");
 
-  id = this->_generate_id();
-
+  id = this->_generate_id();   
+  
+  std::cout<< std::to_string(id) << std::endl;
+  
   this->_insert_market_order(buy,size,callback,id);
   return id;
 }
