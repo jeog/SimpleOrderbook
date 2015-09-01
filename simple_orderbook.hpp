@@ -94,11 +94,12 @@ public:
   typedef std::function<LimitInterface*(size_type,size_type,size_type)> cnstr_type;
 
   virtual id_type insert_limit_order(bool buy, price_type limit, size_type size,
-                                     callback_type callback) = 0;
-  virtual id_type replace_with_limit_order(id_type id, bool buy,
-                                           price_type limit,
-                                           size_type size,
-                                           callback_type callback) = 0;
+                                     callback_type callback,
+                                     pre_lim_compl_cb_type plccb = nullptr) = 0;
+  virtual id_type
+  replace_with_limit_order(id_type id, bool buy, price_type limit,
+                           size_type size, callback_type callback,
+                           pre_lim_compl_cb_type plccb = nullptr) = 0;
   virtual bool pull_order(id_type id, bool search_limits_first=true) = 0;
 };
 
@@ -170,6 +171,10 @@ private:
   typedef std::tuple<callback_type,callback_type,
                      id_type, id_type, price_type,size_type>  dfrd_cb_elem_type;
 
+               /* type, buy/sell, limit, stop, size, callback, limit-callback */
+  typedef std::tuple<order_type,bool,price_type,price_type,size_type,
+                     callback_type,pre_lim_compl_cb_type> order_queue_elem_type;
+
   /* limit bundle type holds the size and callback of each limit order
    * limit 'chain' type holds all limit orders at a price */
   typedef std::pair<size_type, callback_type>         limit_bndl_type;
@@ -216,11 +221,14 @@ private:
   /* autonomous market makers */
   market_makers_type _market_makers;
 
-  /* trade has occurred but we've deferred 'handling' it */
-  bool _is_dirty;
+  /* is_dirty: trade has occurred but we've deferred 'handling' it
+   * calling_back: in the process of calling back, DONT INSERT */
+  bool _is_dirty, _calling_back;
 
   /* store deferred callback info until we are clear to execute */
   std::queue<dfrd_cb_elem_type> _deferred_callback_queue;
+
+  std::queue<order_queue_elem_type> _order_queue;
 
   /* time & sales */
   std::vector< t_and_s_type > _t_and_s;
@@ -234,6 +242,7 @@ private:
   plevel _ptoi(my_price_type price) const;
   my_price_type _itop(plevel plev) const;
 
+  void _exec_order_queue();
 
   inline my_price_type _round_to_incr(my_price_type price)
   {
@@ -289,11 +298,12 @@ private:
 
   /* internal insert orders once/if we have an id */
   void _insert_limit_order(bool buy, plevel limit, size_type size,
-                            callback_type callback, id_type id);
+                           callback_type callback, id_type id,
+                           pre_lim_compl_cb_type plccb = nullptr);
   void _insert_market_order(bool buy, size_type size,
-                             callback_type callback, id_type id);
+                            callback_type callback, id_type id);
   void _insert_stop_order(bool buy, plevel stop, size_type size,
-                           callback_type callback, id_type id);
+                          callback_type callback, id_type id);
   void _insert_stop_order(bool buy, plevel stop, plevel limit, size_type size,
                           callback_type callback, id_type id);
 
@@ -317,8 +327,14 @@ public:
 
   void add_market_makers(market_makers_type&& mms);
 
+  /*
+   * note: currently only limit orders provide a pre-completion callback to
+   * allow pre standard (fill/cancel) callback behavior
+   */
+
   id_type insert_limit_order(bool buy, price_type limit, size_type size,
-                             callback_type callback);
+                             callback_type callback,
+                             pre_lim_compl_cb_type plccb = nullptr);
   id_type insert_market_order(bool buy, size_type size,
                               callback_type callback);
   id_type insert_stop_order(bool buy, price_type stop, size_type size,
@@ -329,7 +345,8 @@ public:
   bool pull_order(id_type id,bool search_limits_first=true);
 
   id_type replace_with_limit_order(id_type id, bool buy, price_type limit,
-                                   size_type size, callback_type callback);
+                                   size_type size, callback_type callback,
+                                   pre_lim_compl_cb_type plccb = nullptr);
   id_type replace_with_market_order(id_type id, bool buy, size_type size,
                                     callback_type callback);
   id_type replace_with_stop_order(id_type id, bool buy, price_type stop,

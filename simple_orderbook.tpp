@@ -9,14 +9,56 @@ void SOB_CLASS::_on_trade_completion()
 {
   if(this->_is_dirty){
     this->_is_dirty = false;
+    this->_calling_back = true;
     while(!this->_deferred_callback_queue.empty()){
       dfrd_cb_elem_type e = this->_deferred_callback_queue.front();
       std::get<0>(e)(fill,std::get<2>(e),std::get<4>(e),std::get<5>(e));
       std::get<1>(e)(fill,std::get<3>(e),std::get<4>(e),std::get<5>(e));
       this->_deferred_callback_queue.pop();
     }
+    this->_calling_back = false;    
     this->_look_for_triggered_stops();
+    this->_exec_order_queue();
   }
+}
+
+SOB_TEMPLATE
+void SOB_CLASS::_exec_order_queue()
+{
+  if(this->_calling_back)
+    throw invalid_state("_exec_order_queue called while calling back");
+  while(!this->_order_queue.empty()){
+    order_queue_elem_type e = this->_order_queue.front();
+    switch(std::get<0>(e)){
+    case order_type::limit:
+      {
+        this->insert_limit_order(std::get<1>(e),std::get<2>(e),std::get<4>(e),
+                                 std::get<5>(e),std::get<6>(e)); 
+      }
+      break;
+    case order_type::market:
+      {
+        this->insert_market_order(std::get<1>(e),std::get<4>(e),std::get<5>(e));        
+      }
+      break;
+    case order_type::stop:
+      {
+        this->insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<4>(e),
+                                std::get<5>(e));
+      }
+      break;
+    case order_type::stop_limit:
+      {
+        this->insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<2>(e),
+                                std::get<4>(e),std::get<5>(e));         
+      }
+      break;
+    default:
+      throw std::runtime_error("invalid order type in order_queue");
+    }
+    this->_deferred_callback_queue.pop();
+  }
+  
 }
 
 SOB_TEMPLATE
@@ -246,7 +288,8 @@ void SOB_CLASS::_insert_limit_order(bool buy,
                                     plevel limit,
                                     size_type size,
                                     callback_type callback,
-                                    id_type id)
+                                    id_type id,
+                                    pre_lim_compl_cb_type plccb)
 {
   size_type rmndr = size; 
   /*
@@ -286,6 +329,10 @@ void SOB_CLASS::_insert_limit_order(bool buy,
         this->_high_sell_limit = limit;
     }
   }
+  
+  if(plccb) /* pre-completion callback*/
+    plccb(id);
+    
   this->_on_trade_completion();
 }
 
@@ -489,7 +536,7 @@ void SOB_CLASS::_dump_limits() const
     {
       std::cout<< this->_itop(beg);
       for(const limit_chain_type::value_type& e : beg->first)
-        std::cout<< " <" << e.second.first << "> ";
+        std::cout<< " <" << e.second.first << " #" << e.first << "> ";
       std::cout<< std::endl;
     } 
 }
@@ -512,7 +559,8 @@ void SOB_CLASS::_dump_stops() const
         plim = (plevel)std::get<1>(e.second);
         std::cout<< " <" << (std::get<0>(e.second) ? "B " : "S ")
                  << std::to_string(std::get<2>(e.second)) << " @ "
-                 << (plim ? std::to_string(this->_itop(plim)) : "MKT")<<"> ";
+                 << (plim ? std::to_string(this->_itop(plim)) : "MKT")
+                 << " #" << std::to_string(e.first) << "> ";
       }
       std::cout<< std::endl;
     } 
@@ -634,7 +682,9 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   _last_id(0),
   _market_makers(), 
   _is_dirty(false),
+  _calling_back(false),
   _deferred_callback_queue(),
+  _order_queue(),
   _t_and_s(),
   _t_and_s_max_sz(1000),
   _t_and_s_full(false)
@@ -662,7 +712,8 @@ SOB_TEMPLATE
 id_type SOB_CLASS::insert_limit_order(bool buy,
                                       price_type limit,
                                       size_type size,
-                                      callback_type callback) 
+                                      callback_type callback,
+                                      pre_lim_compl_cb_type plccb) 
 {
   plevel plev;
   id_type id;
@@ -675,12 +726,16 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
    * 
   if(this->_market_makers.empty())
     throw invalid_state("orderbook has no market makers"); */
+  
+  if(this->_calling_back)
+    this->_order_queue.push( 
+      order_queue_elem_type(order_type::limit,buy,limit,0,size,callback,plccb));
 
   try{
     plev = this->_ptoi(limit);
     id = this->_generate_id();
-    std::cout<< "ID " << std::to_string(id) << " from insert_limit\n";
-    this->_insert_limit_order(buy, plev, size, callback, id);
+  //  std::cout<< "ID " << std::to_string(id) << " from insert_limit\n";
+    this->_insert_limit_order(buy, plev, size, callback, id, plccb);
   }catch(std::range_error){
     throw invalid_order("invalid limit price");
   }
@@ -700,10 +755,12 @@ id_type SOB_CLASS::insert_market_order(bool buy,
   
   if(this->_market_makers.empty())
     throw invalid_state("orderbook has no market makers");
+  
+  if(this->_calling_back)
+    this->_order_queue.push( 
+      order_queue_elem_type(order_type::limit,buy,0,0,size,callback,nullptr) );
 
   id = this->_generate_id();   
-  
-  std::cout<< std::to_string(id) << std::endl;
   
   this->_insert_market_order(buy,size,callback,id);
   return id;
@@ -733,6 +790,10 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
   
   if(this->_market_makers.empty())
     throw invalid_state("orderbook has no market makers");
+  
+  if(this->_calling_back)
+    this->_order_queue.push( order_queue_elem_type(order_type::limit,buy,limit,
+                                                   stop,size,callback,nullptr) );
 
   try{
     plimit = limit ? this->_ptoi(limit) : nullptr;
@@ -759,16 +820,18 @@ bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
 
 
 SOB_TEMPLATE
-id_type SOB_CLASS::replace_with_limit_order(id_type id,
-                                            bool buy,
-                                            price_type limit,
-                                            size_type size,
-                                            callback_type callback)
+id_type 
+SOB_CLASS::replace_with_limit_order(id_type id,
+                                    bool buy,
+                                    price_type limit,
+                                    size_type size,
+                                    callback_type callback,
+                                    pre_lim_compl_cb_type plccb)
 {
   id_type id_new = 0;
   
   if(this->pull_order(id))
-    id_new = this->insert_limit_order(buy,limit,size,callback);
+    id_new = this->insert_limit_order(buy,limit,size,callback,plccb);
   
   return id_new;
 }

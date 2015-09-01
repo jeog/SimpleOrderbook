@@ -41,13 +41,22 @@ typedef std::pair<price_type,limit_order_type>  stop_order_type;
 typedef typename std::chrono::steady_clock      clock_type;
 
 typedef enum {
-    cancel = 0,
-    fill,
-    stop
+  cancel = 0,
+  fill,
+  shutdown
 }callback_msg;
+
+typedef enum {
+  market = 0,
+  limit,
+  stop,
+  stop_limit
+}order_type;
 
 typedef std::function<void(callback_msg,id_type,
                            price_type,size_type)> callback_type;
+
+typedef std::function<void(id_type)> pre_lim_compl_cb_type;
 
 /*
 template< typename T, typename Pt1, typename Pt2 >
