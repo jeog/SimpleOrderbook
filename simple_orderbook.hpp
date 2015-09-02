@@ -204,7 +204,7 @@ private:
   /* type, buy/sell, limit, stop, size, callback, limit-callback */
   typedef std::tuple<order_type,bool,plevel,plevel,size_type,
                      callback_type, id_type, post_exec_callback_type,
-                    std::promise<id_type>*>  order_queue_elem_type;
+                    std::promise<id_type>>  order_queue_elem_type;
 
   /* state fields */
   size_type _bid_size, _ask_size, _last_size,
