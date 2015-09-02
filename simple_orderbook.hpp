@@ -31,6 +31,10 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <string>
 #include <ratio>
 #include <array>
+#include <thread>
+#include <future>
+#include <condition_variable>
+#include <chrono>
 
 #include "types.hpp"
 #include "market_maker.hpp"
@@ -171,10 +175,6 @@ private:
   typedef std::tuple<callback_type,callback_type,
                      id_type, id_type, price_type,size_type>  dfrd_cb_elem_type;
 
-               /* type, buy/sell, limit, stop, size, callback, limit-callback */
-  typedef std::tuple<order_type,bool,price_type,price_type,size_type,
-                     callback_type,post_exec_callback_type> order_queue_elem_type;
-
   /* limit bundle type holds the size and callback of each limit order
    * limit 'chain' type holds all limit orders at a price */
   typedef std::pair<size_type, callback_type>         limit_bndl_type;
@@ -200,6 +200,11 @@ private:
 
   /* a vector of all chain pairs (how we reprsent the 'book' internally) */
   typedef std::vector<chain_pair_type> order_book_type;
+
+  /* type, buy/sell, limit, stop, size, callback, limit-callback */
+  typedef std::tuple<order_type,bool,plevel,plevel,size_type,
+                     callback_type, id_type, post_exec_callback_type,
+                    std::promise<id_type>*>  order_queue_elem_type;
 
   /* state fields */
   size_type _bid_size, _ask_size, _last_size,
@@ -234,6 +239,10 @@ private:
   std::vector< t_and_s_type > _t_and_s;
   size_type _t_and_s_max_sz;
   bool _t_and_s_full;
+
+  std::mutex _queue_mutex;
+  std::condition_variable _in_signal;
+  std::thread _background_thread1;
 
   /* don't worry about overflow */
   inline large_size_type _generate_id(){ return ++(this->_last_id); }

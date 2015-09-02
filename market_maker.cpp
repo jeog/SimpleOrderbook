@@ -125,9 +125,9 @@ void MarketMaker::_base_callback(callback_msg msg,
   switch(msg){
   case callback_msg::fill:
     {
-      std::cout<< "BEFORE " <<std::to_string(id) << ' ' << std::boolalpha
-          << this->last_fill_was_buy << ' ' << std::to_string(price) << ' '
-          <<std::to_string(size) << '\n';
+   //   std::cout<< "BEFORE " <<std::to_string(id) << ' ' << std::boolalpha
+ //         << this->last_fill_was_buy << ' ' << std::to_string(price) << ' '
+  //        <<std::to_string(size) << '\n';
       size_type rem_sz;
       try{
         ob = order_bndl_type(this->my_orders.at(id)); // throw
@@ -138,7 +138,7 @@ void MarketMaker::_base_callback(callback_msg msg,
         ((NativeLayer::SimpleOrderbook::FullInterface*)(this->_book))->dump_buy_limits();
         throw;
       }
-      std::cout<< "AFTER\n";
+   //   std::cout<< "AFTER\n";
 
       rem_sz = std::get<2>(ob);
       this->last_fill_was_buy = std::get<0>(ob);
@@ -155,9 +155,9 @@ void MarketMaker::_base_callback(callback_msg msg,
       }
 
       if(size >= rem_sz){
-        std::cout<< "ERASE " <<std::to_string(id) << ' '<< std::boolalpha
-            << this->last_fill_was_buy << ' ' << ' ' << std::to_string(price)
-            << ' ' << std::to_string(size) << '\n';
+    //    std::cout<< "ERASE " <<std::to_string(id) << ' '<< std::boolalpha
+   //         << this->last_fill_was_buy << ' ' << ' ' << std::to_string(price)
+   //         << ' ' << std::to_string(rem_sz) << '\n';
         this->my_orders.erase(id);
       }else
         this->my_orders[id] =

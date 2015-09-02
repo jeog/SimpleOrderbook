@@ -8,57 +8,75 @@ SOB_TEMPLATE
 void SOB_CLASS::_on_trade_completion()
 {
   if(this->_is_dirty){
-    this->_is_dirty = false;
-    this->_calling_back = true;
+    this->_is_dirty = false;    
     while(!this->_deferred_callback_queue.empty()){
       dfrd_cb_elem_type e = this->_deferred_callback_queue.front();
-      std::get<0>(e)(fill,std::get<2>(e),std::get<4>(e),std::get<5>(e));
-      std::get<1>(e)(fill,std::get<3>(e),std::get<4>(e),std::get<5>(e));
       this->_deferred_callback_queue.pop();
-    }
-    this->_calling_back = false;    
-    this->_look_for_triggered_stops();
-    this->_exec_order_queue();
+      std::get<0>(e)(fill,std::get<2>(e),std::get<4>(e),std::get<5>(e));
+      std::get<1>(e)(fill,std::get<3>(e),std::get<4>(e),std::get<5>(e));      
+    }  
+    this->_look_for_triggered_stops(); 
   }
 }
 
 SOB_TEMPLATE
 void SOB_CLASS::_exec_order_queue()
 {
-  if(this->_calling_back)
-    throw invalid_state("_exec_order_queue called while calling back");
-  while(!this->_order_queue.empty()){
-    order_queue_elem_type e = this->_order_queue.front();
-    switch(std::get<0>(e)){
+  order_type ot;
+  bool is_buy;
+  plevel limit,stop;
+  size_type size;
+  callback_type cb1;  
+  id_type id;
+  post_exec_callback_type cb2;
+  std::promise<id_type>* prom;
+  while(true){
+    {
+      std::unique_lock<std::mutex> _(this->_queue_mutex);    
+      this->_in_signal.wait(_, [this]{ return !this->_order_queue.empty();} );
+   //   std::cout<< "CONUMSER START\n";
+      order_queue_elem_type e = this->_order_queue.front();
+      this->_order_queue.pop();
+      ot = std::get<0>(e);
+      is_buy = std::get<1>(e);
+      limit = std::get<2>(e);
+      stop = std::get<3>(e);
+      size = std::get<4>(e);
+      cb1 = std::get<5>(e);      
+      id = std::get<6>(e);
+      cb2 = std::get<7>(e);
+      prom = std::get<8>(e);
+    }    
+    switch(ot){
     case order_type::limit:
       {
-        this->insert_limit_order(std::get<1>(e),std::get<2>(e),std::get<4>(e),
-                                 std::get<5>(e),std::get<6>(e)); 
+        this->_insert_limit_order(is_buy,limit,size,cb1,id,cb2); 
       }
       break;
     case order_type::market:
       {
-        this->insert_market_order(std::get<1>(e),std::get<4>(e),std::get<5>(e));        
+        this->_insert_market_order(is_buy,size,cb1,id);        
       }
       break;
     case order_type::stop:
       {
-        this->insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<4>(e),
-                                std::get<5>(e));
+        this->_insert_stop_order(is_buy,stop,size,cb1,id);
       }
       break;
     case order_type::stop_limit:
       {
-        this->insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<2>(e),
-                                std::get<4>(e),std::get<5>(e));         
+        this->_insert_stop_order(is_buy,stop,limit,size,cb1,id);         
       }
       break;
     default:
       throw std::runtime_error("invalid order type in order_queue");
-    }
-    this->_deferred_callback_queue.pop();
-  }
-  
+    }    
+   // std::cout<< "CONUMSER "<< std::to_string(id) << " SLEEP\n" << std::flush;
+  //  std::this_thread::sleep_for(std::chrono::seconds(5));
+    
+    prom->set_value(std::move(id));    
+ //   std::cout<< "CONUMSER "<< std::to_string(id) << " DONE\n";   
+  }  
 }
 
 SOB_TEMPLATE
@@ -123,6 +141,7 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
 {
   stop_chain_type cchain;
   plevel limit;  
+  std::promise<id_type> p;
   /*
    * need to copy the relevant chain, delete original, THEN insert
    * if not we can hit the same order more than once / go into infinite loop
@@ -149,14 +168,23 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     * so we can use the old order id as the new one; this allows caller
     * to maintain control via the same order id
     */
-    if(limit){
-      this->_insert_limit_order(std::get<0>(e.second), limit, 
-                                std::get<2>(e.second), std::get<3>(e.second), 
-                                e.first);
-    }else
-      this->_insert_market_order(std::get<0>(e.second), std::get<2>(e.second), 
-                                 std::get<3>(e.second), e.first);   
+  
+    {
+      std::lock_guard<std::mutex> _(this->_queue_mutex);     
+      this->_order_queue.push( 
+        limit 
+          ? order_queue_elem_type(order_type::limit, std::get<0>(e.second),
+                                  limit, nullptr,std::get<2>(e.second),
+                                  std::get<3>(e.second), e.first, nullptr, &p)
+          : order_queue_elem_type(order_type::market, std::get<0>(e.second),
+                                  nullptr, nullptr, std::get<2>(e.second), 
+                                  std::get<3>(e.second), e.first, nullptr, &p));
+    }    
+    this->_in_signal.notify_one();
+    std::future<id_type> f(p.get_future()); 
+    f.get();
   }
+  this->_on_trade_completion(); // <- this could be an issue
 }
 
 /*
@@ -332,8 +360,6 @@ void SOB_CLASS::_insert_limit_order(bool buy,
   
   if(plccb) /* pre-completion callback*/
     plccb(id);
-    
-  this->_on_trade_completion();
 }
 
 SOB_TEMPLATE
@@ -348,8 +374,6 @@ void SOB_CLASS::_insert_market_order(bool buy,
               : this->_hit_bids(nullptr,id,size,callback);
   if(rmndr)
     throw liquidity_exception("market order couldn't fill");
-
-  this->_on_trade_completion();
 }
 
 SOB_TEMPLATE
@@ -387,9 +411,7 @@ void SOB_CLASS::_insert_stop_order(bool buy,
   if(buy && stop < this->_low_buy_stop)
     this->_low_buy_stop = stop;
   else if(!buy && stop > this->_high_sell_stop)
-    this->_high_sell_stop = stop;
-
-  this->_on_trade_completion();
+    this->_high_sell_stop = stop;  
 }
 
 SOB_TEMPLATE
@@ -687,9 +709,13 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   _order_queue(),
   _t_and_s(),
   _t_and_s_max_sz(1000),
-  _t_and_s_full(false)
+  _t_and_s_full(false),
+  _queue_mutex(),
+  _in_signal(),
+  _background_thread1(std::bind(&SOB_CLASS::_exec_order_queue,this))
   {       
     this->_t_and_s.reserve(this->_t_and_s_max_sz);   
+    this->_background_thread1.detach();
     std::cout<< "+ SimpleOrderbook(" << typeid(*this).name() << ") Created\n";
   }
 
@@ -716,31 +742,37 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
                                       post_exec_callback_type plccb) 
 {
   plevel plev;
-  id_type id;
+  id_type id, ret;
+  std::promise<id_type> p;
   
   if(size <= 0)
-    throw invalid_order("invalid order size");
-  
+    throw invalid_order("invalid order size");  
   /*
    * if we want to do this, need to allow MMs to insert ...
    * 
   if(this->_market_makers.empty())
-    throw invalid_state("orderbook has no market makers"); */
-  
-  if(this->_calling_back)
-    this->_order_queue.push( 
-      order_queue_elem_type(order_type::limit,buy,limit,0,size,callback,plccb));
-
+    throw invalid_state("orderbook has no market makers"); */    
   try{
     plev = this->_ptoi(limit);
     id = this->_generate_id();
-  //  std::cout<< "ID " << std::to_string(id) << " from insert_limit\n";
-    this->_insert_limit_order(buy, plev, size, callback, id, plccb);
+    {
+      std::lock_guard<std::mutex> _(this->_queue_mutex);
+    //  std::cout<< "PRODUCER "<< std::to_string(id) << " START\n";
+      this->_order_queue.push( 
+        order_queue_elem_type(order_type::limit,buy,plev,nullptr,size,callback,
+                              id,plccb,&p));
+    }
+    this->_in_signal.notify_one();
   }catch(std::range_error){
     throw invalid_order("invalid limit price");
   }
   
-  return id;
+  std::future<id_type> f(p.get_future());
+//  std::cout<< "PRODUCER " << std::to_string(id) << " WAIT ON CONSUMER\n";
+  ret = f.get();
+ // std::cout<< "PRODUCER DONE " << std::to_string(id) << "\n";
+  this->_on_trade_completion();
+  return ret;
 }
 
 SOB_TEMPLATE
@@ -748,22 +780,28 @@ id_type SOB_CLASS::insert_market_order(bool buy,
                                        size_type size,
                                        callback_type callback)
 {
-  id_type id;
-
+  id_type id, ret;
+  std::promise<id_type> p;
+  
   if(size <= 0)
     throw invalid_order("invalid order size");
   
   if(this->_market_makers.empty())
     throw invalid_state("orderbook has no market makers");
   
-  if(this->_calling_back)
+  id = this->_generate_id();
+  {
+    std::lock_guard<std::mutex> _(this->_queue_mutex);
     this->_order_queue.push( 
-      order_queue_elem_type(order_type::limit,buy,0,0,size,callback,nullptr) );
-
-  id = this->_generate_id();   
+      order_queue_elem_type(order_type::market,buy,nullptr,nullptr,size,
+                            callback, id, nullptr,&p));
+  }
+  this->_in_signal.notify_one();  
   
-  this->_insert_market_order(buy,size,callback,id);
-  return id;
+  std::future<id_type> f(p.get_future());
+  ret = f.get();
+  this->_on_trade_completion();
+  return ret;
 }
 
 SOB_TEMPLATE
@@ -783,28 +821,35 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
                                      callback_type callback)
 {
   plevel plimit, pstop;
-  id_type id;
+  id_type id, ret;
+  std::promise<id_type> p;
 
   if(size <= 0)
     throw invalid_order("invalid order size");
   
   if(this->_market_makers.empty())
     throw invalid_state("orderbook has no market makers");
-  
-  if(this->_calling_back)
-    this->_order_queue.push( order_queue_elem_type(order_type::limit,buy,limit,
-                                                   stop,size,callback,nullptr) );
 
   try{
     plimit = limit ? this->_ptoi(limit) : nullptr;
     pstop = this->_ptoi(stop);
     id = this->_generate_id();
-    this->_insert_stop_order(buy, pstop, plimit, size, callback, id);
+    {
+      std::lock_guard<std::mutex> _(this->_queue_mutex);
+      this->_order_queue.push( 
+        order_queue_elem_type((limit ? order_type::stop_limit : order_type::stop),
+                              buy,plimit,pstop, size, callback, id,
+                              nullptr,&p));
+    }
+    this->_in_signal.notify_one();
   }catch(std::range_error){
     throw invalid_order("invalid price");
   }  
   
-  return id;
+  std::future<id_type> f(p.get_future());
+  ret = f.get();
+  this->_on_trade_completion();
+  return ret;
 }
 
 SOB_TEMPLATE
