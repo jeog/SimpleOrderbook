@@ -40,18 +40,18 @@ typedef std::pair<price_type,limit_order_type>  stop_order_type;
 
 typedef typename std::chrono::steady_clock      clock_type;
 
-typedef enum {
+enum class callback_msg{
   cancel = 0,
   fill,
   shutdown
-}callback_msg;
+};
 
-typedef enum {
+enum class order_type {
   market = 0,
   limit,
   stop,
   stop_limit
-}order_type;
+};
 
 typedef std::function<void(callback_msg,id_type,
                            price_type,size_type)> callback_type;

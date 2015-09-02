@@ -12,8 +12,11 @@ void SOB_CLASS::_on_trade_completion()
     while(!this->_deferred_callback_queue.empty()){
       dfrd_cb_elem_type e = this->_deferred_callback_queue.front();
       this->_deferred_callback_queue.pop();
-      std::get<0>(e)(fill,std::get<2>(e),std::get<4>(e),std::get<5>(e));
-      std::get<1>(e)(fill,std::get<3>(e),std::get<4>(e),std::get<5>(e));      
+      /* BE SURE TO POP BEFORE WE CALL BACK */
+      std::get<0>(e)(callback_msg::fill,std::get<2>(e),std::get<4>(e),
+                     std::get<5>(e));
+      std::get<1>(e)(callback_msg::fill,std::get<3>(e),std::get<4>(e),
+                     std::get<5>(e));      
     }  
     this->_look_for_triggered_stops(); 
   }
@@ -21,51 +24,39 @@ void SOB_CLASS::_on_trade_completion()
 
 SOB_TEMPLATE
 void SOB_CLASS::_exec_order_queue()
-{
-  order_type ot;
-  bool is_buy;
-  plevel limit,stop;
-  size_type size;
-  callback_type cb1;  
-  id_type id;
-  post_exec_callback_type cb2;
-  std::promise<id_type>* prom;
+{  
+  order_queue_elem_type e;
   while(true){
     {
       std::unique_lock<std::mutex> _(this->_queue_mutex);    
       this->_in_signal.wait(_, [this]{ return !this->_order_queue.empty();} );
    //   std::cout<< "CONUMSER START\n";
-      order_queue_elem_type e = this->_order_queue.front();
+      e = this->_order_queue.front();
       this->_order_queue.pop();
-      ot = std::get<0>(e);
-      is_buy = std::get<1>(e);
-      limit = std::get<2>(e);
-      stop = std::get<3>(e);
-      size = std::get<4>(e);
-      cb1 = std::get<5>(e);      
-      id = std::get<6>(e);
-      cb2 = std::get<7>(e);
-      prom = std::get<8>(e);
-    }    
-    switch(ot){
+    }      
+    switch(std::get<0>(e)){
     case order_type::limit:
       {
-        this->_insert_limit_order(is_buy,limit,size,cb1,id,cb2); 
+        this->_insert_limit_order(std::get<1>(e),std::get<2>(e),std::get<4>(e),
+                                  std::get<5>(e),std::get<6>(e),std::get<7>(e)); 
       }
       break;
     case order_type::market:
       {
-        this->_insert_market_order(is_buy,size,cb1,id);        
+        this->_insert_market_order(std::get<1>(e),std::get<4>(e),std::get<5>(e),
+                                   std::get<6>(e));        
       }
       break;
     case order_type::stop:
       {
-        this->_insert_stop_order(is_buy,stop,size,cb1,id);
+        this->_insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<4>(e),
+                                 std::get<5>(e),std::get<6>(e));
       }
       break;
     case order_type::stop_limit:
       {
-        this->_insert_stop_order(is_buy,stop,limit,size,cb1,id);         
+        this->_insert_stop_order(std::get<1>(e),std::get<3>(e), std::get<2>(e),
+                                 std::get<4>(e),std::get<5>(e), std::get<6>(e));         
       }
       break;
     default:
@@ -74,7 +65,7 @@ void SOB_CLASS::_exec_order_queue()
    // std::cout<< "CONUMSER "<< std::to_string(id) << " SLEEP\n" << std::flush;
   //  std::this_thread::sleep_for(std::chrono::seconds(5));
     
-    prom->set_value(std::move(id));    
+    std::get<8>(e)->set_value(std::move(std::get<6>(e)));    
  //   std::cout<< "CONUMSER "<< std::to_string(id) << " DONE\n";   
   }  
 }

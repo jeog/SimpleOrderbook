@@ -271,8 +271,6 @@ PyObject* VOB_trade_market_(pySOB* self, PyObject* args, PyObject* kwds)
      */
     callback_type cb = callback_type(CallbackWrapper(callback));
 
-    std::cout<< "TRADER INSERT... " ;
-
     id = Replace ? sob->replace_with_market_order(id, BuyNotSell, size, cb)
                  : sob->insert_market_order(BuyNotSell, size, cb);
 
