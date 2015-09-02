@@ -244,6 +244,11 @@ private:
   std::condition_variable _in_signal;
   std::thread _background_thread1;
 
+  id_type _push_order_and_wait(order_type oty, bool buy, plevel limit,
+                               plevel stop, size_type size, callback_type cb,
+                               post_exec_callback_type pe_cb= nullptr,
+                               id_type id = 0);
+
   /* don't worry about overflow */
   inline large_size_type _generate_id(){ return ++(this->_last_id); }
 

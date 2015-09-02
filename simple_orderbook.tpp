@@ -35,7 +35,11 @@ void SOB_CLASS::_exec_order_queue()
       e = std::move(this->_order_queue.front());
       this->_order_queue.pop();
     }      
+    
     id = std::get<6>(e);
+    if(id == 0) /* might want to protect this at some point */
+      id = this->_generate_id();
+    
     switch(std::get<0>(e)){
     case order_type::limit:
       {
@@ -64,10 +68,36 @@ void SOB_CLASS::_exec_order_queue()
     default:
       throw std::runtime_error("invalid order type in order_queue");
     }    
-    std::cout<< "CONUMSER "<< std::to_string(id) << " BEFORE\n" << std::flush;    
-    std::get<8>(e).set_value(id);    
-    std::cout<< "CONUMSER "<< std::to_string(id) << " AFTER\n" << std::flush; 
+   
+    std::get<8>(e).set_value(id);  
   }  
+}
+
+SOB_TEMPLATE
+id_type SOB_CLASS::_push_order_and_wait(order_type oty, 
+                                        bool buy, 
+                                        plevel limit,
+                                        plevel stop,
+                                        size_type size,
+                                        callback_type cb,                                         
+                                        post_exec_callback_type pe_cb,
+                                        id_type id)
+{
+  id_type ret_id;
+  std::promise<id_type> p;
+  std::future<id_type> f(p.get_future());
+  
+  {
+     std::lock_guard<std::mutex> _(this->_queue_mutex);
+     this->_order_queue.push( 
+       order_queue_elem_type(oty,buy,limit,stop,size,cb,id,pe_cb,std::move(p)));
+  }
+  
+  this->_in_signal.notify_one();
+  ret_id = f.get();
+  this->_on_trade_completion();
+  
+  return ret_id;
 }
 
 SOB_TEMPLATE
@@ -152,15 +182,11 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
       this->_high_sell_stop = this->_low_sell_stop = this->_beg;
   }
 
-
   for(stop_chain_type::value_type& e : cchain){
     limit = (plevel)std::get<1>(e.second);
    /*
-    * note below we are calling the private versions of _insert,
-    * so we can use the old order id as the new one; this allows caller
-    * to maintain control via the same order id
-    */
-  
+    * note below we are keeping the old id
+    */  
     {
       std::lock_guard<std::mutex> _(this->_queue_mutex);     
       this->_order_queue.push( limit ? 
@@ -735,9 +761,6 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
                                       post_exec_callback_type plccb) 
 {
   plevel plev;
-  id_type id, ret;
-  std::promise<id_type> p;
-  std::future<id_type> f(p.get_future());
   
   if(size <= 0)
     throw invalid_order("invalid order size");  
@@ -745,56 +768,30 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
    * if we want to do this, need to allow MMs to insert ...
    * 
   if(this->_market_makers.empty())
-    throw invalid_state("orderbook has no market makers"); */    
-  
+    throw invalid_state("orderbook has no market makers"); */   
   try{
-    plev = this->_ptoi(limit);
-    id = this->_generate_id();
-    {
-      std::lock_guard<std::mutex> _(this->_queue_mutex);
-    //  std::cout<< "PRODUCER "<< std::to_string(id) << " START\n";
-      this->_order_queue.push( 
-        order_queue_elem_type(order_type::limit,buy,plev,nullptr,size,callback,
-                              id,plccb,std::move(p)));
-    }
-    this->_in_signal.notify_one();
+    plev = this->_ptoi(limit);  
   }catch(std::range_error){
     throw invalid_order("invalid limit price");
-  }  
-  
-  std::cout<< "PRODUCER "<< std::to_string(id) << " BEFORE\n" << std::flush;
-  ret = f.get();
-  std::cout<< "PRODUCER "<< std::to_string(id) << " AFTER\n" << std::flush;
-  this->_on_trade_completion();
-  return ret;
+  }    
+ 
+  return this->_push_order_and_wait(order_type::limit, buy, plev, nullptr,
+                                    size, callback, plccb);  
 }
 
 SOB_TEMPLATE
 id_type SOB_CLASS::insert_market_order(bool buy,
                                        size_type size,
                                        callback_type callback)
-{
-  id_type id, ret;
-  std::promise<id_type> p;
-  std::future<id_type> f(p.get_future());
-  
+{  
   if(size <= 0)
     throw invalid_order("invalid order size");
   
   if(this->_market_makers.empty())
-    throw invalid_state("orderbook has no market makers");
+    throw invalid_state("orderbook has no market makers");  
   
-  id = this->_generate_id();
-  {
-    std::lock_guard<std::mutex> _(this->_queue_mutex);
-    this->_order_queue.push( 
-      order_queue_elem_type(order_type::market,buy,nullptr,nullptr,size,
-                            callback, id, nullptr,std::move(p)));
-  }
-  this->_in_signal.notify_one();   
-  ret = f.get();
-  this->_on_trade_completion();
-  return ret;
+  return this->_push_order_and_wait(order_type::market, buy, nullptr, nullptr,
+                                    size, callback); 
 }
 
 SOB_TEMPLATE
@@ -814,9 +811,7 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
                                      callback_type callback)
 {
   plevel plimit, pstop;
-  id_type id, ret;
-  std::promise<id_type> p;
-  std::future<id_type> f(p.get_future());
+  order_type oty;
 
   if(size <= 0)
     throw invalid_order("invalid order size");
@@ -826,23 +821,13 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
 
   try{
     plimit = limit ? this->_ptoi(limit) : nullptr;
-    pstop = this->_ptoi(stop);
-    id = this->_generate_id();
-    {
-      std::lock_guard<std::mutex> _(this->_queue_mutex);
-      this->_order_queue.push( 
-        order_queue_elem_type((limit ? order_type::stop_limit : order_type::stop),
-                              buy,plimit,pstop, size, callback, id,
-                              nullptr,std::move(p)));
-    }
-    this->_in_signal.notify_one();
+    pstop = this->_ptoi(stop);     
   }catch(std::range_error){
     throw invalid_order("invalid price");
   }  
 
-  ret = f.get();
-  this->_on_trade_completion();
-  return ret;
+  oty = limit ? order_type::stop_limit : order_type::stop;
+  return this->_push_order_and_wait( oty, buy, plimit, pstop, size, callback);  
 }
 
 SOB_TEMPLATE

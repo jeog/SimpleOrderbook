@@ -125,20 +125,9 @@ void MarketMaker::_base_callback(callback_msg msg,
   switch(msg){
   case callback_msg::fill:
     {
-   //   std::cout<< "BEFORE " <<std::to_string(id) << ' ' << std::boolalpha
- //         << this->last_fill_was_buy << ' ' << std::to_string(price) << ' '
-  //        <<std::to_string(size) << '\n';
       size_type rem_sz;
-      try{
-        ob = order_bndl_type(this->my_orders.at(id)); // throw
-      }
-      catch(...){
-        std::cout<< "* MAP::AT ERROR CAUGHT *\n";
-        ((NativeLayer::SimpleOrderbook::FullInterface*)(this->_book))->dump_sell_limits();
-        ((NativeLayer::SimpleOrderbook::FullInterface*)(this->_book))->dump_buy_limits();
-        throw;
-      }
-   //   std::cout<< "AFTER\n";
+
+      ob = order_bndl_type(this->my_orders.at(id)); // throw
 
       rem_sz = std::get<2>(ob);
       this->last_fill_was_buy = std::get<0>(ob);
@@ -154,15 +143,11 @@ void MarketMaker::_base_callback(callback_msg msg,
         this->offer_out -= size;
       }
 
-      if(size >= rem_sz){
-    //    std::cout<< "ERASE " <<std::to_string(id) << ' '<< std::boolalpha
-   //         << this->last_fill_was_buy << ' ' << ' ' << std::to_string(price)
-   //         << ' ' << std::to_string(rem_sz) << '\n';
+      if(size >= rem_sz)
         this->my_orders.erase(id);
-      }else
+      else
         this->my_orders[id] =
           order_bndl_type(this->last_fill_was_buy,price,rem_sz-size);
-
     }
     break;
   case callback_msg::cancel:
@@ -211,12 +196,12 @@ void MarketMaker_Simple1::start(SimpleOrderbook::LimitInterface *book,
 
   my_base_type::start(book,implied,tick);
 
-  for( i = 0, price = implied + 1 ;
+  for( i = 0, price = implied + tick ;
        i < 5 && (this->offer_out + this->_sz - this->pos <= this->_max_pos);
        price += tick, ++i )
     this->insert<false>(price,this->_sz);
 
-  for( i = 0, price = implied - 1 ;
+  for( i = 0, price = implied - tick ;
        i < 5 && (this->bid_out + this->_sz + this->pos <= this->_max_pos);
        price -= tick, ++i )
     this->insert<true>(price,this->_sz);
@@ -317,14 +302,14 @@ void MarketMaker_Random::start(SimpleOrderbook::LimitInterface *book,
   count = this->_distr2(this->_rand_engine);
   amt = this->_distr(this->_rand_engine);
 
-  for( i = 0, price = implied + 1 ;
+  for( i = 0, price = implied + tick ;
        i < count && (this->offer_out + amt - this->pos <= this->_max_pos);
        price += mod * tick, ++i )
   { /* insert some random sell-limits */
     this->insert<false>(price, amt);
   }
 
-  for( i = 0, price = implied - 1 ;
+  for( i = 0, price = implied - tick ;
        i < count && (this->bid_out + amt + this->pos <= this->_max_pos);
        price -= mod * tick, ++i )
   { /* insert some random buy-limits */
@@ -348,11 +333,18 @@ void MarketMaker_Random::_callback(callback_msg msg,
       if(this->last_fill_was_buy){
         if(this->bid_out + amt + this->pos <= this->_max_pos)
           this->insert<true>(price - adj, amt);
-        this->insert<false>(price + adj, size);
+        if(this->offer_out + amt - this->pos <= this->_max_pos)
+          this->insert<false>(price + adj, size);
+        /* these added calls are causing segfault ! */
+   //     this->insert<false>(price + this->tick, 1);
+   //     this->insert<false>(price , 1);
       }else{
         if(this->offer_out + amt - this->pos <= this->_max_pos)
           this->insert<false>(price + adj, amt);
-        this->insert<true>(price - adj, size);
+        if(this->bid_out + amt + this->pos <= this->_max_pos)
+          this->insert<true>(price - adj, size);
+      //  this->insert<true>(price ,  1);
+    //    this->insert<true>(price - this->tick,  1);
       }
     }
     break;
