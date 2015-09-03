@@ -39,39 +39,64 @@ typedef std::vector<pMarketMaker> market_makers_type;
 
 market_makers_type operator+(market_makers_type& l, market_makers_type& r);
 
-
 class MarketMaker{
-  SimpleOrderbook::LimitInterface *_book;
-  callback_type _callback;
-  bool _is_running;
-
-  void _base_callback(callback_msg msg,id_type id, price_type price,
-                      size_type size);
-  std::mutex _my_lock;
-
 protected:
   typedef MarketMaker my_base_type;
   typedef std::tuple<bool,price_type,size_type> order_bndl_type;
   typedef std::map<id_type,order_bndl_type> orders_map_type;
   typedef orders_map_type::value_type orders_value_type;
 
-  price_type tick;
-  orders_map_type my_orders;
+private:
+  SimpleOrderbook::LimitInterface *_book;
+  callback_type _exec_callback_obj_x;
+  callback_type _exec_callback_obj;
+  orders_map_type _my_orders;
+  bool _is_running;
+  bool _last_was_buy;
+  price_type _tick;
+  size_type _bid_out;
+  size_type _offer_out;
+  long long _pos;
 
-  bool last_fill_was_buy;
-  price_type last_fill_price;
-  size_type last_fill_size;
-  id_type last_fill_id;
+  void _base_callback(callback_msg msg,id_type id, price_type price,
+                      size_type size);
 
-  /* this still allows a situation for pos > max */
-  size_type bid_out;
-  size_type offer_out;
-  long long pos;
+  /*
+   * disable copy construction:
+   * derived should call down for new base with the callback for that instance
+   */
+  MarketMaker(const MarketMaker& mm);
+
+protected:
+  inline const orders_map_type& my_orders() const { return this->_my_orders; }
+  inline bool last_was_buy() const { return this->_last_was_buy; }
+  inline price_type tick() const { return this->_tick; }
+  inline size_type bid_out() const { return this->_bid_out; }
+  inline size_type offer_out() const { return this->_offer_out; }
+  inline size_type pos() const { return this->_pos; }
+
+  virtual void _exec_callback(callback_msg msg,id_type id, price_type price,
+                              size_type size)
+  {
+  }
+
+  struct callback_functor{
+    MarketMaker* _mm;
+  public:
+    callback_functor(MarketMaker* mm) : _mm(mm) {}
+    virtual ~callback_functor();
+    virtual void rebind(MarketMaker* mm) { _mm = mm; }
+    virtual void operator()()
+    {
+
+
+    }
+  };
 
 public:
-  MarketMaker(callback_type callback);
-  MarketMaker();
-  // how to handle copy constr ??
+  MarketMaker(callback_type exec_callback = nullptr);
+ // MarketMaker(MarketMaker&& mm);
+
   virtual ~MarketMaker()
     {
     };
@@ -93,39 +118,66 @@ class MarketMaker_Simple1
     : public MarketMaker{
 
   size_type _sz, _max_pos;
-  void _callback(callback_msg msg, id_type id, price_type price, size_type size);
+  void _exec_callback(callback_msg msg, id_type id, price_type price,
+                      size_type size);
+  /*
+   * Do we want a copy cnstr that creates a new base with a newly bound callback?
+   * Should we just keep it locked down to avoid unintended consequences ?
+   */
+  MarketMaker_Simple1(const MarketMaker_Simple1& mm);
 
 public:
+  typedef std::initializer_list<std::pair<size_type,size_type>> init_list_type;
+
   MarketMaker_Simple1(size_type sz, size_type max_pos);
+// MarketMaker_Simple1(MarketMaker_Simple1&& mm);
+
   virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
                      price_type tick);
 
-  static market_makers_type
-  Factory(std::initializer_list<std::pair<size_type,size_type>> il);
-  static market_makers_type
-  Factory(unsigned int n, size_type sz, size_type max_pos);
+  static market_makers_type Factory(init_list_type il);
+  static market_makers_type Factory(size_type n,size_type sz,size_type max_pos);
 };
 
 
 class MarketMaker_Random
     : public MarketMaker{
 
-  size_type _sz_low, _sz_high, _max_pos;
+  size_type _max_pos;
   std::default_random_engine _rand_engine;
   std::uniform_int_distribution<size_type> _distr, _distr2;
-  void _callback(callback_msg msg, id_type id, price_type price, size_type size);
+
+  void _exec_callback(callback_msg msg, id_type id, price_type price,
+                      size_type size);
   unsigned long long _gen_seed();
 
-public:
-  MarketMaker_Random(size_type sz_low, size_type sz_high, size_type max_pos);
+  /*
+   * Do we want a copy cnstr that creates a new base with a newly bound callback?
+   * Should we just keep it locked down to avoid unintended consequences ?
+   */
   MarketMaker_Random(const MarketMaker_Random& mm);
-  virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
-                  price_type tick);
 
-  static market_makers_type
-  Factory(std::initializer_list<std::tuple<size_type,size_type,size_type>> il);
-  static market_makers_type
-  Factory(unsigned int n, size_type sz_low, size_type sz_high, size_type max_pos);
+public:
+  typedef std::tuple<size_type,size_type,size_type> size_params_type;
+  typedef std::initializer_list<size_params_type> init_list_type;
+  enum class dispersion{
+    none = 1,
+    low = 3,
+    moderate = 5,
+    high = 7,
+    very_high = 10,
+  };
+
+  MarketMaker_Random(size_type sz_low, size_type sz_high, size_type max_pos,
+                     dispersion d = dispersion::moderate);
+ // MarketMaker_Random(MarketMaker_Random&& mm);
+
+  virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
+                     price_type tick);
+
+  static market_makers_type Factory(init_list_type il);
+  static market_makers_type Factory(size_type n, size_type sz_low,
+                                    size_type sz_high, size_type max_pos);
 
 private:
   static const clock_type::time_point seedtp;

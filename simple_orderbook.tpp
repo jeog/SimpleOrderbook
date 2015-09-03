@@ -187,21 +187,12 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
    /*
     * note below we are keeping the old id
     */  
-    {
-      std::lock_guard<std::mutex> _(this->_queue_mutex);     
-      this->_order_queue.push( limit ? 
-        order_queue_elem_type(order_type::limit, std::get<0>(e.second), limit, 
-                              nullptr,std::get<2>(e.second),
-                              std::get<3>(e.second), e.first, nullptr,
-                              std::move(p))
-        : order_queue_elem_type(order_type::market, std::get<0>(e.second),
-                                nullptr, nullptr, std::get<2>(e.second), 
-                                std::get<3>(e.second), e.first, nullptr, 
-                                std::move(p)));
-    }    
-    this->_in_signal.notify_one();
-    std::future<id_type> f(p.get_future()); 
-    f.get();
+    limit ? this->_push_order_and_wait(order_type::limit, std::get<0>(e.second),
+                                       limit,nullptr,std::get<2>(e.second),
+                                       std::get<3>(e.second), nullptr, e.first)
+          : this->_push_order_and_wait(order_type::market, std::get<0>(e.second),
+                                       nullptr, nullptr, std::get<2>(e.second), 
+                                       std::get<3>(e.second), nullptr, e.first);
   }
   this->_on_trade_completion(); // <- this could be an issue
 }

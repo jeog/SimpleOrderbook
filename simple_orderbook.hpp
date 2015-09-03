@@ -408,7 +408,7 @@ typedef SimpleOrderbook<std::ratio<1,1000>>  ThousandthTick;
 typedef SimpleOrderbook<std::ratio<1,10000>> TenThousandthTick;
 
 template< typename IfaceTy, typename ImplTy >
-static inline IfaceTy* New(price_type price,price_type min,price_type max)
+static IfaceTy* New(price_type price,price_type min,price_type max)
 {
   static_assert(std::is_base_of<QueryInterface,ImplTy>::value
                 && std::is_base_of<IfaceTy,ImplTy>::value,
