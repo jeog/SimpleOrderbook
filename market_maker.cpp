@@ -35,29 +35,33 @@ market_makers_type operator+(market_makers_type& l, market_makers_type& r)
     mms.push_back( std::move(m));
   for( auto& m: r)
     mms.push_back( std::move(m));
-
+  /* make it explicit we stole them */
   l.clear();
   r.clear();
 
   return mms;
 }
+market_makers_type operator+(market_makers_type& l, MarketMaker& r)
+{
+  market_makers_type mms;
+  /*
+   * for now let's just steal the MM objects (for our own safety)
+   * not the most intuitive behavior though...
+   */
+  for( auto& m : l)
+    mms.push_back( std::move(m));
 
-MarketMaker::MarketMaker(callback_type exec_callback)
-  : /*
-     * wrap the callback(s) and call thusly:
-     *    1) base
-     *    2) derived/virtual
-     *    3) functor arg
-     */
+  mms.push_back( pMarketMaker( r.move_to_new( std::move(r) ) ));
+  l.clear();
+
+  return mms;
+}
+
+MarketMaker::MarketMaker(callback_type callback) //callback_type callback)
+  :
     _book(nullptr),
-    _exec_callback_obj_x(exec_callback),
-    _exec_callback_obj(
-      [=](callback_msg a, id_type b, price_type c, size_type d){
-        this->_base_callback(a,b,c,d);
-        this->_exec_callback(a,b,c,d);
-        if(this->_exec_callback_obj_x)
-          this->_exec_callback_obj_x(a,b,c,d);
-      }),
+    _callback_ext(callback),
+    _callback( new dynamic_functor(this) ),
     _is_running(false),
     _last_was_buy(true),
     _tick(0),
@@ -66,18 +70,12 @@ MarketMaker::MarketMaker(callback_type exec_callback)
     _pos(0)
   {
   }
-/*
-MarketMaker::MarketMaker(MarketMaker&& mm)
+
+MarketMaker::MarketMaker(MarketMaker&& mm) noexcept
   :
     _book(mm._book),
-    _callback_x(mm._callback_x),
-    /* rebind our callbacks to a 'this'
-     * BUT THEN SOB HAS A STALE CALLBACK !!!*//*
-    _callback( [=](callback_msg a, id_type b, price_type c, size_type d){
-                  this->_base_callback(a,b,c,d);
-                  this->_callback(a,b,c,d);
-                  this->_callback_x(a,b,c,d);
-                }),
+    _callback_ext( mm._callback_ext ),
+    _callback( std::move(mm._callback) ),
     _my_orders( std::move(mm._my_orders) ),
     _is_running(mm._is_running),
     _last_was_buy(mm._last_was_buy),
@@ -86,11 +84,14 @@ MarketMaker::MarketMaker(MarketMaker&& mm)
     _offer_out(mm._offer_out),
     _pos(mm._pos)
   {
+    this->_callback->rebind(this);
     mm._book = nullptr;
+    mm._callback_ext = nullptr;
+    mm._callback = nullptr;
     mm._my_orders.clear();
     mm._is_running = false;
     mm._bid_out = mm._offer_out = mm._pos = 0;
-  }*/
+  }
 
 void MarketMaker::start(SimpleOrderbook::LimitInterface *book,
                         price_type implied,
@@ -116,7 +117,8 @@ void MarketMaker::insert(price_type price, size_type size)
   if(!this->_is_running)
     throw invalid_state("market/market-maker is not in a running state");
 
-  this->_book->insert_limit_order(BuyNotSell,price,size,this->_exec_callback_obj,
+                                         // DOES THIS DEFEAT THE PURPOSE ????
+  this->_book->insert_limit_order(BuyNotSell,price,size,*(this->_callback.get()),
     /*
      * the post-insertion / pre-completion callback
      *
@@ -178,7 +180,7 @@ void MarketMaker::_base_callback(callback_msg msg,
   }
 }
 
-market_makers_type MarketMaker::Factory(std::initializer_list<callback_type> il)
+market_makers_type MarketMaker::Factory(init_list_type il)
 {
   market_makers_type mms;
   for( auto& i : il )
@@ -200,9 +202,18 @@ market_makers_type MarketMaker::Factory(unsigned int n)
 
 MarketMaker_Simple1::MarketMaker_Simple1(size_type sz, size_type max_pos)
   :
-    my_base_type(), // std::bind(&MarketMaker_Simple1::_callback,this,_1,_2,_3,_4) ),
+    my_base_type(),
     _sz(sz),
     _max_pos(max_pos)
+  {
+  }
+
+MarketMaker_Simple1::MarketMaker_Simple1(MarketMaker_Simple1&& mm) noexcept
+  :
+    /* my_base takes care of rebinding dynamic functor */
+    my_base_type( std::move(mm) ),
+    _sz(mm._sz),
+    _max_pos(mm._max_pos)
   {
   }
 
@@ -214,15 +225,6 @@ MarketMaker_Simple1::MarketMaker_Simple1(const MarketMaker_Simpe1& mm)
     _max_pos(mm._max_pos)
   {
   }*/
-/*
-MarketMaker_Simple1::MarketMaker_Simple1(MarketMaker_Simple1&& mm)
-  :
-    my_base_type( std::bind(&MarketMaker_Simple1::_callback,this,_1,_2,_3,_4) ),
-    _sz(mm._sz),
-    _max_pos(mm._max_pos)
-  {
-  }
-*/
 
 void MarketMaker_Simple1::start(SimpleOrderbook::LimitInterface *book,
                                 price_type implied,
@@ -300,23 +302,25 @@ market_makers_type MarketMaker_Simple1::Factory(size_type n,
   return mms;
 }
 
-/***/
+
+
 
 MarketMaker_Random::MarketMaker_Random(size_type sz_low,
                                        size_type sz_high,
                                        size_type max_pos,
                                        MarketMaker_Random::dispersion d)
   :
-    my_base_type(), // std::bind(&MarketMaker_Random::_callback,this,_1,_2,_3,_4) ),
+    my_base_type(),
     _max_pos(max_pos),
     _rand_engine(this->_gen_seed()),
     _distr(sz_low, sz_high),
     _distr2(1, (int)d)
   {
   }
-/*
-MarketMaker_Random::MarketMaker_Random(MarketMaker_Random&& mm)
+
+MarketMaker_Random::MarketMaker_Random(MarketMaker_Random&& mm) noexcept
   :
+    /* my_base takes care of rebinding dynamic functor */
     my_base_type( std::move(mm) ),
     _max_pos(mm._max_pos),
     _rand_engine( std::move(mm._rand_engine) ),
@@ -324,7 +328,7 @@ MarketMaker_Random::MarketMaker_Random(MarketMaker_Random&& mm)
     _distr2( std::move(mm._distr2) )
   {
   }
-*/
+
 /*
 MarketMaker_Random::MarketMaker_Random(const MarketMaker_Random& mm)
   : *//* call down for new base, with a callback bound to a new 'this' *//*
@@ -392,6 +396,7 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
         /* these added calls are causing segfault ! */
    //     this->insert<false>(price + this->_tick, 1);
    //     this->insert<false>(price , 1);
+
       }else{
         if(this->offer_out() + amt - this->pos() <= this->_max_pos)
           this->insert<false>(price + adj, amt);
@@ -399,6 +404,7 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
           this->insert<true>(price - adj, size);
       //  this->insert<true>(price ,  1);
     //    this->insert<true>(price - this->_tick,  1);
+
       }
     }
     break;

@@ -33,23 +33,54 @@ namespace SimpleOrderbook{
 class LimitInterface;
 }
 
+using namespace std::placeholders;
+
+
 class MarketMaker;
 typedef std::unique_ptr<MarketMaker> pMarketMaker;
 typedef std::vector<pMarketMaker> market_makers_type;
 
 market_makers_type operator+(market_makers_type& l, market_makers_type& r);
+market_makers_type operator+(market_makers_type& l, MarketMaker& r);
 
-class MarketMaker{
+class MarketMakerA{
+public:
+  virtual ~MarketMakerA() {}
+  virtual MarketMaker* move_to_new( MarketMaker&& mm ) = 0;
+};
+
+class MarketMaker
+    : public MarketMakerA{
+
+  struct dynamic_functor{
+    friend MarketMaker;
+    MarketMaker* _mm;
+    callback_type _base_f, _deriv_f;
+  public:
+    dynamic_functor(MarketMaker* mm) : _mm(mm){ this->rebind(mm); }
+    void rebind(MarketMaker* mm){
+      this->_mm = mm;
+      this->_base_f = std::bind(&MarketMaker::_base_callback,_mm,_1,_2,_3,_4);
+      this->_deriv_f = std::bind(&MarketMaker::_exec_callback,_mm,_1,_2,_3,_4);
+    }
+    void operator()(callback_msg msg,id_type id,price_type price,size_type size)
+    {
+      this->_base_f(msg,id,price,size);
+      if(_mm->_callback_ext)
+        _mm->_callback_ext(msg,id,price,size);
+      this->_deriv_f(msg,id,price,size);
+    }
+  };
+
 protected:
   typedef MarketMaker my_base_type;
   typedef std::tuple<bool,price_type,size_type> order_bndl_type;
   typedef std::map<id_type,order_bndl_type> orders_map_type;
   typedef orders_map_type::value_type orders_value_type;
 
-private:
   SimpleOrderbook::LimitInterface *_book;
-  callback_type _exec_callback_obj_x;
-  callback_type _exec_callback_obj;
+  callback_type _callback_ext;
+  std::unique_ptr<dynamic_functor> _callback;
   orders_map_type _my_orders;
   bool _is_running;
   bool _last_was_buy;
@@ -60,6 +91,8 @@ private:
 
   void _base_callback(callback_msg msg,id_type id, price_type price,
                       size_type size);
+  virtual void _exec_callback(callback_msg msg,id_type id, price_type price,
+                               size_type size){}
 
   /*
    * disable copy construction:
@@ -75,31 +108,18 @@ protected:
   inline size_type offer_out() const { return this->_offer_out; }
   inline size_type pos() const { return this->_pos; }
 
-  virtual void _exec_callback(callback_msg msg,id_type id, price_type price,
-                              size_type size)
-  {
-  }
-
-  struct callback_functor{
-    MarketMaker* _mm;
-  public:
-    callback_functor(MarketMaker* mm) : _mm(mm) {}
-    virtual ~callback_functor();
-    virtual void rebind(MarketMaker* mm) { _mm = mm; }
-    virtual void operator()()
-    {
-
-
-    }
-  };
-
 public:
-  MarketMaker(callback_type exec_callback = nullptr);
- // MarketMaker(MarketMaker&& mm);
+  typedef std::initializer_list<callback_type> init_list_type;
 
-  virtual ~MarketMaker()
-    {
-    };
+  MarketMaker(callback_type callback = nullptr);
+  MarketMaker(MarketMaker&& mm) noexcept;
+
+  virtual ~MarketMaker() noexcept {}
+
+  MarketMaker* move_to_new( MarketMaker&& mm )
+  {
+    return new MarketMaker(std::move(mm));
+  }
 
   /* derived need to call down to start / stop */
   virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
@@ -109,7 +129,7 @@ public:
   template<bool BuyNotSell>
   void insert(price_type price, size_type size);
 
-  static market_makers_type Factory(std::initializer_list<callback_type> il);
+  static market_makers_type Factory(init_list_type il);
   static market_makers_type Factory(unsigned int n);
 };
 
@@ -130,10 +150,17 @@ public:
   typedef std::initializer_list<std::pair<size_type,size_type>> init_list_type;
 
   MarketMaker_Simple1(size_type sz, size_type max_pos);
-// MarketMaker_Simple1(MarketMaker_Simple1&& mm);
+  MarketMaker_Simple1(MarketMaker_Simple1&& mm) noexcept ;
+  virtual ~MarketMaker_Simple1() noexcept {}
 
-  virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
-                     price_type tick);
+  MarketMaker* move_to_new( MarketMaker&& mm )
+  {
+    return new MarketMaker_Simple1(
+      std::move(dynamic_cast<MarketMaker_Simple1&&>(mm)));
+  }
+
+  void start(SimpleOrderbook::LimitInterface *book, price_type implied,
+             price_type tick);
 
   static market_makers_type Factory(init_list_type il);
   static market_makers_type Factory(size_type n,size_type sz,size_type max_pos);
@@ -160,20 +187,28 @@ class MarketMaker_Random
 public:
   typedef std::tuple<size_type,size_type,size_type> size_params_type;
   typedef std::initializer_list<size_params_type> init_list_type;
+
   enum class dispersion{
     none = 1,
     low = 3,
     moderate = 5,
     high = 7,
-    very_high = 10,
+    very_high = 10
   };
 
   MarketMaker_Random(size_type sz_low, size_type sz_high, size_type max_pos,
                      dispersion d = dispersion::moderate);
- // MarketMaker_Random(MarketMaker_Random&& mm);
+  MarketMaker_Random(MarketMaker_Random&& mm) noexcept;
+  virtual ~MarketMaker_Random() noexcept {}
 
-  virtual void start(SimpleOrderbook::LimitInterface *book, price_type implied,
-                     price_type tick);
+  MarketMaker* move_to_new( MarketMaker&& mm )
+  {
+    return new MarketMaker_Random(
+      std::move(dynamic_cast<MarketMaker_Random&&>(mm)));
+  }
+
+  void start(SimpleOrderbook::LimitInterface *book, price_type implied,
+             price_type tick);
 
   static market_makers_type Factory(init_list_type il);
   static market_makers_type Factory(size_type n, size_type sz_low,
