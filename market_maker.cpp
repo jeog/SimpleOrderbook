@@ -24,13 +24,10 @@ namespace NativeLayer{
 
 using namespace std::placeholders;
 
-market_makers_type operator+(market_makers_type& l, market_makers_type& r)
-{
+market_makers_type operator+(market_makers_type&& l, market_makers_type&& r)
+{ /* see notes in header */
   market_makers_type mms;
-  /*
-   * for now let's just steal the MM objects (for our own safety)
-   * not the most intuitive behavior though...
-   */
+
   for( auto& m : l)
     mms.push_back( std::move(m));
   for( auto& m: r)
@@ -41,17 +38,14 @@ market_makers_type operator+(market_makers_type& l, market_makers_type& r)
 
   return mms;
 }
-market_makers_type operator+(market_makers_type& l, MarketMaker& r)
-{
+market_makers_type operator+(market_makers_type&& l, MarketMaker&& r)
+{ /* see notes in header */
   market_makers_type mms;
-  /*
-   * for now let's just steal the MM objects (for our own safety)
-   * not the most intuitive behavior though...
-   */
+
   for( auto& m : l)
     mms.push_back( std::move(m));
 
-  mms.push_back( pMarketMaker( r.move_to_new( std::move(r) ) ));
+  mms.push_back( r.move_to_new(std::move(r)) );
   l.clear();
 
   return mms;
@@ -72,7 +66,7 @@ MarketMaker::MarketMaker(callback_type callback) //callback_type callback)
   }
 
 MarketMaker::MarketMaker(MarketMaker&& mm) noexcept
-  :
+  : /* see notes in header */
     _book(mm._book),
     _callback_ext( mm._callback_ext ),
     _callback( std::move(mm._callback) ),
@@ -93,9 +87,7 @@ MarketMaker::MarketMaker(MarketMaker&& mm) noexcept
     mm._bid_out = mm._offer_out = mm._pos = 0;
   }
 
-void MarketMaker::start(SimpleOrderbook::LimitInterface *book,
-                        price_type implied,
-                        price_type tick)
+void MarketMaker::start(sob_iface_type *book,price_type implied,price_type tick)
 {
   if(!book)
     throw std::invalid_argument("book can not be null(ptr)");
@@ -226,7 +218,7 @@ MarketMaker_Simple1::MarketMaker_Simple1(const MarketMaker_Simpe1& mm)
   {
   }*/
 
-void MarketMaker_Simple1::start(SimpleOrderbook::LimitInterface *book,
+void MarketMaker_Simple1::start(sob_iface_type *book,
                                 price_type implied,
                                 price_type tick)
 {
@@ -347,7 +339,7 @@ unsigned long long MarketMaker_Random::_gen_seed()
          % std::numeric_limits<long>::max();
 }
 
-void MarketMaker_Random::start(SimpleOrderbook::LimitInterface *book,
+void MarketMaker_Random::start(sob_iface_type *book,
                                price_type implied,
                                price_type tick)
 {
