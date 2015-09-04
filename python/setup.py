@@ -22,8 +22,8 @@ py_library_name = "python3.2mu"
 _setup_dict = {
   "name":'simpleorderbook',
   "version":'0.1',
-  "description": "A simple orderbook for modeling exchange traded "
-                 "financial instruments in real-time",
+  "description": "Interface to an interactive back-end"
+                 " for handling financial market order flow.",
   "author":"Jonathon Ogden",
   "author_email":"jeog.dev@gmail.com"
 }   

@@ -45,7 +45,7 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r)
   for( auto& m : l)
     mms.push_back( std::move(m));
 
-  mms.push_back( r.move_to_new(std::move(r)) );
+  mms.push_back( r.move_to_new() );
   l.clear();
 
   return mms;
@@ -61,7 +61,9 @@ MarketMaker::MarketMaker(callback_type callback) //callback_type callback)
     _tick(0),
     _bid_out(0),
     _offer_out(0),
-    _pos(0)
+    _pos(0),
+    _recurse_count(0),
+    _tot_recurse_count(0)
   {
   }
 
@@ -76,8 +78,12 @@ MarketMaker::MarketMaker(MarketMaker&& mm) noexcept
     _tick(mm._tick),
     _bid_out(mm._bid_out),
     _offer_out(mm._offer_out),
-    _pos(mm._pos)
+    _pos(mm._pos),
+    _recurse_count(mm._recurse_count),
+    _tot_recurse_count(mm._tot_recurse_count)
   {
+    if(&mm == this)
+      throw move_error("can't move to ourself");
     this->_callback->rebind(this);
     mm._book = nullptr;
     mm._callback_ext = nullptr;
@@ -109,12 +115,22 @@ void MarketMaker::insert(price_type price, size_type size)
   if(!this->_is_running)
     throw invalid_state("market/market-maker is not in a running state");
 
-                                         // DOES THIS DEFEAT THE PURPOSE ????
-  this->_book->insert_limit_order(BuyNotSell,price,size,*(this->_callback.get()),
+  if(this->_recurse_count > this->_recurse_limit){
+    /*
+     * note we are reseting the count; caller can catch and keep going with
+     * the recursive calls if they want, we did our part...
+     */
+    this->_recurse_count = 0;
+    throw callback_overflow("market maker trying to insert after exceeding the"
+                            " recursion limit set for the callback stack");
+  }
+
+  this->_book->insert_limit_order(BuyNotSell, price,size,
+                                  dynamic_functor_wrap(this->_callback.get()),
     /*
      * the post-insertion / pre-completion callback
      *
-     * this guarantees to complete before a standard callback for
+     * this guarantees to complete before the standard callbacks for
      * this order can be triggered
      */
     [=](id_type id)
@@ -248,27 +264,35 @@ void MarketMaker_Simple1::_exec_callback(callback_msg msg,
                                         price_type price,
                                         size_type size)
 {
-  switch(msg){
-  case callback_msg::fill:
-    {
-      if(this->last_was_buy())
+  try{
+    switch(msg){
+    case callback_msg::fill:
       {
-        if(this->bid_out() + this->_sz + this->pos() <= this->_max_pos)
-          this->insert<true>(price - this->tick(), this->_sz);
-        this->insert<false>(price + (2*this->tick()), size);
+        if(this->last_was_buy())
+        {
+          if(this->bid_out() + this->_sz + this->pos() <= this->_max_pos)
+            this->insert<true>(price - this->tick(), this->_sz);
+          this->insert<false>(price + (2*this->tick()), size);
+        }
+        else
+        {
+          if(this->offer_out() + this->_sz - this->pos() <= this->_max_pos)
+            this->insert<false>(price + this->tick(), this->_sz);
+          this->insert<true>(price - (2*this->tick()), size);
+        }
       }
-      else
-      {
-        if(this->offer_out() + this->_sz - this->pos() <= this->_max_pos)
-          this->insert<false>(price + this->tick(), this->_sz);
-        this->insert<true>(price - (2*this->tick()), size);
-      }
+      break;
+    case callback_msg::cancel:
+      break;
+    case callback_msg::shutdown:
+      break;
     }
-    break;
-  case callback_msg::cancel:
-    break;
-  case callback_msg::shutdown:
-    break;
+  }
+  catch(callback_overflow&)
+  {
+     std::cerr<< "callback overflow in MarketMaker_Simple1 ::: price: "
+              << std::to_string(price) << ", size: " << std::to_string(size)
+              << ", id: " << std::to_string(id) << std::endl;
   }
 }
 
@@ -374,46 +398,63 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
 {
   price_type adj;
   size_type amt;
-  switch(msg){
-  case callback_msg::fill:
-    {
-      adj = this->tick() * this->_distr2(this->_rand_engine);
-      amt = this->_distr(this->_rand_engine);
+  /* DEBUG */
+  price_type bid,ask;
+  SimpleOrderbook::ThousandthTick& sob =  *(SimpleOrderbook::ThousandthTick*)(this->_book);
+  /* DEBUG */
+  try{
+    switch(msg){
+    case callback_msg::fill:
+      {
+        adj = this->tick() * this->_distr2(this->_rand_engine);
+        amt = this->_distr(this->_rand_engine);
 
-      if(this->last_was_buy()){
-        if(this->bid_out() + amt + this->pos() <= this->_max_pos)
-          this->insert<true>(price - adj, amt);
-        if(this->offer_out() + amt - this->pos() <= this->_max_pos)
-          this->insert<false>(price + adj, size);
-        /* these added calls are causing segfault ! */
-   //     this->insert<false>(price + this->_tick, 1);
-   //     this->insert<false>(price , 1);
+        if(this->last_was_buy()){
+          if(this->bid_out() + amt + this->pos() <= this->_max_pos)
+            this->insert<true>(price - adj, amt);
+          if(this->offer_out() + amt - this->pos() <= this->_max_pos)
+            this->insert<false>(price + adj, size);
+          /* these added calls are causing segfault ! */
+          this->insert<false>(price + this->tick(), 1);
+          this->insert<false>(price , 1);
 
-      }else{
-        if(this->offer_out() + amt - this->pos() <= this->_max_pos)
-          this->insert<false>(price + adj, amt);
-        if(this->bid_out() + amt + this->pos() <= this->_max_pos)
-          this->insert<true>(price - adj, size);
-      //  this->insert<true>(price ,  1);
-    //    this->insert<true>(price - this->_tick,  1);
-
+        }else{
+          if(this->offer_out() + amt - this->pos() <= this->_max_pos)
+            this->insert<false>(price + adj, amt);
+          if(this->bid_out() + amt + this->pos() <= this->_max_pos)
+            this->insert<true>(price - adj, size);
+          bid = sob.bid_price();
+          ask = sob.ask_price();
+          this->insert<true>(price ,  1);
+          bid = sob.bid_price();
+          ask = sob.ask_price();
+          this->insert<true>(price - this->tick(),  1);
+          bid = sob.bid_price();
+          ask = sob.ask_price();
+        }
       }
+      break;
+    case callback_msg::cancel:
+      break;
+    case callback_msg::shutdown:
+      break;
     }
-    break;
-  case callback_msg::cancel:
-    break;
-  case callback_msg::shutdown:
-    break;
+  }
+  catch(callback_overflow&)
+  {
+    std::cerr<< "callback overflow in MarketMaker_Random ::: price: "
+             << std::to_string(price) << ", size: " << std::to_string(size)
+             << ", id: " << std::to_string(id) << std::endl;
   }
 }
 
 market_makers_type MarketMaker_Random::Factory(init_list_type il)
 {
   market_makers_type mms;
-  for( auto& t : il )
-    mms.push_back( pMarketMaker(new MarketMaker_Random(std::get<0>(t),
-                                                       std::get<1>(t),
-                                                       std::get<2>(t))));
+  for( auto& i : il )
+    mms.push_back(
+      pMarketMaker(new MarketMaker_Random(std::get<0>(i), std::get<1>(i),
+                                          std::get<2>(i), std::get<3>(i))) );
 
   return mms;
 }
@@ -421,11 +462,13 @@ market_makers_type MarketMaker_Random::Factory(init_list_type il)
 market_makers_type MarketMaker_Random::Factory(size_type n,
                                                size_type sz_low,
                                                size_type sz_high,
-                                               size_type max_pos)
+                                               size_type max_pos,
+                                               dispersion d)
 {
   market_makers_type mms;
   while( n-- )
-    mms.push_back( pMarketMaker(new MarketMaker_Random(sz_low,sz_high,max_pos)));
+    mms.push_back(
+      pMarketMaker(new MarketMaker_Random(sz_low,sz_high,max_pos,d)) );
 
   return mms;
 }

@@ -161,9 +161,7 @@ template<bool BuyStops>
 void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
 {
   stop_chain_type cchain;
-  plevel limit;  
-  std::promise<id_type> p;
-  std::future<id_type> f(p.get_future());
+  plevel limit;   
   /*
    * need to copy the relevant chain, delete original, THEN insert
    * if not we can hit the same order more than once / go into infinite loop
@@ -742,6 +740,14 @@ void SOB_CLASS::add_market_makers(market_makers_type&& mms)
     mm->start(this, this->_itop(this->_last), tick_size);
     this->_market_makers.push_back(std::move(mm));
   }
+}
+
+SOB_TEMPLATE
+void SOB_CLASS::add_market_maker(MarketMaker&& mm)
+{ /* create market_maker smart_pointer, start and push */
+  pMarketMaker pmm = mm.move_to_new();
+  pmm->start(this, this->_itop(this->_last), tick_size);
+  this->_market_makers.push_back(std::move(pmm)); 
 }
 
 SOB_TEMPLATE

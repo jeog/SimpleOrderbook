@@ -45,12 +45,12 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r);
  * MarketMaker objects are intended to be 'autonomous' objects that
  * provide liquidity, receive execution callbacks, and respond with new orders.
  *
- * MarketMakers are moved into an orderbook by calling add_market_makers with
- * a market_makers_type rvalue(see below)
+ * MarketMakers are moved into an orderbook via add_market_maker(&&)
+ * or by calling add_market_makers(&&) with a market_makers_type(see below)
  *
  * The virtual start function is called by the orderbook when it is ready
  * to begin; define this to control how initial orders are inserted;
- * !! BE SURE TO CALLDOWN TO THE BASE VERSION BEFORE YOU DO ANYTHING !!
+ * !! BE SURE TO CALL DOWN TO THE BASE VERSION BEFORE YOU DO ANYTHING !!
  *
  * MarketMaker::Insert<> is how you insert limit orders into the
  * SimpleOrderbook::LimitInterface passed in to the start function.
@@ -58,6 +58,14 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r);
  * Ideally MarketMaker should be sub-classed and a virtual _exec_callback
  * defined. But a MarketMaker(object or base class) can be instantiated
  * with a custom callback.
+ *
+ * To prevent the callbacks/insert mechanism from going into an unstable
+ * state (e.g an infinite loop: insert->callback->insert->callback etc.) we
+ * set a ::_recurse_limit that if exceeded with throw callback_overflow on
+ * a call to insert<>(). It resets the count before throwing so you can catch
+ * this in the callback, clean up, and exit gracefully. We also employ a larger
+ * version that doesn't reset(::_tot_recurse_limit) that prevents further
+ * recursion until previous callbacks come off the 'stack'
  *
  * Callbacks are handled internally by struct dynamic_functor which rebinds the
  * underlying instance when a move occurs. Callbacks are called in this order:
@@ -80,11 +88,11 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r);
  * it clear it's contents have been moved.
  *
  * Sub-classes of MarketMaker have to define the move_to_new(&&) virtual
- * function which takes a derived rvalue, steals its contents, and passes
- * them to a new derived object inside a unique_ptr(pMarketMaker). This is
- * intended to be used internally BUT (and this not recommended) you can grab
- * a reference - to this or any object after its been moved but before it
- * gets added to the orderbook - and access it after it enters the orderbook.**
+ * function which steals its own contents, and passes them to a new derived
+ * object inside a unique_ptr(pMarketMaker). This is intended to be used
+ * internally BUT (and this not recommended) you can grab a reference -
+ * to this or any object after its been moved but before it gets added to
+ * the orderbook - and access it after it enters the orderbook.**
  *
  *  **This can be useful for debugging if you want to externally use the
  *    insert<bool> call to inject orders
@@ -96,7 +104,7 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r);
 class MarketMakerA{
 public:
   virtual ~MarketMakerA() {}
-  virtual pMarketMaker move_to_new( MarketMaker&& mm ) = 0;
+  virtual pMarketMaker move_to_new() = 0;
 };
 
 class MarketMaker
@@ -110,19 +118,42 @@ protected:
     friend MarketMaker;
     MarketMaker* _mm;
     callback_type _base_f, _deriv_f;
+
   public:
-    dynamic_functor(MarketMaker* mm) : _mm(mm){ this->rebind(mm); }
-    void rebind(MarketMaker* mm){
+    dynamic_functor(MarketMaker* mm) : _mm(mm),c(0){
+      this->rebind(mm); }
+    void rebind(MarketMaker* mm)
+    {
       this->_mm = mm;
       this->_base_f = std::bind(&MarketMaker::_base_callback,_mm,_1,_2,_3,_4);
       this->_deriv_f = std::bind(&MarketMaker::_exec_callback,_mm,_1,_2,_3,_4);
     }
     void operator()(callback_msg msg,id_type id,price_type price,size_type size)
     {
-      this->_base_f(msg,id,price,size);
-      if(_mm->_callback_ext)
-        _mm->_callback_ext(msg,id,price,size);
-      this->_deriv_f(msg,id,price,size);
+      ++_mm->_recurse_count;
+      ++_mm->_tot_recurse_count;
+
+      if(_mm->_tot_recurse_count <= MarketMaker::_tot_recurse_limit)
+      {
+        this->_base_f(msg,id,price,size);
+        if(_mm->_callback_ext)
+          _mm->_callback_ext(msg,id,price,size);
+        this->_deriv_f(msg,id,price,size);
+      }
+
+      if(_mm->_tot_recurse_count)
+        --_mm->_tot_recurse_count;
+      if(_mm->_recurse_count)
+        --_mm->_recurse_count;
+    }
+  };
+
+  struct dynamic_functor_wrap{
+    dynamic_functor* _df;
+  public:
+    dynamic_functor_wrap(dynamic_functor* df) : _df(df) {}
+    void operator()(callback_msg msg,id_type id,price_type price,size_type size){
+      _df->operator()(msg,id,price,size);
     }
   };
 
@@ -132,7 +163,9 @@ private:
   typedef std::map<id_type,order_bndl_type> orders_map_type;
   typedef orders_map_type::value_type orders_value_type;
 
+public: /*DEBUG*/
   sob_iface_type *_book;
+private: /*DEBUG*/
   callback_type _callback_ext;
   cb_uptr_type _callback;
   orders_map_type _my_orders;
@@ -142,15 +175,16 @@ private:
   size_type _bid_out;
   size_type _offer_out;
   long long _pos;
+  int _recurse_count;
+  int _tot_recurse_count;
+  static const int _recurse_limit = 5;
+  static const int _tot_recurse_limit = 50;
 
   void _base_callback(callback_msg msg,id_type id, price_type price,
                       size_type size);
   virtual void _exec_callback(callback_msg msg,id_type id, price_type price,
                                size_type size){ /* NULL */ }
-  /*
-   * disable copy construction:
-   * derived should call down for new base with the callback for that instance
-   */
+  /* disable copy construction */
   MarketMaker(const MarketMaker& mm);
 
 protected:
@@ -168,14 +202,13 @@ public:
   MarketMaker(MarketMaker&& mm) noexcept;
   virtual ~MarketMaker() noexcept {}
 
-  virtual pMarketMaker move_to_new( MarketMaker&& mm )
-  {
-    return pMarketMaker( new MarketMaker(std::move(mm)) );
-  }
+  virtual pMarketMaker
+  move_to_new(){ return pMarketMaker( new MarketMaker(std::move(*this)) ); }
 
   /* derived need to call down to start / stop */
   virtual void start(sob_iface_type *book, price_type implied, price_type tick);
   virtual void stop();
+
   template<bool BuyNotSell>
   void insert(price_type price, size_type size);
 
@@ -203,10 +236,10 @@ public:
   MarketMaker_Simple1(MarketMaker_Simple1&& mm) noexcept ;
   virtual ~MarketMaker_Simple1() noexcept {}
 
-  virtual pMarketMaker move_to_new( MarketMaker&& mm )
+  virtual pMarketMaker move_to_new()
   {
     return pMarketMaker( new MarketMaker_Simple1(
-      std::move(dynamic_cast<MarketMaker_Simple1&&>(mm))));
+      std::move(dynamic_cast<MarketMaker_Simple1&&>(*this))));
   }
 
   void start(sob_iface_type *book, price_type implied, price_type tick);
@@ -234,33 +267,35 @@ class MarketMaker_Random
   MarketMaker_Random(const MarketMaker_Random& mm);
 
 public:
-  typedef std::tuple<size_type,size_type,size_type> size_params_type;
-  typedef std::initializer_list<size_params_type> init_list_type;
-
   enum class dispersion{
-    none = 1,
-    low = 3,
-    moderate = 5,
-    high = 7,
-    very_high = 10
-  };
+      none = 1,
+      low = 3,
+      moderate = 5,
+      high = 7,
+      very_high = 10
+    };
+  typedef std::tuple<size_type,size_type,size_type,dispersion> init_params_type;
+  typedef std::initializer_list<init_params_type> init_list_type;
+
+
 
   MarketMaker_Random(size_type sz_low, size_type sz_high, size_type max_pos,
                      dispersion d = dispersion::moderate);
   MarketMaker_Random(MarketMaker_Random&& mm) noexcept;
   virtual ~MarketMaker_Random() noexcept {}
 
-  virtual pMarketMaker move_to_new( MarketMaker&& mm )
+  virtual pMarketMaker move_to_new()
   {
     return pMarketMaker( new MarketMaker_Random(
-      std::move(dynamic_cast<MarketMaker_Random&&>(mm))));
+      std::move(dynamic_cast<MarketMaker_Random&&>(*this))));
   }
 
   void start(sob_iface_type *book, price_type implied, price_type tick);
 
   static market_makers_type Factory(init_list_type il);
   static market_makers_type Factory(size_type n, size_type sz_low,
-                                    size_type sz_high, size_type max_pos);
+                                    size_type sz_high, size_type max_pos,
+                                    dispersion d);
 
 private:
   static const clock_type::time_point seedtp;

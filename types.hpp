@@ -140,6 +140,26 @@ public:
     }
 };
 
+class callback_overflow
+    : public std::runtime_error{
+public:
+  callback_overflow(const char* what)
+    :
+     std::runtime_error(what)
+    {
+    }
+};
+
+class move_error
+    : public std::runtime_error{
+public:
+  move_error(const char* what)
+    :
+     std::runtime_error(what)
+    {
+    }
+};
+
 template<typename T1>
 inline std::string cat(T1 arg1){ return std::string(arg1); }
 template<typename T1, typename... Ts>

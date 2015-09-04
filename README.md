@@ -7,8 +7,8 @@ The core module is implemented as a C++ class template, providing low-level (pur
 - cancel/replace orders by ID
 - query market state(bid size, volume etc.), dump orders to stdout, view Time & Sales 
 - high-speed order-matching/execution
-- template objects that be instantiated by increment size and max memory usage allowed
-- MarketMaker objects that operate as autonomous agents 'inside' the Orderbook
+- template objects that can be instantiated by increment size and max memory usage allowed 
+- Market Maker objects that operate as autonomous agents 'inside' the Orderbook
 - customizable market parameters( price range, # of market makers etc.)
 - (possibly) more advanced order types
 
