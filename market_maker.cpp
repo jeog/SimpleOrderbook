@@ -19,6 +19,7 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include "simple_orderbook.hpp"
 #include "types.hpp"
 #include <chrono>
+#include <cmath>
 
 namespace NativeLayer{
 
@@ -126,7 +127,7 @@ void MarketMaker::insert(price_type price, size_type size)
   }
 
   this->_book->insert_limit_order(BuyNotSell, price,size,
-                                  dynamic_functor_wrap(this->_callback.get()),
+                                  dynamic_functor_wrap(this->_callback),
     /*
      * the post-insertion / pre-completion callback
      *
@@ -328,6 +329,9 @@ MarketMaker_Random::MarketMaker_Random(size_type sz_low,
   :
     my_base_type(),
     _max_pos(max_pos),
+    _lowsz(sz_low),
+    _highsz(sz_high),
+    _last_size(0),
     _rand_engine(this->_gen_seed()),
     _distr(sz_low, sz_high),
     _distr2(1, (int)d)
@@ -339,6 +343,9 @@ MarketMaker_Random::MarketMaker_Random(MarketMaker_Random&& mm) noexcept
     /* my_base takes care of rebinding dynamic functor */
     my_base_type( std::move(mm) ),
     _max_pos(mm._max_pos),
+    _lowsz(mm._lowsz),
+    _highsz(mm._highsz),
+    _last_size(mm._last_size),
     _rand_engine( std::move(mm._rand_engine) ),
     _distr( std::move(mm._distr) ),
     _distr2( std::move(mm._distr2) )
@@ -397,40 +404,40 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
                                         size_type size)
 {
   price_type adj;
-  size_type amt;
-  /* DEBUG */
-  price_type bid,ask;
-  SimpleOrderbook::ThousandthTick& sob =  *(SimpleOrderbook::ThousandthTick*)(this->_book);
-  /* DEBUG */
+  size_type amt, part;
+
   try{
     switch(msg){
     case callback_msg::fill:
       {
-        adj = this->tick() * this->_distr2(this->_rand_engine);
-        amt = this->_distr(this->_rand_engine);
 
-        if(this->last_was_buy()){
+        if(size <= size_type(this->_lowsz/10))
+          break;
+
+        this->_last_size = size; // <- need to set before inserts
+        adj = this->tick() * this->_distr2(this->_rand_engine);
+                amt = this->_distr(this->_rand_engine);
+        part = size_type(size/10) + 1;
+
+        if(this->last_was_buy())
+        {
           if(this->bid_out() + amt + this->pos() <= this->_max_pos)
             this->insert<true>(price - adj, amt);
           if(this->offer_out() + amt - this->pos() <= this->_max_pos)
             this->insert<false>(price + adj, size);
-          /* these added calls are causing segfault ! */
-          this->insert<false>(price + this->tick(), 1);
-          this->insert<false>(price , 1);
-
-        }else{
+          this->insert<false>(price + this->tick(), part);
+          this->insert<false>(price + 2 * this->tick(), part);
+          this->insert<false>(price + 3 * this->tick(), part);
+        }
+        else
+        {
           if(this->offer_out() + amt - this->pos() <= this->_max_pos)
             this->insert<false>(price + adj, amt);
           if(this->bid_out() + amt + this->pos() <= this->_max_pos)
             this->insert<true>(price - adj, size);
-          bid = sob.bid_price();
-          ask = sob.ask_price();
-          this->insert<true>(price ,  1);
-          bid = sob.bid_price();
-          ask = sob.ask_price();
-          this->insert<true>(price - this->tick(),  1);
-          bid = sob.bid_price();
-          ask = sob.ask_price();
+          this->insert<true>(price - this->tick(), part);
+          this->insert<true>(price - 2 * this->tick(), part);
+          this->insert<true>(price - 3 * this->tick(), part);
         }
       }
       break;
@@ -439,6 +446,7 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
     case callback_msg::shutdown:
       break;
     }
+
   }
   catch(callback_overflow&)
   {

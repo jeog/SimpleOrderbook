@@ -114,14 +114,15 @@ protected:
   typedef MarketMaker my_base_type;
   typedef SimpleOrderbook::LimitInterface sob_iface_type;
 
+private:
+
   struct dynamic_functor{
     friend MarketMaker;
     MarketMaker* _mm;
     callback_type _base_f, _deriv_f;
 
   public:
-    dynamic_functor(MarketMaker* mm) : _mm(mm),c(0){
-      this->rebind(mm); }
+    dynamic_functor(MarketMaker* mm) : _mm(mm) { this->rebind(mm); }
     void rebind(MarketMaker* mm)
     {
       this->_mm = mm;
@@ -148,26 +149,24 @@ protected:
     }
   };
 
+  typedef std::shared_ptr<dynamic_functor> df_sptr_type;
+
   struct dynamic_functor_wrap{
-    dynamic_functor* _df;
+    df_sptr_type _df;
   public:
-    dynamic_functor_wrap(dynamic_functor* df) : _df(df) {}
+    dynamic_functor_wrap(df_sptr_type df) : _df(df) {}
     void operator()(callback_msg msg,id_type id,price_type price,size_type size){
       _df->operator()(msg,id,price,size);
     }
   };
 
-private:
-  typedef std::unique_ptr<dynamic_functor> cb_uptr_type;
   typedef std::tuple<bool,price_type,size_type> order_bndl_type;
   typedef std::map<id_type,order_bndl_type> orders_map_type;
   typedef orders_map_type::value_type orders_value_type;
 
-public: /*DEBUG*/
   sob_iface_type *_book;
-private: /*DEBUG*/
   callback_type _callback_ext;
-  cb_uptr_type _callback;
+  df_sptr_type _callback;
   orders_map_type _my_orders;
   bool _is_running;
   bool _last_was_buy;
@@ -252,7 +251,7 @@ public:
 class MarketMaker_Random
     : public MarketMaker{
 
-  size_type _max_pos;
+  size_type _max_pos, _lowsz, _highsz, _last_size;
   std::default_random_engine _rand_engine;
   std::uniform_int_distribution<size_type> _distr, _distr2;
 
