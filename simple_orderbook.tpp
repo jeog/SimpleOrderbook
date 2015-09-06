@@ -745,7 +745,7 @@ void SOB_CLASS::add_market_makers(market_makers_type&& mms)
 SOB_TEMPLATE
 void SOB_CLASS::add_market_maker(MarketMaker&& mm)
 { /* create market_maker smart_pointer, start and push */
-  pMarketMaker pmm = mm.move_to_new();
+  pMarketMaker pmm = mm._move_to_new();
   pmm->start(this, this->_itop(this->_last), tick_size);
   this->_market_makers.push_back(std::move(pmm)); 
 }

@@ -24,7 +24,7 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <ctime>
 #include <iostream>
 #include <functional>
-
+#include <ratio>
 #include "trimmed_rational.hpp"
 
 namespace NativeLayer{
@@ -34,6 +34,24 @@ typedef double              price_diff_type;
 typedef unsigned long       size_type, id_type;
 typedef long long           size_diff_type;
 typedef unsigned long long  large_size_type;
+
+namespace SimpleOrderbook{
+class QueryInterface;
+class LimitInterface;
+class FullInterface;
+template< typename TickRatio = std::ratio<1,100>,
+         size_type MaxMemory = 1024 * 1024 * 1024 >
+class SimpleOrderbook;
+/*
+ * make sure to add new types as friends to MarketMaker
+ */
+typedef SimpleOrderbook<std::ratio<1,4>>     QuarterTick;
+typedef SimpleOrderbook<std::ratio<1,10>>    TenthTick;
+typedef SimpleOrderbook<std::ratio<1,32>>    ThirtySecondthTick;
+typedef SimpleOrderbook<std::ratio<1,100>>   HundredthTick, PennyTick, Default;
+typedef SimpleOrderbook<std::ratio<1,1000>>  ThousandthTick;
+typedef SimpleOrderbook<std::ratio<1,10000>> TenThousandthTick;
+}
 
 typedef std::pair<price_type,size_type>         limit_order_type;
 typedef std::pair<price_type,limit_order_type>  stop_order_type;

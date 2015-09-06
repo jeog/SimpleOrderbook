@@ -153,8 +153,7 @@ public:
 #define SOB_TEMPLATE template<typename TickRatio,size_type MaxMemory>
 #define SOB_CLASS SimpleOrderbook<TickRatio,MaxMemory>
 
-template< typename TickRatio = std::ratio<1,100>,
-         size_type MaxMemory = 1024 * 1024 * 1024 >
+template<typename TickRatio, size_type MaxMemory> /* DEFAULTS IN types.hpp */
 class SimpleOrderbook
     : public FullInterface{ //protected FullInterface{
  /*
@@ -244,30 +243,38 @@ private:
   size_type _t_and_s_max_sz;
   bool _t_and_s_full;
 
+  /* for running/syncing the async order queue */
   std::mutex _queue_mutex;
   std::condition_variable _in_signal;
   std::thread _background_thread1;
 
+  /* access protected MM members */
+  friend void MarketMaker::start(MarketMaker::sob_iface_type *book,
+                                 price_type implied, price_type tick);
+  friend void MarketMaker::stop();
+
+  /* push order onto the order queue and block until execution */
   id_type _push_order_and_wait(order_type oty, bool buy, plevel limit,
                                plevel stop, size_type size, callback_type cb,
                                post_exec_callback_type pe_cb= nullptr,
                                id_type id = 0);
 
-  /* don't worry about overflow */
+  /* generate order ids; don't worry about overflow */
   inline large_size_type _generate_id(){ return ++(this->_last_id); }
 
   /* price-to-index and index-to-price utilities  */
   plevel _ptoi(my_price_type price) const;
   my_price_type _itop(plevel plev) const;
 
+  /* the async/consumer side of the order queue */
   void _exec_order_queue();
 
+  /* utilities for converting floating point prices and increments */
   inline my_price_type _round_to_incr(my_price_type price)
   {
     return round((double)price * tick_ratio::den / tick_ratio::num) \
            * tick_ratio::num / tick_ratio::den;
   }
-
   size_type _incrs_in_range(my_price_type lprice, my_price_type hprice);
   size_type _generate_and_check_total_incr();
 
@@ -408,13 +415,6 @@ public:
     return this->_t_and_s;
   }
 };
-
-typedef SimpleOrderbook<std::ratio<1,4>>     QuarterTick;
-typedef SimpleOrderbook<std::ratio<1,10>>    TenthTick;
-typedef SimpleOrderbook<std::ratio<1,32>>    ThirtySecondthTick;
-typedef SimpleOrderbook<std::ratio<1,100>>   HundredthTick, PennyTick, Default;
-typedef SimpleOrderbook<std::ratio<1,1000>>  ThousandthTick;
-typedef SimpleOrderbook<std::ratio<1,10000>> TenThousandthTick;
 
 template< typename IfaceTy, typename ImplTy >
 static IfaceTy* New(price_type price,price_type min,price_type max)

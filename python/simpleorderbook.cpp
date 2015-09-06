@@ -29,20 +29,20 @@ class CallbackWrapper{
 public:
   CallbackWrapper(PyObject* callback)
     :
-    _callback(callback)
-      {
-        Py_XINCREF(callback);
-      }
+      _callback(callback)
+    {
+      Py_XINCREF(callback);
+    }
   CallbackWrapper(const CallbackWrapper& obj)
     :
-    _callback(obj._callback)
-      {
-       Py_XINCREF(obj._callback);
-      }
+      _callback(obj._callback)
+    {
+     Py_XINCREF(obj._callback);
+    }
   ~CallbackWrapper()
-  {
-    Py_XDECREF(this->_callback);
-  }
+    {
+      Py_XDECREF(this->_callback);
+    }
   void operator()(NativeLayer::callback_msg msg,
                   NativeLayer::id_type id,
                   NativeLayer::price_type price,
@@ -452,7 +452,8 @@ static PyObject* VOB_add_market_makers(pySOB* self, PyObject* args)
   SimpleOrderbook::FullInterface* sob;
 
   mm_3 = 0; /* <-- so we can check the optional arg */
-  /* args :
+  /*
+   * args :
    *  1) MM_TYPE
    *  2) mm_num
    *  3) type dependent varargs
@@ -466,9 +467,11 @@ static PyObject* VOB_add_market_makers(pySOB* self, PyObject* args)
   try{
     pmms = new market_makers_type;
     sob = (SimpleOrderbook::FullInterface*)self->_sob;
-
-    while( mm_num-- ){
-      /* potential issues with the bad args */
+    /*
+     * slightly cleaner if we were to use the ::Factory method but we
+     * shouldn't assume it will be defined in a sub-class
+     */
+    while( mm_num-- ){ /* potential issues with the bad args */
       switch(mm_ty){
       case(MM_RANDOM):
         {

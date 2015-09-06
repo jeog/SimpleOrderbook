@@ -25,12 +25,11 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <memory>
 #include <map>
 #include <mutex>
+#include <ratio>
 
 namespace NativeLayer{
 
-namespace SimpleOrderbook{
-class LimitInterface;
-}
+/* move forward declrs to types.hpp */
 
 using namespace std::placeholders;
 
@@ -49,7 +48,8 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r);
  * or by calling add_market_makers(&&) with a market_makers_type(see below)
  *
  * The virtual start function is called by the orderbook when it is ready
- * to begin; define this to control how initial orders are inserted;
+ * to begin; define this (as protected, orderbook is a friend class) to control
+ * how initial orders are inserted;
  * !! BE SURE TO CALL DOWN TO THE BASE VERSION BEFORE YOU DO ANYTHING !!
  *
  * MarketMaker::Insert<> is how you insert limit orders into the
@@ -87,7 +87,7 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r);
  * necessary. They also call clear() on the market_makers_type object to make
  * it clear it's contents have been moved.
  *
- * Sub-classes of MarketMaker have to define the move_to_new(&&) virtual
+ * Sub-classes of MarketMaker have to define the _move_to_new(&&) private virtual
  * function which steals its own contents, and passes them to a new derived
  * object inside a unique_ptr(pMarketMaker). This is intended to be used
  * internally BUT (and this not recommended) you can grab a reference -
@@ -102,27 +102,38 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r);
  */
 
 class MarketMakerA{
+  virtual pMarketMaker _move_to_new() = 0;
 public:
   virtual ~MarketMakerA() {}
-  virtual pMarketMaker move_to_new() = 0;
 };
 
 class MarketMaker
     : public MarketMakerA{
 
-protected:
-  typedef MarketMaker my_base_type;
+  friend SimpleOrderbook::QuarterTick;
+  friend SimpleOrderbook::TenthTick;
+  friend SimpleOrderbook::ThirtySecondthTick;
+  friend SimpleOrderbook::HundredthTick;
+  friend SimpleOrderbook::ThousandthTick;
+  friend SimpleOrderbook::TenThousandthTick;
+  friend market_makers_type operator+(market_makers_type&& l,
+                                      market_makers_type&& r);
+  friend market_makers_type operator+(market_makers_type&& l, MarketMaker&& r);
+
+public:
   typedef SimpleOrderbook::LimitInterface sob_iface_type;
 
+protected:
+  typedef MarketMaker my_base_type;
+
 private:
-
   struct dynamic_functor{
-    friend MarketMaker;
     MarketMaker* _mm;
+    bool _mm_alive;
     callback_type _base_f, _deriv_f;
-
   public:
-    dynamic_functor(MarketMaker* mm) : _mm(mm) { this->rebind(mm); }
+    dynamic_functor(MarketMaker* mm)
+        : _mm(mm), _mm_alive(true) {this->rebind(mm);}
     void rebind(MarketMaker* mm)
     {
       this->_mm = mm;
@@ -131,9 +142,10 @@ private:
     }
     void operator()(callback_msg msg,id_type id,price_type price,size_type size)
     {
+      if(!this->_mm_alive)
+        return;
       ++_mm->_recurse_count;
       ++_mm->_tot_recurse_count;
-
       if(_mm->_tot_recurse_count <= MarketMaker::_tot_recurse_limit)
       {
         this->_base_f(msg,id,price,size);
@@ -141,12 +153,10 @@ private:
           _mm->_callback_ext(msg,id,price,size);
         this->_deriv_f(msg,id,price,size);
       }
-
-      if(_mm->_tot_recurse_count)
-        --_mm->_tot_recurse_count;
-      if(_mm->_recurse_count)
-        --_mm->_recurse_count;
+      if(_mm->_tot_recurse_count) --_mm->_tot_recurse_count;
+      if(_mm->_recurse_count)     --_mm->_recurse_count;
     }
+    inline void kill() { this->_mm_alive = false; }
   };
 
   typedef std::shared_ptr<dynamic_functor> df_sptr_type;
@@ -155,9 +165,11 @@ private:
     df_sptr_type _df;
   public:
     dynamic_functor_wrap(df_sptr_type df) : _df(df) {}
-    void operator()(callback_msg msg,id_type id,price_type price,size_type size){
+    void operator()(callback_msg msg,id_type id,price_type price,size_type size)
+    {
       _df->operator()(msg,id,price,size);
     }
+    inline void kill() { _df->kill(); }
   };
 
   typedef std::tuple<bool,price_type,size_type> order_bndl_type;
@@ -183,6 +195,12 @@ private:
                       size_type size);
   virtual void _exec_callback(callback_msg msg,id_type id, price_type price,
                                size_type size){ /* NULL */ }
+
+  virtual pMarketMaker _move_to_new()
+  {
+    return pMarketMaker( new MarketMaker(std::move(*this)) );
+  }
+
   /* disable copy construction */
   MarketMaker(const MarketMaker& mm);
 
@@ -194,22 +212,22 @@ protected:
   inline size_type offer_out() const { return this->_offer_out; }
   inline size_type pos() const { return this->_pos; }
 
+  /* derived need to call down to start / stop */
+  virtual void start(sob_iface_type *book, price_type implied, price_type tick);
+  virtual void stop();
+  template<bool BuyNotSell>
+    void insert(price_type price, size_type size);
+
 public:
   typedef std::initializer_list<callback_type> init_list_type;
 
   MarketMaker(callback_type callback = nullptr);
   MarketMaker(MarketMaker&& mm) noexcept;
-  virtual ~MarketMaker() noexcept {}
 
-  virtual pMarketMaker
-  move_to_new(){ return pMarketMaker( new MarketMaker(std::move(*this)) ); }
-
-  /* derived need to call down to start / stop */
-  virtual void start(sob_iface_type *book, price_type implied, price_type tick);
-  virtual void stop();
-
-  template<bool BuyNotSell>
-  void insert(price_type price, size_type size);
+  virtual ~MarketMaker() noexcept
+    { /* change state of callback so we don't used freed memory */
+      this->_callback->kill();
+    }
 
   static market_makers_type Factory(init_list_type il);
   static market_makers_type Factory(unsigned int n);
@@ -222,11 +240,18 @@ class MarketMaker_Simple1
   size_type _sz, _max_pos;
   virtual void _exec_callback(callback_msg msg, id_type id, price_type price,
                               size_type size);
-  /*
-   * Do we want a copy cnstr that creates a new base with a newly bound callback?
-   * Should we just keep it locked down to avoid unintended consequences ?
-   */
+
+  virtual pMarketMaker _move_to_new()
+  {
+    return pMarketMaker( new MarketMaker_Simple1(
+      std::move(dynamic_cast<MarketMaker_Simple1&&>(*this))));
+  }
+
+  /* disable copy construction */
   MarketMaker_Simple1(const MarketMaker_Simple1& mm);
+
+protected:
+  void start(sob_iface_type *book, price_type implied, price_type tick);
 
 public:
   typedef std::initializer_list<std::pair<size_type,size_type>> init_list_type;
@@ -234,14 +259,6 @@ public:
   MarketMaker_Simple1(size_type sz, size_type max_pos);
   MarketMaker_Simple1(MarketMaker_Simple1&& mm) noexcept ;
   virtual ~MarketMaker_Simple1() noexcept {}
-
-  virtual pMarketMaker move_to_new()
-  {
-    return pMarketMaker( new MarketMaker_Simple1(
-      std::move(dynamic_cast<MarketMaker_Simple1&&>(*this))));
-  }
-
-  void start(sob_iface_type *book, price_type implied, price_type tick);
 
   static market_makers_type Factory(init_list_type il);
   static market_makers_type Factory(size_type n,size_type sz,size_type max_pos);
@@ -259,11 +276,17 @@ class MarketMaker_Random
                               size_type size);
   unsigned long long _gen_seed();
 
-  /*
-   * Do we want a copy cnstr that creates a new base with a newly bound callback?
-   * Should we just keep it locked down to avoid unintended consequences ?
-   */
+  virtual pMarketMaker _move_to_new()
+  {
+    return pMarketMaker( new MarketMaker_Random(
+      std::move(dynamic_cast<MarketMaker_Random&&>(*this))));
+  }
+
+  /* disable copy construction */
   MarketMaker_Random(const MarketMaker_Random& mm);
+
+protected:
+  void start(sob_iface_type *book, price_type implied, price_type tick);
 
 public:
   enum class dispersion{
@@ -276,26 +299,15 @@ public:
   typedef std::tuple<size_type,size_type,size_type,dispersion> init_params_type;
   typedef std::initializer_list<init_params_type> init_list_type;
 
-
-
   MarketMaker_Random(size_type sz_low, size_type sz_high, size_type max_pos,
                      dispersion d = dispersion::moderate);
   MarketMaker_Random(MarketMaker_Random&& mm) noexcept;
   virtual ~MarketMaker_Random() noexcept {}
 
-  virtual pMarketMaker move_to_new()
-  {
-    return pMarketMaker( new MarketMaker_Random(
-      std::move(dynamic_cast<MarketMaker_Random&&>(*this))));
-  }
-
-  void start(sob_iface_type *book, price_type implied, price_type tick);
-
   static market_makers_type Factory(init_list_type il);
   static market_makers_type Factory(size_type n, size_type sz_low,
                                     size_type sz_high, size_type max_pos,
                                     dispersion d);
-
 private:
   static const clock_type::time_point seedtp;
 };

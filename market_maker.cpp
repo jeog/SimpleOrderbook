@@ -46,7 +46,7 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r)
   for( auto& m : l)
     mms.push_back( std::move(m));
 
-  mms.push_back( r.move_to_new() );
+  mms.push_back( r._move_to_new() );
   l.clear();
 
   return mms;
