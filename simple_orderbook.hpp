@@ -288,8 +288,12 @@ private:
   size_type _chain_size(ChainTy* chain) const;
 
   /* remove a particular order */
-  template< typename ChainTy>
+  template<typename ChainTy,
+           bool IsLimit = std::is_same<ChainTy,limit_chain_type>::value>
   bool _pull_order(id_type id);
+
+  callback_type _get_cb_from_bndl(limit_bndl_type& b){ return b.second; }
+  callback_type _get_cb_from_bndl(stop_bndl_type& b){ return std::get<3>(b); }
 
   /* called from _pull order to update cached pointers */
   template<bool BuyStop>
@@ -374,6 +378,7 @@ public:
 
   bool pull_order(id_type id,bool search_limits_first=true);
 
+  /* DO WE WANT TO TRANSFER CALLBACK OBJECT TO NEW ORDER ?? */
   id_type replace_with_limit_order(id_type id, bool buy, price_type limit,
                                    size_type size, callback_type callback,
                                    post_exec_callback_type plccb = nullptr);

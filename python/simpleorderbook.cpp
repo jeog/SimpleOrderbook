@@ -37,7 +37,7 @@ public:
     :
       _callback(obj._callback)
     {
-     Py_XINCREF(obj._callback);
+      Py_XINCREF(obj._callback);
     }
   ~CallbackWrapper()
     {

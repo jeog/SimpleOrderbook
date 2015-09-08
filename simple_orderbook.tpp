@@ -454,45 +454,56 @@ size_type SOB_CLASS::_chain_size(ChainTy* chain) const
   return sz;
 }
 
+
 SOB_TEMPLATE
-template< typename ChainTy>
+template< typename ChainTy, bool IsLimit>
 bool SOB_CLASS::_pull_order(id_type id)
 {
-  plevel beg, end, hstop, lstop;
+  plevel beg, end, hstop, lstop;  
+  callback_type cb;
   ChainTy* c;
+  id_type eid;
   bool buystop;
   
-  constexpr bool islim = std::is_same<ChainTy,limit_chain_type>::value;
+  //constexpr bool islim = std::is_same<ChainTy,limit_chain_type>::value;
   ASSERT_VALID_CHAIN(ChainTy);
-  
+
+  eid = 0;
   lstop = (plevel)min((plevel)min(this->_low_sell_stop,this->_low_buy_stop),
                       (plevel)min(this->_high_sell_stop,this->_high_buy_stop));
   hstop = (plevel)max((plevel)max(this->_low_sell_stop,this->_low_buy_stop),
                       (plevel)max(this->_high_sell_stop,this->_high_buy_stop));
   /* form low to high */
-  beg = islim ? this->_low_buy_limit : lstop;
-  end = islim ? this->_high_sell_limit : hstop; 
+  beg = IsLimit ? this->_low_buy_limit : lstop;
+  end = IsLimit ? this->_high_sell_limit : hstop; 
   
   for( ; beg <= end; ++beg)
   {
-   c = islim ? (ChainTy*)&beg->first : (ChainTy*)&beg->second;
-   for(typename ChainTy::value_type& e : *c)
-   {
-     if(e.first == id){
-       if(!islim)
-         buystop = std::get<0>(e.second);
-       c->erase(e.first);
-       if(islim && c->empty())
-         this->_adjust_limit_cache_vals(beg);
-       else if(!islim){
-         if( buystop )
-           this->_adjust_stop_cache_vals<true>(beg,(stop_chain_type*)c);
-         else
-           this->_adjust_stop_cache_vals<false>(beg,(stop_chain_type*)c);
-       }
-       return true;
-     }
-   }
+    c = IsLimit ? (ChainTy*)&beg->first : (ChainTy*)&beg->second;
+    for(typename ChainTy::value_type& e : *c)
+      if(e.first == id){
+        /* match id and break so we can safely modify '*c' */
+        eid = e.first; 
+        break;
+      }  
+    if(eid){
+      typename ChainTy::mapped_type bndl = c->at(eid);
+      /* get the callback and, if stop order, its direction... before erasing */
+      cb = this->_get_cb_from_bndl(bndl); 
+      if(!IsLimit) 
+        buystop = std::get<0>(bndl); 
+      c->erase(eid); 
+      /* adjust cache vals as necessary */
+      if(IsLimit && c->empty())
+        this->_adjust_limit_cache_vals(beg);
+      else if(!IsLimit && buystop)     
+          this->_adjust_stop_cache_vals<true>(beg,(stop_chain_type*)c);
+      else if(!IsLimit && !buystop)
+          this->_adjust_stop_cache_vals<false>(beg,(stop_chain_type*)c);     
+      /* call back with cancel msg */
+      cb(callback_msg::cancel,id,0,0);
+      return true;
+    }
   }
   return false;
 }
