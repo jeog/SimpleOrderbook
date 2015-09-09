@@ -183,6 +183,10 @@ void MarketMaker::_base_callback(callback_msg msg,
   case callback_msg::cancel:
     this->_my_orders.erase(id);
     break;
+  case callback_msg::stop_to_limit:
+    std::cout<<"base, "<<"stop_to_limit: "<< std::to_string(size) << " @ "
+             <<std::to_string(price) <<std::endl;
+    break;
   }
 }
 
@@ -282,7 +286,14 @@ void MarketMaker_Simple1::_exec_callback(callback_msg msg,
       break;
     case callback_msg::cancel:
       break;
+    case callback_msg::stop_to_limit:
+      std::cout<<"simple1_exec, "<<"stop_to_limit: "<< std::to_string(size)
+               << " @ " <<std::to_string(price) <<std::endl;
+      break;
     }
+  }
+  catch(invalid_order& e){
+    std::cerr<< e.what() << std::endl;
   }
   catch(callback_overflow&)
   {
@@ -438,8 +449,15 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
       break;
     case callback_msg::cancel:
       break;
+    case callback_msg::stop_to_limit:
+      std::cout<<"random_exec, "<<"stop_to_limit: "<< std::to_string(size)
+               << " @ " <<std::to_string(price) <<std::endl;
+      break;
     }
 
+  }
+  catch(invalid_order& e){
+    std::cerr<< e.what() << std::endl;
   }
   catch(callback_overflow&)
   {

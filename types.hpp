@@ -27,6 +27,8 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <ratio>
 #include "trimmed_rational.hpp"
 
+#define SOB_MAX_MEM (1024 * 1024 * 1024)
+
 namespace NativeLayer{
 
 typedef float               price_type;
@@ -35,12 +37,13 @@ typedef unsigned long       size_type, id_type;
 typedef long long           size_diff_type;
 typedef unsigned long long  large_size_type;
 
+typedef std::ratio<1,100>   default_tick;
+
 namespace SimpleOrderbook{
 class QueryInterface;
 class LimitInterface;
 class FullInterface;
-template< typename TickRatio = std::ratio<1,100>,
-         size_type MaxMemory = 1024 * 1024 * 1024 >
+template<typename TickRatio = default_tick, size_type MaxMemory = SOB_MAX_MEM>
 class SimpleOrderbook;
 /*
  * make sure to add new types as friends to MarketMaker
@@ -48,7 +51,7 @@ class SimpleOrderbook;
 typedef SimpleOrderbook<std::ratio<1,4>>     QuarterTick;
 typedef SimpleOrderbook<std::ratio<1,10>>    TenthTick;
 typedef SimpleOrderbook<std::ratio<1,32>>    ThirtySecondthTick;
-typedef SimpleOrderbook<std::ratio<1,100>>   HundredthTick, PennyTick, Default;
+typedef SimpleOrderbook<>                    HundredthTick, PennyTick, Default;
 typedef SimpleOrderbook<std::ratio<1,1000>>  ThousandthTick;
 typedef SimpleOrderbook<std::ratio<1,10000>> TenThousandthTick;
 }
@@ -60,7 +63,8 @@ typedef typename std::chrono::steady_clock      clock_type;
 
 enum class callback_msg{
   cancel = 0,
-  fill
+  fill,
+  stop_to_limit // <- guaranteed before limit insert / fill callback
 };
 
 enum class order_type {
@@ -110,81 +114,49 @@ inline std::ostream& operator<<(std::ostream& out, stop_order_type stp)
 class liquidity_exception
     : public std::runtime_error{
 public:
-  liquidity_exception(const char* what)
-    :
-    std::runtime_error(what)
-    {
-    }
+  liquidity_exception(const char* what) : std::runtime_error(what) { }
 };
 
 class invalid_order
     : public std::invalid_argument{
 public:
-  invalid_order(const char* what)
-    :
-     std::invalid_argument(what)
-    {
-    }
+  invalid_order(const char* what) : std::invalid_argument(what) { }
 };
 
 class invalid_parameters
     : public std::invalid_argument{
 public:
-  invalid_parameters(const char* what)
-    :
-     std::invalid_argument(what)
-    {
-    }
+  invalid_parameters(const char* what) : std::invalid_argument(what) { }
 };
 
 class cache_value_error
     : public std::runtime_error{
 public:
-  cache_value_error(const char* what)
-    :
-     std::runtime_error(what)
-    {
-    }
+  cache_value_error(const char* what) : std::runtime_error(what) { }
 };
 
 class invalid_state
     : public std::runtime_error{
 public:
-  invalid_state(const char* what)
-    :
-     std::runtime_error(what)
-    {
-    }
+  invalid_state(const char* what) : std::runtime_error(what) { }
 };
 
 class callback_overflow
     : public std::runtime_error{
 public:
-  callback_overflow(const char* what)
-    :
-     std::runtime_error(what)
-    {
-    }
+  callback_overflow(const char* what) : std::runtime_error(what) { }
 };
 
 class move_error
     : public std::runtime_error{
 public:
-  move_error(const char* what)
-    :
-     std::runtime_error(what)
-    {
-    }
+  move_error(const char* what) : std::runtime_error(what) { }
 };
 
 class allocation_error
     : public std::runtime_error{ /* not really a bad_alloc */
 public:
-  allocation_error(const char* what)
-    :
-     std::runtime_error(what)
-    {
-    }
+  allocation_error(const char* what) : std::runtime_error(what) { }
 };
 
 template<typename T1>

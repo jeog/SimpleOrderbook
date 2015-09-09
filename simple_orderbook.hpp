@@ -44,13 +44,13 @@ namespace NativeLayer{
 
 namespace SimpleOrderbook{
 /*
- * SimpleOrderbook::SimpleOrderbook<std::ratio,size_type> is class template
+ * SimpleOrderbook::SimpleOrderbook<std::ratio,size_type> is a class template
  * that serves as the core implementation.
  *
  * The ratio type first parameter defines the tick size; the second
  * parameter provides a memory limit. Upon construction a large vector is
  * reserved using the min/max price args and the template parameters to check
- * if the passed memory limit will be exceed: if so constructor with throw
+ * if the passed memory limit will be exceeded: if so constructor throws
  * NativeLayer::allocation_error. A number of the relevant static/constexpr
  * fields and tyedefs are defined near the top of the class.
  *
@@ -61,7 +61,9 @@ namespace SimpleOrderbook{
  * The implementation object is interfaced via:
  *
  *   SimpleOrderbook::QueryInterface <-- the const calls for state info
+ *              - base of -
  *   SimpleOrderbook::LimitInterface <-- insert/remove limit orders, pull orders
+ *              - base of -
  *   SimpleOrderbook::FullInterface <-- insert/remove all orders, dump orders
  *
  * Before inserting market, stop, or stop-limit orders market makers must be
@@ -74,10 +76,10 @@ namespace SimpleOrderbook{
  *   order_exec_cb_type: a functor defined in types.h that will be called
  *                       when a fill or cancelation occurs for the order
  *
- *   order_admin_cb_type: a functor defined in types.h that will is guaranteed
+ *   order_admin_cb_type: a functor defined in types.h that is guaranteed
  *                        to be called after the order is inserted internally
  *                        but before the insert/replace call returns and any
- *                        order_exec_cb_type callbacks can be made.
+ *                        order_exec_cb_type callbacks are made.
  *
  * On success the order id will be returned; 0 on failure. (It's important to
  * note that the order id for a stop-limit order will become the id for the
@@ -125,13 +127,12 @@ public:
   virtual ~QueryInterface()
     {
     }
-  /* where in the hierachy these go depends on what we give to whom */
+  typedef QueryInterface my_type;
   typedef typename clock_type::time_point                   time_stamp_type;
   typedef std::tuple<time_stamp_type,price_type,size_type>  t_and_s_type;
   typedef std::vector< t_and_s_type >                       time_and_sales_type;
   typedef std::map<price_type,size_type>                    market_depth_type;
-  typedef std::function<QueryInterface*(size_type,
-                                        size_type,size_type)> cnstr_type;
+  typedef std::function<my_type*(size_type,size_type,size_type)>  cnstr_type;
 
   virtual price_type bid_price() const = 0;
   virtual price_type ask_price() const = 0;
@@ -161,8 +162,9 @@ public:
   virtual ~LimitInterface()
     {
     }
-  typedef std::function<LimitInterface*(size_type,
-                                        size_type,size_type)> cnstr_type;
+  typedef FullInterface my_type;
+  typedef LimitInterface my_base_type;
+  typedef std::function<my_type*(size_type,size_type,size_type)> cnstr_type;
 
   virtual
   id_type insert_limit_order(bool buy, price_type limit, size_type size,
@@ -187,7 +189,9 @@ public:
   virtual ~FullInterface()
     {
     }
-  typedef std::function<FullInterface*(size_type,size_type,size_type)> cnstr_type;
+  typedef FullInterface my_type;
+  typedef LimitInterface my_base_type;
+  typedef std::function<my_type*(size_type,size_type,size_type)> cnstr_type;
 
   virtual void add_market_makers(market_makers_type&& mms) = 0;
   virtual void add_market_maker(MarketMaker&& mms) = 0;
@@ -227,10 +231,8 @@ public:
 
 template<typename TickRatio, size_type MaxMemory> /* DEFAULTS IN types.hpp */
 class SimpleOrderbook
-    : public FullInterface{ //protected FullInterface{
- /*
-  * TODO review how we copy/move/PY_INCREF callbacks 
-  */
+    : public FullInterface{
+
 public:
   typedef SimpleOrderbook<TickRatio,MaxMemory> my_type;
   typedef FullInterface my_base_type;
@@ -301,9 +303,8 @@ private:
   /* autonomous market makers */
   market_makers_type _market_makers;
 
-  /* is_dirty: trade has occurred but we've deferred 'handling' it
-   * calling_back: in the process of calling back, DONT INSERT */
-  bool _is_dirty, _calling_back;
+  /* is_dirty: trade has occurred but we've deferred 'handling' it */
+  bool _is_dirty;
 
   /* store deferred callback info until we are clear to execute */
   std::queue<dfrd_cb_elem_type> _deferred_callback_queue;
@@ -319,11 +320,6 @@ private:
   std::mutex _queue_mutex;
   std::condition_variable _in_signal;
   std::thread _background_thread1;
-
-  /* access protected MM members */
-  friend void MarketMaker::start(MarketMaker::sob_iface_type *book,
-                                 price_type implied, price_type tick);
-  friend void MarketMaker::stop();
 
   /* push order onto the order queue and block until execution */
   id_type _push_order_and_wait(order_type oty, bool buy, plevel limit,
