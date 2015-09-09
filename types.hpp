@@ -60,8 +60,7 @@ typedef typename std::chrono::steady_clock      clock_type;
 
 enum class callback_msg{
   cancel = 0,
-  fill,
-  shutdown
+  fill
 };
 
 enum class order_type {
@@ -72,9 +71,9 @@ enum class order_type {
 };
 
 typedef std::function<void(callback_msg,id_type,
-                           price_type,size_type)> callback_type;
+                           price_type,size_type)> order_exec_cb_type;
 
-typedef std::function<void(id_type)> post_exec_callback_type;
+typedef std::function<void(id_type)> order_admin_cb_type;
 
 /*
 template< typename T, typename Pt1, typename Pt2 >
@@ -172,6 +171,16 @@ class move_error
     : public std::runtime_error{
 public:
   move_error(const char* what)
+    :
+     std::runtime_error(what)
+    {
+    }
+};
+
+class allocation_error
+    : public std::runtime_error{ /* not really a bad_alloc */
+public:
+  allocation_error(const char* what)
     :
      std::runtime_error(what)
     {

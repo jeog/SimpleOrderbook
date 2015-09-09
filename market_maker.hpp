@@ -130,7 +130,7 @@ private:
   struct dynamic_functor{
     MarketMaker* _mm;
     bool _mm_alive;
-    callback_type _base_f, _deriv_f;
+    order_exec_cb_type _base_f, _deriv_f;
   public:
     dynamic_functor(MarketMaker* mm)
         : _mm(mm), _mm_alive(true) {this->rebind(mm);}
@@ -177,7 +177,7 @@ private:
   typedef orders_map_type::value_type orders_value_type;
 
   sob_iface_type *_book;
-  callback_type _callback_ext;
+  order_exec_cb_type _callback_ext;
   df_sptr_type _callback;
   orders_map_type _my_orders;
   bool _is_running;
@@ -216,12 +216,12 @@ protected:
   virtual void start(sob_iface_type *book, price_type implied, price_type tick);
   virtual void stop();
   template<bool BuyNotSell>
-    void insert(price_type price, size_type size);
+  void insert(price_type price, size_type size);
 
 public:
-  typedef std::initializer_list<callback_type> init_list_type;
+  typedef std::initializer_list<order_exec_cb_type> init_list_type;
 
-  MarketMaker(callback_type callback = nullptr);
+  MarketMaker(order_exec_cb_type callback = nullptr);
   MarketMaker(MarketMaker&& mm) noexcept;
 
   virtual ~MarketMaker() noexcept

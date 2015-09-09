@@ -52,7 +52,7 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r)
   return mms;
 }
 
-MarketMaker::MarketMaker(callback_type callback) //callback_type callback)
+MarketMaker::MarketMaker(order_exec_cb_type callback)
   :
     _book(nullptr),
     _callback_ext(callback),
@@ -183,9 +183,6 @@ void MarketMaker::_base_callback(callback_msg msg,
   case callback_msg::cancel:
     this->_my_orders.erase(id);
     break;
-  case callback_msg::shutdown:
-    this->stop();
-    break;
   }
 }
 
@@ -284,8 +281,6 @@ void MarketMaker_Simple1::_exec_callback(callback_msg msg,
       }
       break;
     case callback_msg::cancel:
-      break;
-    case callback_msg::shutdown:
       break;
     }
   }
@@ -442,8 +437,6 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
       }
       break;
     case callback_msg::cancel:
-      break;
-    case callback_msg::shutdown:
       break;
     }
 

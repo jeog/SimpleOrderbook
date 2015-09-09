@@ -224,7 +224,7 @@ PyObject* VOB_trade_limit_(pySOB* self, PyObject* args, PyObject* kwds)
      * be careful with copy contruction/ ref passing of CallbackWrapper object
      * we need to copy into the order_map, can pass by reference elsewhere
      */
-    callback_type cb = callback_type(CallbackWrapper(callback));
+    order_exec_cb_type cb = order_exec_cb_type(CallbackWrapper(callback));
 
     id = Replace ? sob->replace_with_limit_order(id, BuyNotSell, limit, size, cb)
                  : sob->insert_limit_order(BuyNotSell, limit, size, cb);
@@ -269,7 +269,7 @@ PyObject* VOB_trade_market_(pySOB* self, PyObject* args, PyObject* kwds)
      * be careful with copy contruction/ ref passing of CallbackWrapper object
      * we need to copy into the order_map, can pass by reference elsewhere
      */
-    callback_type cb = callback_type(CallbackWrapper(callback));
+    order_exec_cb_type cb = order_exec_cb_type(CallbackWrapper(callback));
 
     id = Replace ? sob->replace_with_market_order(id, BuyNotSell, size, cb)
                  : sob->insert_market_order(BuyNotSell, size, cb);
@@ -317,7 +317,7 @@ PyObject* VOB_trade_stop_(pySOB* self,PyObject* args,PyObject* kwds)
      * be careful with copy contruction/ ref passing of CallbackWrapper object
      * we need to copy into the order_map, can pass by reference elsewhere
      */
-    callback_type cb = callback_type(CallbackWrapper(callback));
+    order_exec_cb_type cb = order_exec_cb_type(CallbackWrapper(callback));
 
     id = Replace ? sob->replace_with_stop_order(id, BuyNotSell, stop, size, cb)
                  : sob->insert_stop_order(BuyNotSell, stop, size, cb);
@@ -364,7 +364,7 @@ PyObject* VOB_trade_stop_limit_(pySOB* self, PyObject* args, PyObject* kwds)
      * be careful with copy contruction/ ref passing of CallbackWrapper object
      * we need to copy into the order_map, can pass by reference elsewhere
      */
-    callback_type cb = callback_type(CallbackWrapper(callback));
+    order_exec_cb_type cb = order_exec_cb_type(CallbackWrapper(callback));
 
     id = Replace
       ? sob->replace_with_stop_order(id, BuyNotSell, stop, limit, size, cb)
