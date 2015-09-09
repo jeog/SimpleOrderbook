@@ -74,7 +74,8 @@ namespace SimpleOrderbook{
  * The insert calls are relatively self explanatory except for the two callbacks:
  *
  *   order_exec_cb_type: a functor defined in types.h that will be called
- *                       when a fill or cancelation occurs for the order
+ *                       when a fill or cancelation occurs for the order, or
+ *                       when a stop-limit is triggered.
  *
  *   order_admin_cb_type: a functor defined in types.h that is guaranteed
  *                        to be called after the order is inserted internally
@@ -162,8 +163,8 @@ public:
   virtual ~LimitInterface()
     {
     }
-  typedef FullInterface my_type;
-  typedef LimitInterface my_base_type;
+  typedef LimitInterface my_type;
+  typedef QueryInterface my_base_type;
   typedef std::function<my_type*(size_type,size_type,size_type)> cnstr_type;
 
   virtual
