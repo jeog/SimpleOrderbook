@@ -145,6 +145,7 @@ public:
   virtual large_size_type last_id() const = 0;
   virtual market_depth_type bid_depth(size_type depth=8) const = 0;
   virtual market_depth_type ask_depth(size_type depth=8) const = 0;
+  virtual market_depth_type market_depth(size_type depth=8) const = 0;
   virtual const time_and_sales_type& time_and_sales() const = 0;
 
   /* convert time & sales chrono timepoint to str via ctime */
@@ -310,17 +311,19 @@ private:
   /* store deferred callback info until we are clear to execute */
   std::queue<dfrd_cb_elem_type> _deferred_callback_queue;
 
-  std::queue<order_queue_elem_type> _order_queue;
-
   /* time & sales */
   std::vector< t_and_s_type > _t_and_s;
   size_type _t_and_s_max_sz;
   bool _t_and_s_full;
 
-  /* for running/syncing the async order queue */
-  std::mutex _queue_mutex;
-  std::condition_variable _in_signal;
-  std::thread _background_thread1;
+  /* async order queue and sync objects */
+  std::queue<order_queue_elem_type> _order_queue;
+  std::mutex _order_queue_mtx;
+  std::condition_variable _order_queue_cond;
+  std::thread _order_dispatcher_thread;
+
+  /* handles the async/consumer side of the order queue */
+  void _threaded_order_dispatcher();
 
   /* push order onto the order queue and block until execution */
   id_type _push_order_and_wait(order_type oty, bool buy, plevel limit,
@@ -335,9 +338,6 @@ private:
   plevel _ptoi(my_price_type price) const;
   my_price_type _itop(plevel plev) const;
 
-  /* the async/consumer side of the order queue */
-  void _exec_order_queue();
-
   /* utilities for converting floating point prices and increments */
   inline my_price_type _round_to_incr(my_price_type price)
   {
@@ -348,9 +348,12 @@ private:
   size_type _generate_and_check_total_incr();
 
   /* calculate chain_size of limit orders at each price level
-   * use depth increments on each side of last */
-  template< bool BuyNotSell>
+   * use depth increments on each side of last  */
+  template< side_of_market Side>
   market_depth_type _market_depth(size_type depth) const;
+  template< side_of_market Side, typename My = my_type> struct _set_beg_end;
+  template<typename My> struct _set_beg_end<side_of_market::bid, My>;
+  template<typename My> struct _set_beg_end<side_of_market::ask, My>;
 
   /* calculate total volume in the chain */
   template< typename ChainTy>
@@ -466,11 +469,15 @@ public:
 
   inline market_depth_type bid_depth(size_type depth=8) const
   {
-    return this->_market_depth<true>(depth);
+    return this->_market_depth<side_of_market::bid>(depth);
   }
   inline market_depth_type ask_depth(size_type depth=8) const
   {
-    return this->_market_depth<false>(depth);
+    return this->_market_depth<side_of_market::ask>(depth);
+  }
+  inline market_depth_type market_depth(size_type depth=8) const
+  {
+    return this->_market_depth<side_of_market::both>(depth);
   }
 
   inline price_type bid_price() const { return this->_itop(this->_bid); }

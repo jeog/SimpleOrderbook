@@ -74,6 +74,12 @@ enum class order_type {
   stop_limit
 };
 
+enum class side_of_market {
+  bid = 1,
+  ask = -1,
+  both = 0
+};
+
 typedef std::function<void(callback_msg,id_type,
                            price_type,size_type)> order_exec_cb_type;
 

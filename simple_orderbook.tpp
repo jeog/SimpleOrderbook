@@ -8,32 +8,38 @@ SOB_TEMPLATE
 void SOB_CLASS::_on_trade_completion()
 {
   order_exec_cb_type cb1, cb2;
+  price_type price;
+  size_type size;
+  
   if(this->_is_dirty){
     this->_is_dirty = false;    
-    while(!this->_deferred_callback_queue.empty()){
+    while(!this->_deferred_callback_queue.empty())
+    {
       dfrd_cb_elem_type e = this->_deferred_callback_queue.front();
       cb1 = std::get<0>(e);
       cb2 = std::get<1>(e);
+      price = std::get<4>(e);
+      size = std::get<5>(e);
+      /* BE SURE TO POP BEFORE WE CALL BACK */
       this->_deferred_callback_queue.pop();
       /* BE SURE TO POP BEFORE WE CALL BACK */
-      if(cb1)
-        cb1(callback_msg::fill, std::get<2>(e), std::get<4>(e), std::get<5>(e));
-      if(cb2)
-        cb2(callback_msg::fill, std::get<3>(e), std::get<4>(e), std::get<5>(e));      
+      if(cb1) cb1(callback_msg::fill, std::get<2>(e), price, size);
+      if(cb2) cb2(callback_msg::fill, std::get<3>(e), price, size);      
     }  
     this->_look_for_triggered_stops(); 
   }
 }
 
 SOB_TEMPLATE
-void SOB_CLASS::_exec_order_queue()
+void SOB_CLASS::_threaded_order_dispatcher()
 {  
   order_queue_elem_type e;
   id_type id;
   while(true){
     {
-      std::unique_lock<std::mutex> _(this->_queue_mutex);    
-      this->_in_signal.wait(_, [this]{ return !this->_order_queue.empty();} ); 
+      std::unique_lock<std::mutex> lock(this->_order_queue_mtx);    
+      this->_order_queue_cond.wait(lock, 
+                                   [this]{return !this->_order_queue.empty();}); 
       e = std::move(this->_order_queue.front());
       this->_order_queue.pop();
     }     
@@ -88,15 +94,13 @@ id_type SOB_CLASS::_push_order_and_wait(order_type oty,
 {
   id_type ret_id;
   std::promise<id_type> p;
-  std::future<id_type> f(p.get_future());
-  
+  std::future<id_type> f(p.get_future());  
   {
-     std::lock_guard<std::mutex> _(this->_queue_mutex);
-     this->_order_queue.push( 
-       order_queue_elem_type(oty,buy,limit,stop,size,cb,id,admin_cb,std::move(p)));
-  }
-  
-  this->_in_signal.notify_one();
+     std::lock_guard<std::mutex> _(this->_order_queue_mtx);
+     this->_order_queue.push(order_queue_elem_type(oty, buy, limit, stop, size,
+                                                   cb,id,admin_cb,std::move(p)));
+  }  
+  this->_order_queue_cond.notify_one();
   ret_id = f.get();
   this->_on_trade_completion();
   
@@ -451,23 +455,45 @@ void SOB_CLASS::_insert_stop_order(bool buy,
 }
 
 SOB_TEMPLATE
-template< bool BuyNotSell>
+template<side_of_market Side, typename My> struct SOB_CLASS::_set_beg_end{
+  public:  
+    void operator()(const My* sob, plevel* pbeg, plevel* pend,size_type depth){
+      *pbeg = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
+      *pend = (plevel)max(sob->_beg, sob->_bid - depth +1);
+  }
+};
+SOB_TEMPLATE
+template<typename My> struct SOB_CLASS::_set_beg_end<side_of_market::bid,My>{ 
+  public: 
+    void operator()(const My* sob, plevel* pbeg, plevel* pend,size_type depth){
+      *pbeg = sob->_bid;
+      *pend = (plevel)max(sob->_beg, sob->_bid - depth +1);
+  }
+};
+SOB_TEMPLATE
+template<typename My> struct SOB_CLASS::_set_beg_end<side_of_market::ask,My>{
+  public: 
+    void operator()(const My* sob, plevel* pbeg, plevel* pend,size_type depth){
+      *pbeg = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
+      *pend = sob->_ask;
+  } 
+};
+
+
+SOB_TEMPLATE
+template< side_of_market Side >
 typename SOB_CLASS::market_depth_type 
 SOB_CLASS::_market_depth(size_type depth) const
 {
   plevel beg,end;
   market_depth_type md;
-
-  /* from high to low */
-  beg = BuyNotSell ? this->_bid
-                   : (plevel)min(this->_ask + depth - 1, this->_end - 1);
-  end = BuyNotSell ? (plevel)max(this->_beg, this->_bid - depth +1)
-                   : this->_ask;
+  
+  _set_beg_end<Side>()(this,&beg,&end,depth);
 
   for( ; beg >= end; --beg)
     if(!beg->first.empty())
-      md.insert( market_depth_type::value_type(
-                   this->_itop(beg), this->_chain_size(&beg->first)) );
+      md.insert( market_depth_type::value_type(this->_itop(beg), 
+                                               this->_chain_size(&beg->first)));
   return md;
 }
 
@@ -763,26 +789,25 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   _high_sell_limit( &(*this->_last) ),
   _low_buy_stop( &(*this->_end) ),
   _high_buy_stop( &(*(this->_beg-1)) ),
-  //_high_buy_stop( &(*(this->_end-1)) ),
-  //_low_sell_stop( &(*this->_beg) ),
   _low_sell_stop( &(*this->_end) ),
   _high_sell_stop( &(*(this->_beg-1)) ),
   _total_volume(0),
   _last_id(0),
   _market_makers(), 
   _is_dirty(false),
-  _deferred_callback_queue(),
-  _order_queue(),
+  _deferred_callback_queue(), 
   _t_and_s(),
   _t_and_s_max_sz(1000),
   _t_and_s_full(false),
-  _queue_mutex(),
-  _in_signal(),
-  _background_thread1(std::bind(&SOB_CLASS::_exec_order_queue,this))
+  _order_queue(),
+  _order_queue_mtx(),
+  _order_queue_cond(),
+  _order_dispatcher_thread(
+    std::bind(&SOB_CLASS::_threaded_order_dispatcher,this))
   {       
     this->_t_and_s.reserve(this->_t_and_s_max_sz);   
-    this->_background_thread1.detach();
-    std::cout<< "+ SimpleOrderbook(" << typeid(*this).name() << ") Created\n";
+    this->_order_dispatcher_thread.detach();
+    std::cout<< "+ SimpleOrderbook Created\n";
   }
 
 SOB_TEMPLATE 

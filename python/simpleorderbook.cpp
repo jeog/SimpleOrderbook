@@ -102,6 +102,7 @@ typedef struct {
   PyObject* _sob;
 } pySOB;
 
+
 #define CALLDOWN_FOR_STATE_WITH_TRY_BLOCK(apicall,sobcall) \
   static PyObject* VOB_ ## sobcall(pySOB* self){ \
     try{ \
@@ -443,22 +444,79 @@ static PyObject* VOB_time_and_sales(pySOB* self, PyObject* args)
   return list;
 }
 
+template<NativeLayer::side_of_market Side>
+static PyObject* VOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
+{
+  using namespace NativeLayer;
+
+  SimpleOrderbook::FullInterface* sob;
+  SimpleOrderbook::QueryInterface::market_depth_type md;
+  size_type depth;
+  size_t indx;
+  bool size_error;
+  PyObject *list, *tup;
+
+  static char keyword[][8] = { "depth" };
+  static char* kwlist[] = {keyword[0],NULL};
+
+  if(!PyArg_ParseTupleAndKeywords(args, kwds, "k", kwlist, &depth)){
+    PyErr_SetString(PyExc_ValueError, "error parsing args");
+    return NULL;
+  }
+
+  try{
+    sob = (SimpleOrderbook::FullInterface*)self->_sob;
+
+    switch(Side){
+      case(side_of_market::bid): md = sob->bid_depth(depth);  break;
+      case(side_of_market::ask): md = sob->ask_depth(depth); break;
+      case(side_of_market::both): md = sob->market_depth(depth); break;
+    }
+
+    indx = md.size();
+
+    switch(Side){
+      case(side_of_market::bid): /*no break*/
+      case(side_of_market::ask): size_error=(indx > depth); break;
+      case(side_of_market::both): size_error=(indx > depth * 2); break;
+    }
+
+    if(size_error)
+      throw NativeLayer::invalid_state("market_depth size too large");
+
+    list = PyList_New(indx);
+
+    for(auto& elem : md){
+      tup = Py_BuildValue("(f,k)",elem.first,elem.second);
+      PyList_SET_ITEM(list, --indx, tup);
+    }
+  }catch(std::exception& e){
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+  return list;
+}
+
+
 static PyObject* VOB_add_market_makers(pySOB* self, PyObject* args)
 {
   using namespace NativeLayer;
 
   size_type mm_ty, mm_num, mm_1, mm_2, mm_3;
+  int mm_4;
   market_makers_type* pmms;
   SimpleOrderbook::FullInterface* sob;
 
   mm_3 = 0; /* <-- so we can check the optional arg */
+  mm_4 = 1;
   /*
    * args :
    *  1) MM_TYPE
    *  2) mm_num
    *  3) type dependent varargs
    */                                               /* low/sz, high/max, max/ */
-  if(!PyArg_ParseTuple(args, "kkkk|k", &mm_ty, &mm_num, &mm_1,  &mm_2,  &mm_3))
+  if(!PyArg_ParseTuple(args, "kkkk|ki", &mm_ty, &mm_num, &mm_1,  &mm_2,
+                                       &mm_3, &mm_4))
   {
     PyErr_SetString(PyExc_ValueError, "error parsing args");
     return NULL;
@@ -477,7 +535,18 @@ static PyObject* VOB_add_market_makers(pySOB* self, PyObject* args)
         {
           if(mm_2 < mm_1 || mm_3 < mm_2 || mm_1 == 0)
             throw std::invalid_argument("invalid args (type,num,low,high,max)");
-          pmms->push_back(pMarketMaker(new MarketMaker_Random(mm_1,mm_2,mm_3)));
+          switch(mm_4){
+            case (int)MarketMaker_Random::dispersion::none: break;
+            case (int)MarketMaker_Random::dispersion::low: break;
+            case (int)MarketMaker_Random::dispersion::moderate: break;
+            case (int)MarketMaker_Random::dispersion::high: break;
+            case (int)MarketMaker_Random::dispersion::very_high: break;
+            default:
+              throw std::invalid_argument("mm_4 not valid dispersion enum");
+          }
+          pmms->push_back(
+            pMarketMaker(new MarketMaker_Random(mm_1,mm_2,mm_3,
+                               (MarketMaker_Random::dispersion)mm_4)));
         }
         break;
       case(MM_SIMPLE1):
@@ -513,6 +582,15 @@ static PyMethodDef pySOB_methods[] =
   {"ask_size",(PyCFunction)VOB_ask_size, METH_NOARGS, "() -> int"},
   {"last_size",(PyCFunction)VOB_last_size, METH_NOARGS, "() -> int"},
   {"volume",(PyCFunction)VOB_volume, METH_NOARGS, "() -> int"},
+  {"bid_depth",(PyCFunction)VOB_market_depth<NativeLayer::side_of_market::bid>,
+    METH_VARARGS | METH_KEYWORDS,
+    "(depth) -> list of 2-tuples [(float,int),(float,int),..]"},
+  {"ask_depth",(PyCFunction)VOB_market_depth<NativeLayer::side_of_market::ask>,
+    METH_VARARGS | METH_KEYWORDS,
+    "(depth) -> list of 2-tuples [(float,int),(float,int),..]"},
+  {"market_depth",(PyCFunction)VOB_market_depth<NativeLayer::side_of_market::both>,
+    METH_VARARGS | METH_KEYWORDS,
+    "(depth) -> list of 2-tuples [(float,int),(float,int),..]"},
   /* DUMP */
   {"dump_buy_limits",(PyCFunction)VOB_dump_buy_limits, METH_NOARGS,
       "dump (to stdout) all active limit buy orders; () -> void"},
@@ -580,7 +658,7 @@ static PyMethodDef pySOB_methods[] =
     "varargs: variable args depending on the type's (C++) constructor"},
   /* TIME & SALES */
   {"time_and_sales",(PyCFunction)VOB_time_and_sales, METH_VARARGS,
-    "(size) -> list of 3-tuples [(int,float,int),(int,float,int),..] "},
+    "(size) -> list of 3-tuples [(str,float,int),(str,float,int),..] "},
   {NULL}
 };
 

@@ -270,17 +270,19 @@ void MarketMaker_Simple1::_exec_callback(callback_msg msg,
     switch(msg){
     case callback_msg::fill:
       {
+        if(size <= 10)
+          break;
         if(this->last_was_buy())
         {
           if(this->bid_out() + this->_sz + this->pos() <= this->_max_pos)
             this->insert<true>(price - this->tick(), this->_sz);
-          this->insert<false>(price + (2*this->tick()), size);
+          this->insert<false>(price + this->tick(), size);
         }
         else
         {
           if(this->offer_out() + this->_sz - this->pos() <= this->_max_pos)
             this->insert<false>(price + this->tick(), this->_sz);
-          this->insert<true>(price - (2*this->tick()), size);
+          this->insert<true>(price - this->tick(), size);
         }
       }
       break;
@@ -386,21 +388,25 @@ void MarketMaker_Random::start(sob_iface_type *book,
   my_base_type::start(book,implied,tick);
 
   mod = this->_distr2(this->_rand_engine);
-  count = this->_distr2(this->_rand_engine);
+  count = this->_distr2(this->_rand_engine) * this->_distr2(this->_rand_engine);
   amt = this->_distr(this->_rand_engine);
 
   for( i = 0, price = implied + tick ;
        i < count && (this->offer_out() + amt - this->pos() <= this->_max_pos);
        price += mod * tick, ++i )
   { /* insert some random sell-limits */
-    this->insert<false>(price, amt);
+    try{
+      this->insert<false>(price, amt);
+    }catch(...){}
   }
 
   for( i = 0, price = implied - tick ;
        i < count && (this->bid_out() + amt + this->pos() <= this->_max_pos);
        price -= mod * tick, ++i )
   { /* insert some random buy-limits */
-    this->insert<true>(price, amt);
+    try{
+      this->insert<true>(price, amt);
+    }catch(...){}
   }
 }
 
@@ -410,20 +416,19 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
                                         size_type size)
 {
   price_type adj;
-  size_type amt, part;
+  size_type amt; //, part;
 
   try{
     switch(msg){
     case callback_msg::fill:
       {
 
-        if(size <= size_type(this->_lowsz/10))
+        if(size <= 10)
           break;
 
         this->_last_size = size; // <- need to set before inserts
         adj = this->tick() * this->_distr2(this->_rand_engine);
-                amt = this->_distr(this->_rand_engine);
-        part = size_type(size/10) + 1;
+        amt = this->_distr(this->_rand_engine);
 
         if(this->last_was_buy())
         {
@@ -431,9 +436,6 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
             this->insert<true>(price - adj, amt);
           if(this->offer_out() + amt - this->pos() <= this->_max_pos)
             this->insert<false>(price + adj, size);
-          this->insert<false>(price + this->tick(), part);
-          this->insert<false>(price + 2 * this->tick(), part);
-          this->insert<false>(price + 3 * this->tick(), part);
         }
         else
         {
@@ -441,9 +443,6 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
             this->insert<false>(price + adj, amt);
           if(this->bid_out() + amt + this->pos() <= this->_max_pos)
             this->insert<true>(price - adj, size);
-          this->insert<true>(price - this->tick(), part);
-          this->insert<true>(price - 2 * this->tick(), part);
-          this->insert<true>(price - 3 * this->tick(), part);
         }
       }
       break;
