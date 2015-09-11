@@ -160,28 +160,36 @@ private:
   };
 
   typedef std::shared_ptr<dynamic_functor> df_sptr_type;
-
+public:
   struct dynamic_functor_wrap{
     df_sptr_type _df;
   public:
-    dynamic_functor_wrap(df_sptr_type df) : _df(df) {}
+    dynamic_functor_wrap(df_sptr_type df = nullptr) : _df(df) {}
     void operator()(callback_msg msg,id_type id,price_type price,size_type size)
     {
-      _df->operator()(msg,id,price,size);
+      if(_df) _df->operator()(msg,id,price,size);
     }
-    inline void kill() { _df->kill(); }
+    operator bool(){ return (bool)_df; }
+    inline void kill() { if(_df) _df->kill(); }
   };
+private:
 
   typedef std::tuple<bool,price_type,size_type> order_bndl_type;
   typedef std::map<id_type,order_bndl_type> orders_map_type;
   typedef orders_map_type::value_type orders_value_type;
+
+  typedef struct{
+    bool is_buy;
+    price_type price;
+    size_type size;
+  }fill_info;
 
   sob_iface_type *_book;
   order_exec_cb_type _callback_ext;
   df_sptr_type _callback;
   orders_map_type _my_orders;
   bool _is_running;
-  bool _last_was_buy;
+  fill_info _this_fill, _last_fill;
   price_type _tick;
   size_type _bid_out;
   size_type _offer_out;
@@ -206,17 +214,31 @@ private:
 
 protected:
   inline const orders_map_type& my_orders() const { return this->_my_orders; }
-  inline bool last_was_buy() const { return this->_last_was_buy; }
+  inline bool this_fill_was_buy() const { return this->_this_fill.is_buy; }
+  inline bool last_fill_was_buy() const { return this->_last_fill.is_buy; }
+  inline price_type this_fill_price() const { return this->_this_fill.price; }
+  inline price_type last_fill_price() const { return this->_last_fill.price; }
+  inline size_type this_fill_size() const { return this->_this_fill.size; }
+  inline size_type last_fill_size() const { return this->_last_fill.size; }
+  inline size_type tick_chng() const
+  {
+    return tick_diff(this->_this_fill.price,this->_last_fill.price,this->tick());
+  }
   inline price_type tick() const { return this->_tick; }
   inline size_type bid_out() const { return this->_bid_out; }
   inline size_type offer_out() const { return this->_offer_out; }
   inline size_type pos() const { return this->_pos; }
 
+  id_type high_price_order();
+  id_type low_price_order();
+  template<bool BuyNotSell>
+  size_type random_remove( price_type minp);
+
   /* derived need to call down to start / stop */
   virtual void start(sob_iface_type *book, price_type implied, price_type tick);
   virtual void stop();
   template<bool BuyNotSell>
-  void insert(price_type price, size_type size);
+  void insert(price_type price, size_type size, bool no_order_cb = false);
 
 public:
   typedef std::initializer_list<order_exec_cb_type> init_list_type;
@@ -231,6 +253,10 @@ public:
 
   static market_makers_type Factory(init_list_type il);
   static market_makers_type Factory(unsigned int n);
+  inline static size_type tick_diff(price_type p1, price_type p2, price_type t)
+  {
+    return (p1 - p2) / t;
+  }
 };
 
 
@@ -268,9 +294,20 @@ public:
 class MarketMaker_Random
     : public MarketMaker{
 
-  size_type _max_pos, _lowsz, _highsz, _last_size;
+public:
+  enum class dispersion{
+      none = 1,
+      low = 3,
+      moderate = 5,
+      high = 7,
+      very_high = 10
+    };
+
+private:
+  size_type _max_pos, _lowsz, _highsz, _bcumm, _scumm;
   std::default_random_engine _rand_engine;
   std::uniform_int_distribution<size_type> _distr, _distr2;
+  dispersion _disp;
 
   virtual void _exec_callback(callback_msg msg, id_type id, price_type price,
                               size_type size);
@@ -289,13 +326,7 @@ protected:
   void start(sob_iface_type *book, price_type implied, price_type tick);
 
 public:
-  enum class dispersion{
-      none = 1,
-      low = 3,
-      moderate = 5,
-      high = 7,
-      very_high = 10
-    };
+
   typedef std::tuple<size_type,size_type,size_type,dispersion> init_params_type;
   typedef std::initializer_list<init_params_type> init_list_type;
 

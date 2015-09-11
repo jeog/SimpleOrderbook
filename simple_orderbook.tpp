@@ -512,7 +512,9 @@ size_type SOB_CLASS::_chain_size(ChainTy* chain) const
 SOB_TEMPLATE
 template<typename ChainTy, bool IsLimit>
 bool SOB_CLASS::_pull_order(id_type id)
-{
+{ /**/
+  /* BUG: we had a fill callback occur AFTER a cancle callback */
+  /**/
   plevel beg, end, hstop, lstop;  
   order_exec_cb_type cb;
   ChainTy* c;
