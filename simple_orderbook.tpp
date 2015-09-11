@@ -47,37 +47,39 @@ void SOB_CLASS::_threaded_order_dispatcher()
     id = std::get<6>(e);
     if(id == 0) /* might want to protect this at some point */
       id = this->_generate_id();
-    
-    switch(std::get<0>(e)){
-    case order_type::limit:
-      {
-        this->_insert_limit_order(std::get<1>(e),std::get<2>(e),std::get<4>(e),
-                                  std::get<5>(e),id,std::get<7>(e)); 
+    {
+      std::lock_guard<std::mutex> lock(this->_master_order_mtx);    
+      switch(std::get<0>(e)){      
+      case order_type::limit:
+        {
+          this->_insert_limit_order(std::get<1>(e),std::get<2>(e),
+                                    std::get<4>(e),std::get<5>(e),id,
+                                    std::get<7>(e)); 
+        }
+        break;
+      case order_type::market:
+        {
+          this->_insert_market_order(std::get<1>(e),std::get<4>(e),
+                                     std::get<5>(e),id,std::get<7>(e));        
+        }
+        break;
+      case order_type::stop:
+        {
+          this->_insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<4>(e),
+                                   std::get<5>(e),id,std::get<7>(e));
+        }
+        break;
+      case order_type::stop_limit:
+        {
+          this->_insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<2>(e),
+                                   std::get<4>(e),std::get<5>(e),id,
+                                   std::get<7>(e));         
+        }
+        break;
+      default:
+        throw std::runtime_error("invalid order type in order_queue");
       }
-      break;
-    case order_type::market:
-      {
-        this->_insert_market_order(std::get<1>(e),std::get<4>(e),std::get<5>(e),
-                                   id,std::get<7>(e));        
-      }
-      break;
-    case order_type::stop:
-      {
-        this->_insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<4>(e),
-                                 std::get<5>(e),id,std::get<7>(e));
-      }
-      break;
-    case order_type::stop_limit:
-      {
-        this->_insert_stop_order(std::get<1>(e),std::get<3>(e), std::get<2>(e),
-                                 std::get<4>(e),std::get<5>(e), id,
-                                 std::get<7>(e));         
-      }
-      break;
-    default:
-      throw std::runtime_error("invalid order type in order_queue");
-    }    
-   
+    }   
     std::get<8>(e).set_value(id);  
   }  
 }
@@ -455,27 +457,27 @@ void SOB_CLASS::_insert_stop_order(bool buy,
 }
 
 SOB_TEMPLATE
-template<side_of_market Side, typename My> struct SOB_CLASS::_set_beg_end{
+template<side_of_market Side, typename My> struct SOB_CLASS::_set_h_l{
   public:  
-    void operator()(const My* sob, plevel* pbeg, plevel* pend,size_type depth){
-      *pbeg = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
-      *pend = (plevel)max(sob->_beg, sob->_bid - depth +1);
+    void operator()(const My* sob, plevel* ph, plevel* pl,size_type depth){
+      *ph = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
+      *pl = (plevel)max(sob->_beg, sob->_bid - depth +1);
   }
 };
 SOB_TEMPLATE
-template<typename My> struct SOB_CLASS::_set_beg_end<side_of_market::bid,My>{ 
+template<typename My> struct SOB_CLASS::_set_h_l<side_of_market::bid,My>{ 
   public: 
-    void operator()(const My* sob, plevel* pbeg, plevel* pend,size_type depth){
-      *pbeg = sob->_bid;
-      *pend = (plevel)max(sob->_beg, sob->_bid - depth +1);
+    void operator()(const My* sob, plevel* ph, plevel* pl,size_type depth){
+      *ph = sob->_bid;
+      *pl = (plevel)max(sob->_beg, sob->_bid - depth +1);
   }
 };
 SOB_TEMPLATE
-template<typename My> struct SOB_CLASS::_set_beg_end<side_of_market::ask,My>{
+template<typename My> struct SOB_CLASS::_set_h_l<side_of_market::ask,My>{
   public: 
-    void operator()(const My* sob, plevel* pbeg, plevel* pend,size_type depth){
-      *pbeg = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
-      *pend = sob->_ask;
+    void operator()(const My* sob, plevel* ph, plevel* pl,size_type depth){
+      *ph = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
+      *pl = sob->_ask;
   } 
 };
 
@@ -485,15 +487,19 @@ template< side_of_market Side >
 typename SOB_CLASS::market_depth_type 
 SOB_CLASS::_market_depth(size_type depth) const
 {
-  plevel beg,end;
+  plevel h,l;
   market_depth_type md;
   
-  _set_beg_end<Side>()(this,&beg,&end,depth);
+  _set_h_l<Side>()(this,&h,&l,depth);
 
-  for( ; beg >= end; --beg)
-    if(!beg->first.empty())
-      md.insert( market_depth_type::value_type(this->_itop(beg), 
-                                               this->_chain_size(&beg->first)));
+  /* adjust for 1-past range val */
+  l = (l < this->_beg) ? this->_beg : l;
+  h = (h >= this->_end) ? this->_end - 1 : h;
+  
+  for( ; h >= l; --h)
+    if(!h->first.empty())
+      md.insert( market_depth_type::value_type(this->_itop(h), 
+                                               this->_chain_size(&h->first)));
   return md;
 }
 
@@ -511,7 +517,7 @@ size_type SOB_CLASS::_chain_size(ChainTy* chain) const
 
 SOB_TEMPLATE
 template<typename ChainTy, bool IsLimit>
-bool SOB_CLASS::_pull_order(id_type id)
+bool SOB_CLASS::_pull_order(id_type id, std::unique_lock<std::mutex>& lock)
 { /**/
   /* BUG: we had a fill callback occur AFTER a cancle callback */
   /**/
@@ -521,9 +527,9 @@ bool SOB_CLASS::_pull_order(id_type id)
   id_type eid;
   bool is_buystop;
 
-  ASSERT_VALID_CHAIN(ChainTy);
-
-  eid = 0;
+  ASSERT_VALID_CHAIN(ChainTy);  
+  
+  eid = 0;   
   lstop = (plevel)min((plevel)min(this->_low_sell_stop,this->_low_buy_stop),
                       (plevel)min(this->_high_sell_stop,this->_high_buy_stop));
   hstop = (plevel)max((plevel)max(this->_low_sell_stop,this->_low_buy_stop),
@@ -531,17 +537,21 @@ bool SOB_CLASS::_pull_order(id_type id)
   /* form low to high */
   beg = IsLimit ? this->_low_buy_limit : lstop;
   end = IsLimit ? this->_high_sell_limit : hstop; 
-  
+
+  /* adjust for 1-past range val */
+  beg = (beg < this->_beg) ? this->_beg : beg;
+  end = (end >= this->_end) ? this->_beg - 1 : end;
+
   for( ; beg <= end; ++beg)
   {
     c = IsLimit ? (ChainTy*)&beg->first : (ChainTy*)&beg->second;
     for(typename ChainTy::value_type& e : *c)
       if(e.first == id){
-        /* match id and break so we can safely modify '*c' */
+        /* match id and break so we can safely modify '*c' */       
         eid = e.first; 
         break;
       }  
-    if(eid){
+    if(eid){      
       typename ChainTy::mapped_type bndl = c->at(eid);
       /* get the callback and, if stop order, its direction... before erasing */
       cb = this->_get_cb_from_bndl(bndl); 
@@ -555,11 +565,13 @@ bool SOB_CLASS::_pull_order(id_type id)
           this->_adjust_stop_cache_vals<true>(beg,(stop_chain_type*)c);
       else if(!IsLimit && !is_buystop)
           this->_adjust_stop_cache_vals<false>(beg,(stop_chain_type*)c);     
-      /* call back with cancel msg */
-      if(cb) cb(callback_msg::cancel,id,0,0);
+      /* callback with cancel msg */     
+      lock.unlock(); /* <- avoid deadlock from callback */ 
+      if(cb) cb(callback_msg::cancel,id,0,0);      
       return true;
     }
-  }
+  } 
+
   return false;
 }
 
@@ -621,17 +633,21 @@ SOB_TEMPLATE
 template< bool BuyNotSell >
 void SOB_CLASS::_dump_limits() const
 { 
-  plevel beg,end;
+  plevel h,l;
 
   /* from high to low */
-  beg = BuyNotSell ? this->_bid : this->_high_sell_limit;
-  end = BuyNotSell ? this->_low_buy_limit : this->_ask;
+  h = BuyNotSell ? this->_bid : this->_high_sell_limit;
+  l = BuyNotSell ? this->_low_buy_limit : this->_ask;
+  
+  /* adjust for 1-past range val */
+  l = (l < this->_beg) ? this->_beg : l;
+  h = (h >= this->_end) ? this->_end - 1 : h;
 
-  for( ; beg >= end; --beg)  
-    if(!beg->first.empty())
+  for( ; h >= l; --h)  
+    if(!h->first.empty())
     {
-      std::cout<< this->_itop(beg);
-      for(const limit_chain_type::value_type& e : beg->first)
+      std::cout<< this->_itop(h);
+      for(const limit_chain_type::value_type& e : h->first)
         std::cout<< " <" << e.second.first << " #" << e.first << "> ";
       std::cout<< std::endl;
     } 
@@ -641,17 +657,21 @@ SOB_TEMPLATE
 template< bool BuyNotSell >
 void SOB_CLASS::_dump_stops() const
 { 
-  plevel beg,end, plim;
+  plevel h, l, plim;
 
   /* from high to low */
-  beg = BuyNotSell ? this->_high_buy_stop : this->_high_sell_stop;
-  end = BuyNotSell ? this->_low_buy_stop : this->_low_sell_stop;
+  h = BuyNotSell ? this->_high_buy_stop : this->_high_sell_stop;
+  l = BuyNotSell ? this->_low_buy_stop : this->_low_sell_stop;
   
-  for( ; beg >= end; --beg) 
-    if(!beg->second.empty())
+  /* adjust for 1-past range val */
+  l = (l < this->_beg) ? this->_beg : l;
+  h = (h >= this->_end) ? this->_end - 1 : h;
+  
+  for( ; h >= l; --h) 
+    if(!h->second.empty())
     {
-      std::cout<< this->_itop(beg);
-      for(const stop_chain_type::value_type& e : beg->second){
+      std::cout<< this->_itop(h);
+      for(const stop_chain_type::value_type& e : h->second){
         plim = (plevel)std::get<1>(e.second);
         std::cout<< " <" << (std::get<0>(e.second) ? "B " : "S ")
                  << std::to_string(std::get<2>(e.second)) << " @ "
@@ -803,6 +823,7 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   _t_and_s_full(false),
   _order_queue(),
   _order_queue_mtx(),
+  _master_order_mtx(),
   _order_queue_cond(),
   _order_dispatcher_thread(
     std::bind(&SOB_CLASS::_threaded_order_dispatcher,this))
@@ -914,12 +935,23 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
 SOB_TEMPLATE
 bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
 {   
-  if(search_limits_first)
-    return this->_pull_order<limit_chain_type>(id) ||
-           this->_pull_order<stop_chain_type>(id);
-  else
-    return this->_pull_order<stop_chain_type>(id) ||
-           this->_pull_order<limit_chain_type>(id);    
+  std::unique_lock<std::mutex> lock(this->_master_order_mtx);
+  bool res;
+  
+  try{
+    if(search_limits_first){ 
+      res = this->_pull_order<limit_chain_type>(id,lock) ||
+            this->_pull_order<stop_chain_type>(id,lock);
+    }
+    else
+      res = this->_pull_order<stop_chain_type>(id,lock) ||
+            this->_pull_order<limit_chain_type>(id,lock);    
+  }catch(...){ 
+    lock.unlock(); 
+    throw; 
+  }
+  if(lock) lock.unlock();
+  return res;
 }
 
 

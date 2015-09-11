@@ -232,7 +232,7 @@ protected:
   id_type high_price_order();
   id_type low_price_order();
   template<bool BuyNotSell>
-  size_type random_remove( price_type minp);
+  size_type random_remove( price_type minp, id_type this_id);
 
   /* derived need to call down to start / stop */
   virtual void start(sob_iface_type *book, price_type implied, price_type tick);

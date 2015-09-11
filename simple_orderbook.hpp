@@ -318,7 +318,7 @@ private:
 
   /* async order queue and sync objects */
   std::queue<order_queue_elem_type> _order_queue;
-  std::mutex _order_queue_mtx;
+  std::mutex _order_queue_mtx, _master_order_mtx;
   std::condition_variable _order_queue_cond;
   std::thread _order_dispatcher_thread;
 
@@ -351,9 +351,9 @@ private:
    * use depth increments on each side of last  */
   template< side_of_market Side>
   market_depth_type _market_depth(size_type depth) const;
-  template< side_of_market Side, typename My = my_type> struct _set_beg_end;
-  template<typename My> struct _set_beg_end<side_of_market::bid, My>;
-  template<typename My> struct _set_beg_end<side_of_market::ask, My>;
+  template< side_of_market Side, typename My = my_type> struct _set_h_l;
+  template<typename My> struct _set_h_l<side_of_market::bid, My>;
+  template<typename My> struct _set_h_l<side_of_market::ask, My>;
 
   /* calculate total volume in the chain */
   template< typename ChainTy>
@@ -362,7 +362,7 @@ private:
   /* remove a particular order */
   template<typename ChainTy,
            bool IsLimit = std::is_same<ChainTy,limit_chain_type>::value>
-  bool _pull_order(id_type id);
+  bool _pull_order(id_type id, std::unique_lock<std::mutex>& lock);
 
   order_exec_cb_type _get_cb_from_bndl(limit_bndl_type& b){ return b.second; }
   order_exec_cb_type _get_cb_from_bndl(stop_bndl_type& b){ return std::get<3>(b); }

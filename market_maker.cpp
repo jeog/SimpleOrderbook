@@ -165,6 +165,7 @@ void MarketMaker::_base_callback(callback_msg msg,
   switch(msg){
   case callback_msg::fill:
     {
+      std::cout<< "fill: " << std::to_string(id) << std::endl;
       ob = this->_my_orders.at(id); /* THROW */
       rem = std::get<2>(ob) - size;
 
@@ -188,7 +189,7 @@ void MarketMaker::_base_callback(callback_msg msg,
     }
     break;
   case callback_msg::cancel:
- //   std::cout<< "cancel callback: " << std::to_string(id) << ' '
+    std::cout<< "cancel: " << std::to_string(id) << std::endl;
   //           << std::boolalpha << std::get<0>(this->_my_orders.at(id)) << '\n';
 
     /// THIS IS CAUSING .at(id) to throw
@@ -211,7 +212,7 @@ void MarketMaker::_base_callback(callback_msg msg,
 //}
 
 template<bool BuyNotSell>
-size_type MarketMaker::random_remove(price_type minp)
+size_type MarketMaker::random_remove(price_type minp, id_type this_id)
 { /*
    * O(n) as-is
    * could be O(c) in pracice if we exclude minp:
@@ -225,11 +226,13 @@ size_type MarketMaker::random_remove(price_type minp)
                       [=](orders_value_type p){
                         return std::get<0>(p.second) == BuyNotSell
                             && (BuyNotSell ? std::get<1>(p.second) <= minp
-                                           : std::get<1>(p.second) >= minp);
-                      });
+                                           : std::get<1>(p.second) >= minp)
+                            && p.first != this_id ;
+                     });
   s = 0;
   if(riter != eiter){
     s = std::get<2>(riter->second);
+    std::cout<< "pulling: " << std::to_string(riter->first) << std::endl;
     this->_book->pull_order(riter->first);
   }
   return s;
@@ -328,7 +331,7 @@ void MarketMaker_Simple1::_exec_callback(callback_msg msg,
         if(this->this_fill_was_buy())
         {
           if(this->bid_out() + this->_sz + this->pos() > this->_max_pos)
-            if(this->random_remove<true>(price - this->tick()*3) > 0){
+            if(this->random_remove<true>(price - this->tick()*3,id) > 0){
               this->insert<true>(price - this->tick(), (int)(this->_sz/3));
               this->insert<true>(price - this->tick()*2, (int)(this->_sz/3));
               this->insert<true>(price - this->tick()*3, (int)(this->_sz/3));
@@ -340,7 +343,7 @@ void MarketMaker_Simple1::_exec_callback(callback_msg msg,
         else
         {
           if(this->offer_out() + this->_sz - this->pos() > this->_max_pos)
-            if(this->random_remove<false>(price + this->tick()*3) > 0){
+            if(this->random_remove<false>(price + this->tick()*3,id) > 0){
               this->insert<false>(price + this->tick(), (int)(this->_sz/3));
               this->insert<false>(price + this->tick()*2, (int)(this->_sz/3));
               this->insert<false>(price + this->tick()*3, (int)(this->_sz/3));
@@ -514,10 +517,10 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
         amt = this->_distr(this->_rand_engine);
 
         if(this->bid_out() + amt + this->pos() > this->_max_pos){
-          cumm = rret = this->random_remove<true>(price -adj*3);
+          cumm = rret = this->random_remove<true>(price -adj*3,id);
           while(cumm < amt){
             if(rret ==0) goto done_b1;
-            rret = this->random_remove<true>(price -adj*3);
+            rret = this->random_remove<true>(price -adj*3,id);
             cumm += rret;
           }
           this->insert<true>(price - adj, amt);
@@ -526,10 +529,10 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
         done_b1:
 
         if(this->offer_out() + amt - this->pos() > this->_max_pos){
-          cumm = rret = this->random_remove<false>(price -adj*3);
+          cumm = rret = this->random_remove<false>(price -adj*3,id);
           while(cumm < amt){
             if(rret ==0) break;
-            rret = this->random_remove<true>(price -adj*3);
+            rret = this->random_remove<true>(price -adj*3,id);
             cumm += rret;
           }
           this->insert<false>(price + adj, amt);
