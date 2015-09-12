@@ -251,8 +251,10 @@ private:
                 "Increment Ratio > ratio<1,1> " );
 
   /* how callback info is stored in the deferred callback queue */
-  typedef std::tuple<order_exec_cb_type,order_exec_cb_type,
-                     id_type, id_type, price_type,size_type>  dfrd_cb_elem_type;
+  typedef std::tuple<callback_msg, order_exec_cb_type,
+                     id_type, price_type,size_type>  dfrd_cb_elem_type;
+  //typedef std::tuple<order_exec_cb_type,order_exec_cb_type,
+    //                 id_type, id_type, price_type,size_type>  dfrd_cb_elem_type;
 
   /* limit bundle type holds the size and callback of each limit order
    * limit 'chain' type holds all limit orders at a price */
@@ -305,7 +307,7 @@ private:
   /* autonomous market makers */
   market_makers_type _market_makers;
 
-  /* is_dirty: trade has occurred but we've deferred 'handling' it */
+  /* is_dirty: trade/pull has occurred but we've deferred 'handling' it */
   bool _is_dirty;
 
   /* store deferred callback info until we are clear to execute */
@@ -381,6 +383,7 @@ private:
   void _dump_stops() const;
 
   /* handle post-trade tasks */
+  void _clear_callback_queue();
   void _on_trade_completion();
   void _look_for_triggered_stops();
   template< bool BuyStops>

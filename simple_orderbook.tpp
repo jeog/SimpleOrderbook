@@ -5,29 +5,28 @@ namespace NativeLayer{
 namespace SimpleOrderbook{
 
 SOB_TEMPLATE
-void SOB_CLASS::_on_trade_completion()
+void SOB_CLASS::_clear_callback_queue()
 {
-  order_exec_cb_type cb1, cb2;
-  price_type price;
-  size_type size;
+  order_exec_cb_type cb;
   
   if(this->_is_dirty){
     this->_is_dirty = false;    
-    while(!this->_deferred_callback_queue.empty())
-    {
+    while(!this->_deferred_callback_queue.empty()){
       dfrd_cb_elem_type e = this->_deferred_callback_queue.front();
-      cb1 = std::get<0>(e);
-      cb2 = std::get<1>(e);
-      price = std::get<4>(e);
-      size = std::get<5>(e);
-      /* BE SURE TO POP BEFORE WE CALL BACK */
+      cb = std::get<1>(e);   
       this->_deferred_callback_queue.pop();
       /* BE SURE TO POP BEFORE WE CALL BACK */
-      if(cb1) cb1(callback_msg::fill, std::get<2>(e), price, size);
-      if(cb2) cb2(callback_msg::fill, std::get<3>(e), price, size);      
-    }  
-    this->_look_for_triggered_stops(); 
+      if(cb) 
+        cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));   
+    }    
   }
+}
+
+SOB_TEMPLATE
+void SOB_CLASS::_on_trade_completion()
+{
+  this->_clear_callback_queue();
+  this->_look_for_triggered_stops();  
 }
 
 SOB_TEMPLATE
@@ -123,17 +122,19 @@ void SOB_CLASS::_trade_has_occured(plevel plev,
   *
   * adjust state and use _on_trade_completion() method for earliest insert
   */
+  price_type p = this->_itop(plev);
+  
+  this->_deferred_callback_queue.push( 
+    dfrd_cb_elem_type(callback_msg::fill, cbbuy, idbuy, p, size));
   this->_deferred_callback_queue.push(
-    dfrd_cb_elem_type(cbbuy, cbsell, idbuy, idsell, this->_itop(plev), size));
+    dfrd_cb_elem_type(callback_msg::fill, cbsell, idsell, p, size));
 
   if(this->_t_and_s_full)
     this->_t_and_s.pop_back();
   else if(this->_t_and_s.size() >= (this->_t_and_s_max_sz - 1))
     this->_t_and_s_full = true;
 
-  this->_t_and_s.push_back(
-    t_and_s_type(clock_type::now(),this->_itop(plev),size));
-
+  this->_t_and_s.push_back( t_and_s_type(clock_type::now(),p,size) );
   this->_last = plev;
   this->_total_volume += size;
   this->_last_size = size;
@@ -565,9 +566,10 @@ bool SOB_CLASS::_pull_order(id_type id, std::unique_lock<std::mutex>& lock)
           this->_adjust_stop_cache_vals<true>(beg,(stop_chain_type*)c);
       else if(!IsLimit && !is_buystop)
           this->_adjust_stop_cache_vals<false>(beg,(stop_chain_type*)c);     
-      /* callback with cancel msg */     
-      lock.unlock(); /* <- avoid deadlock from callback */ 
-      if(cb) cb(callback_msg::cancel,id,0,0);      
+      /* callback with cancel msg */   
+      this->_is_dirty = true;
+      this->_deferred_callback_queue.push( 
+        dfrd_cb_elem_type(callback_msg::cancel, cb, id, 0, 0) );  
       return true;
     }
   } 
@@ -935,6 +937,7 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
 SOB_TEMPLATE
 bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
 {   
+  /* DEADLOCKING !!!!! */
   std::unique_lock<std::mutex> lock(this->_master_order_mtx);
   bool res;
   
@@ -947,22 +950,26 @@ bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
       res = this->_pull_order<stop_chain_type>(id,lock) ||
             this->_pull_order<limit_chain_type>(id,lock);    
   }catch(...){ 
-    lock.unlock(); 
+   // lock.unlock(); 
     throw; 
   }
+  /* 
+   * can this create a situation where a fill callback can be released/called
+   * and _look_for_triggered stops is not called ???
+   */
   if(lock) lock.unlock();
+  this->_clear_callback_queue();  
   return res;
 }
 
 
 SOB_TEMPLATE
-id_type 
-SOB_CLASS::replace_with_limit_order(id_type id,
-                                    bool buy,
-                                    price_type limit,
-                                    size_type size,
-                                    order_exec_cb_type exec_cb,
-                                    order_admin_cb_type admin_cb)
+id_type SOB_CLASS::replace_with_limit_order(id_type id,
+                                            bool buy,
+                                            price_type limit,
+                                            size_type size,
+                                            order_exec_cb_type exec_cb,
+                                            order_admin_cb_type admin_cb)
 {
   id_type id_new = 0;
   

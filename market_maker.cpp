@@ -165,7 +165,7 @@ void MarketMaker::_base_callback(callback_msg msg,
   switch(msg){
   case callback_msg::fill:
     {
-      std::cout<< "fill: " << std::to_string(id) << std::endl;
+  //    std::cout<< "fill: " << std::to_string(id) << std::endl;
       ob = this->_my_orders.at(id); /* THROW */
       rem = std::get<2>(ob) - size;
 
@@ -189,7 +189,7 @@ void MarketMaker::_base_callback(callback_msg msg,
     }
     break;
   case callback_msg::cancel:
-    std::cout<< "cancel: " << std::to_string(id) << std::endl;
+  //  std::cout<< "cancel: " << std::to_string(id) << std::endl;
   //           << std::boolalpha << std::get<0>(this->_my_orders.at(id)) << '\n';
 
     /// THIS IS CAUSING .at(id) to throw
@@ -232,7 +232,7 @@ size_type MarketMaker::random_remove(price_type minp, id_type this_id)
   s = 0;
   if(riter != eiter){
     s = std::get<2>(riter->second);
-    std::cout<< "pulling: " << std::to_string(riter->first) << std::endl;
+   //std::cout<< "pulling: " << std::to_string(riter->first) << std::endl;
     this->_book->pull_order(riter->first);
   }
   return s;
@@ -484,6 +484,7 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
 {
   price_type adj;
   size_type amt, rret, cumm; //, part;
+  bool skip;
 
   try{
     switch(msg){
@@ -515,29 +516,38 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
 
         adj = this->tick() * this->_distr2(this->_rand_engine);
         amt = this->_distr(this->_rand_engine);
+        skip = false;
 
-        if(this->bid_out() + amt + this->pos() > this->_max_pos){
-          cumm = rret = this->random_remove<true>(price -adj*3,id);
-          while(cumm < amt){
-            if(rret ==0) goto done_b1;
-            rret = this->random_remove<true>(price -adj*3,id);
-            cumm += rret;
+        if(this->this_fill_was_buy()){
+          if(this->bid_out() + amt + this->pos() > this->_max_pos){
+            cumm = rret = this->random_remove<true>(price -adj*3,id);
+            while(cumm < amt){
+              if(rret ==0) skip = true;
+              rret = this->random_remove<true>(price -adj*3,id);
+              cumm += rret;
+            }
+            if(!skip){
+              this->insert<true>(price - adj,  (int)(amt/3));
+              this->insert<true>(price - adj*2, (int)(amt/3));
+              this->insert<true>(price - adj*3, (int)(amt/3));
+            }
           }
-          this->insert<true>(price - adj, amt);
-        }
 
-        done_b1:
-
-        if(this->offer_out() + amt - this->pos() > this->_max_pos){
-          cumm = rret = this->random_remove<false>(price -adj*3,id);
-          while(cumm < amt){
-            if(rret ==0) break;
-            rret = this->random_remove<true>(price -adj*3,id);
-            cumm += rret;
+        }else{
+          if(this->offer_out() + amt - this->pos() > this->_max_pos){
+            cumm = rret = this->random_remove<false>(price -adj*3,id);
+            while(cumm < amt){
+              if(rret ==0) skip = true;
+              rret = this->random_remove<false>(price -adj*3,id);
+              cumm += rret;
+            }
+            if(!skip){
+              this->insert<false>(price + adj,  (int)(amt/3));
+              this->insert<false>(price + adj*2, (int)(amt/3));
+              this->insert<false>(price + adj*3, (int)(amt/3));
+            }
           }
-          this->insert<false>(price + adj, amt);
         }
-
       }
       break;
     case callback_msg::cancel:
