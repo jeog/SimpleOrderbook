@@ -688,6 +688,8 @@ static PyObject* VOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
     try{
       if(price < low || high < price)
         throw std::invalid_argument("invalid args (type,price,low,high)");
+      if(low == 0)
+        throw std::invalid_argument("low must be > 0");
 
       sob = SOB_TYPES.at(sobty).second(price,low,high);
       if(!sob)
@@ -703,6 +705,7 @@ static PyObject* VOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
       PyErr_SetString(PyExc_Exception, e.what());
     }
     if(PyErr_Occurred()){
+      std::cout<<"caught 2\n";
       Py_DECREF(self);
       return NULL;
     }

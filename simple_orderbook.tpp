@@ -805,7 +805,7 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   
    vector iterator:  [begin()]                                    [ end() ]
    internal pointer: [ _base ][ _beg ]                            [ _end  ]
-   internal index:   [ null  ][  i   ][ i+1 ][ i+2 ]...   [ i-1  ][ null  ]
+   internal index:   [ NULL  ][  i   ][ i+1 ][ i+2 ]...   [ i-1  ][ NULL  ]
    external price:   [ THROW ][ min  ]                    [ max  ][ THROW ]    
   
    ***************************************************************************/
@@ -826,11 +826,14 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   _order_queue(),
   _order_queue_mtx(),
   _master_order_mtx(),
-  _order_queue_cond(),
-  _order_dispatcher_thread(
-    std::bind(&SOB_CLASS::_threaded_order_dispatcher,this))
+  _order_queue_cond()  
   {       
-    this->_t_and_s.reserve(this->_t_and_s_max_sz);   
+    if( min.to_incr() == 0 )
+      throw std::invalid_argument("(TrimmedRational) min price must be > 0");
+    this->_t_and_s.reserve(this->_t_and_s_max_sz); 
+    /* - DONT THROW AFTER THIS POINT - */
+    this->_order_dispatcher_thread = 
+      std::thread( std::bind(&SOB_CLASS::_threaded_order_dispatcher,this) );
     this->_order_dispatcher_thread.detach();
     std::cout<< "+ SimpleOrderbook Created\n";
   }

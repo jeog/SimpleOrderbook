@@ -163,43 +163,39 @@ void MarketMaker::_base_callback(callback_msg msg,
   long long rem;
 
   switch(msg){
-  case callback_msg::fill:
-    {
-  //    std::cout<< "fill: " << std::to_string(id) << std::endl;
-      ob = this->_my_orders.at(id); /* THROW */
-      rem = std::get<2>(ob) - size;
+    case callback_msg::fill:
+      {
+        ob = this->_my_orders.at(id); /* THROW */
+        rem = std::get<2>(ob) - size;
 
-      /* for our derived class */
-      this->_last_fill = std::move(this->_this_fill);
-      this->_this_fill = {std::get<0>(ob),price,size};
+        /* for our derived class */
+        this->_last_fill = std::move(this->_this_fill);
+        this->_this_fill = {std::get<0>(ob),price,size};
 
-      if(this->this_fill_was_buy()){
-        this->_pos += size;
-        this->_bid_out -= size;
-      }else{
-        this->_pos -= size;
-        this->_offer_out -= size;
+        if(this->this_fill_was_buy()){
+          this->_pos += size;
+          this->_bid_out -= size;
+        }else{
+          this->_pos -= size;
+          this->_offer_out -= size;
+        }
+
+        if(rem <= 0)
+          this->_my_orders.erase(id);
+        else
+          this->_my_orders[id] =
+            order_bndl_type(this->this_fill_was_buy(), price, rem);
       }
-
-      if(rem <= 0)
-        this->_my_orders.erase(id);
-      else
-        this->_my_orders[id] =
-          order_bndl_type(this->this_fill_was_buy(), price, rem);
-    }
-    break;
-  case callback_msg::cancel:
-  //  std::cout<< "cancel: " << std::to_string(id) << std::endl;
-  //           << std::boolalpha << std::get<0>(this->_my_orders.at(id)) << '\n';
-
-    /// THIS IS CAUSING .at(id) to throw
-    this->_my_orders.erase(id);
-    break;
-  case callback_msg::stop_to_limit:
-    std::cout<<"base, "<<"stop_to_limit: "<< std::to_string(size) << " @ "
-             <<std::to_string(price) <<std::endl;
-    break;
-  }
+      break;
+    case callback_msg::cancel:
+      ob = this->_my_orders.at(id); /* THROW */
+      if(std::get<0>(ob)) this->_bid_out -= std::get<2>(ob);
+      else                this->_offer_out -= std::get<2>(ob);
+      this->_my_orders.erase(id);
+      break;
+    case callback_msg::stop_to_limit:
+      throw not_implemented("stop orders should not be used by market makers!");
+   }
 }
 
 //id_type MarketMaker::high_price_order()
@@ -320,14 +316,14 @@ void MarketMaker_Simple1::_exec_callback(callback_msg msg,
       {
       //  if(this->this_fill_size() < this->last_fill_size())
      //     break;
-        if(size < 3){
+ /*       if(size < 3){
           if(this->this_fill_was_buy())
             this->insert<false>(price+this->tick(),size*2,true);
           else
             this->insert<true>(price-this->tick(),size*2,true);
           break;
         }
-
+*/
         if(this->this_fill_was_buy())
         {
           if(this->bid_out() + this->_sz + this->pos() > this->_max_pos)
@@ -463,14 +459,14 @@ void MarketMaker_Random::start(sob_iface_type *book,
   amt = this->_distr(this->_rand_engine);
 
   for( price = implied + tick*mod ;
-       (this->offer_out() + amt  <= this->_max_pos);
+       (this->offer_out() + amt  <= this->_max_pos/10);
        price += mod * tick )
   {
     try{ this->insert<false>(price, amt); }catch(...){ break; }
   }
 
   for( price = implied - tick*mod ;
-       (this->bid_out() + amt <= this->_max_pos);
+       (this->bid_out() + amt <= this->_max_pos/10);
        price -= mod * tick)
   {
     try{ this->insert<true>(price, amt); }catch(...){ break; }
@@ -507,12 +503,14 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
     //    else                          this->_scumm += size;
 
         if(size < 5){
-          if(this->this_fill_was_buy())
+          break;
+        }
+          /*       if(this->this_fill_was_buy())
             this->insert<false>(price+this->tick(),size*2,true);
           else
             this->insert<true>(price-this->tick(),size*2,true);
           break;
-        }
+        }*/
 
         adj = this->tick() * this->_distr2(this->_rand_engine);
         amt = this->_distr(this->_rand_engine);
@@ -522,31 +520,38 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
           if(this->bid_out() + amt + this->pos() > this->_max_pos){
             cumm = rret = this->random_remove<true>(price -adj*3,id);
             while(cumm < amt){
-              if(rret ==0) skip = true;
+              if(rret ==0){
+                skip = true;
+                break;
+              }
               rret = this->random_remove<true>(price -adj*3,id);
               cumm += rret;
             }
             if(!skip){
-              this->insert<true>(price - adj,  (int)(amt/3));
-              this->insert<true>(price - adj*2, (int)(amt/3));
-              this->insert<true>(price - adj*3, (int)(amt/3));
+              this->insert<true>(price - adj, amt);
+            //  for(int i = 1; i <= 5; ++i)
+            //    this->insert<true>(price - adj*i,  (int)(amt/10));
             }
           }
-
+          this->insert<false>(price + adj, size);
         }else{
           if(this->offer_out() + amt - this->pos() > this->_max_pos){
-            cumm = rret = this->random_remove<false>(price -adj*3,id);
+            cumm = rret = this->random_remove<false>(price + adj*3,id);
             while(cumm < amt){
-              if(rret ==0) skip = true;
-              rret = this->random_remove<false>(price -adj*3,id);
+              if(rret ==0){
+                skip = true;
+                break;
+              }
+              rret = this->random_remove<false>(price + adj*3,id);
               cumm += rret;
             }
             if(!skip){
-              this->insert<false>(price + adj,  (int)(amt/3));
-              this->insert<false>(price + adj*2, (int)(amt/3));
-              this->insert<false>(price + adj*3, (int)(amt/3));
+              this->insert<false>(price + adj, amt);
+           //   for(int i = 1; i < 5; ++i)
+           //     this->insert<false>(price + adj*i,  (int)(amt/10));
             }
           }
+          this->insert<true>(price - adj, size);
         }
       }
       break;

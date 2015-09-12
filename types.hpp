@@ -118,9 +118,9 @@ inline std::ostream& operator<<(std::ostream& out, stop_order_type stp)
 }
 
 class liquidity_exception
-    : public std::runtime_error{
+    : public std::logic_error{
 public:
-  liquidity_exception(const char* what) : std::runtime_error(what) { }
+  liquidity_exception(const char* what) : std::logic_error(what) { }
 };
 
 class invalid_order
@@ -142,7 +142,7 @@ public:
 };
 
 class invalid_state
-    : public std::runtime_error{
+    : public std::runtime_error{ /* logic_error? */
 public:
   invalid_state(const char* what) : std::runtime_error(what) { }
 };
@@ -163,6 +163,12 @@ class allocation_error
     : public std::runtime_error{ /* not really a bad_alloc */
 public:
   allocation_error(const char* what) : std::runtime_error(what) { }
+};
+
+class not_implemented
+    : public std::logic_error{
+public:
+  not_implemented(const char* what) : std::logic_error(what) { }
 };
 
 template<typename T1>
