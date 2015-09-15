@@ -29,10 +29,10 @@ market_makers_type operator+(market_makers_type&& l, market_makers_type&& r)
 { /* see notes in header */
   market_makers_type mms;
 
-  for( auto& m : l)
-    mms.push_back( std::move(m));
-  for( auto& m: r)
-    mms.push_back( std::move(m));
+  for(auto& m : l)
+    mms.push_back(std::move(m));
+  for(auto& m: r)
+    mms.push_back(std::move(m));
   /* make it explicit we stole them */
   l.clear();
   r.clear();
@@ -43,10 +43,10 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r)
 { /* see notes in header */
   market_makers_type mms;
 
-  for( auto& m : l)
-    mms.push_back( std::move(m));
+  for(auto& m : l)
+    mms.push_back(std::move(m));
 
-  mms.push_back( r._move_to_new() );
+  mms.push_back(r._move_to_new());
   l.clear();
 
   return mms;
@@ -196,7 +196,7 @@ MarketMaker_Simple1::MarketMaker_Simple1(size_type sz, size_type max_pos)
 MarketMaker_Simple1::MarketMaker_Simple1(MarketMaker_Simple1&& mm) noexcept
   :
     /* my_base takes care of rebinding dynamic functor */
-    my_base_type( std::move(mm) ),
+    my_base_type(std::move(mm)),
     _sz(mm._sz),
     _max_pos(mm._max_pos)
   {
@@ -347,17 +347,17 @@ MarketMaker_Random::MarketMaker_Random(size_type sz_low,
 MarketMaker_Random::MarketMaker_Random(MarketMaker_Random&& mm) noexcept
   :
     /* my_base takes care of rebinding dynamic functor */
-    my_base_type( std::move(mm) ),
+    my_base_type(std::move(mm)),
     _max_pos(mm._max_pos),
     _lowsz(mm._lowsz),
     _highsz(mm._highsz),
     _midsz(mm._midsz),
     _bcumm(mm._bcumm),
     _scumm(mm._scumm),
-    _rand_engine( std::move(mm._rand_engine) ),
-    _distr( std::move(mm._distr) ),
-    _distr2( std::move(mm._distr2) ),
-    _disp( mm._disp )
+    _rand_engine(std::move(mm._rand_engine)),
+    _distr(std::move(mm._distr)),
+    _distr2(std::move(mm._distr2)),
+    _disp(mm._disp)
   {
   }
 

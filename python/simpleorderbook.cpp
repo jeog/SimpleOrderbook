@@ -15,20 +15,14 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see http://www.gnu.org/licenses.
 */
 
-#include <Python.h>
-#include <structmember.h>
-//#include "../types.hpp"
 #include "../simple_orderbook.hpp"
+#include "common.hpp"
 
 //#define IGNORE_TO_DEBUG_NATIVE
 #ifndef IGNORE_TO_DEBUG_NATIVE
 
-/* python/marketmaker.cpp */
-extern PyTypeObject pyMM_type;
-
 class CallbackWrapper{
   PyObject* _callback;
-
 public:
   CallbackWrapper(PyObject* callback)
     :
@@ -100,11 +94,6 @@ const std::map<int,std::string> MM_TYPES = {
   std::make_pair(MM_RANDOM,"MM_RANDOM"),
   std::make_pair(MM_SIMPLE1,"MM_SIMPLE1")
 };
-
-typedef struct {
-  PyObject_HEAD
-  PyObject* _sob;
-} pySOB;
 
 
 #define CALLDOWN_FOR_STATE_WITH_TRY_BLOCK(apicall,sobcall) \
@@ -501,14 +490,47 @@ static PyObject* VOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
   return list;
 }
 
+/*static*/ PyObject* VOB_add_market_makers_local(pySOB* self, PyObject* args)
+{
+  using namespace NativeLayer;
 
-static PyObject* VOB_add_market_makers(pySOB* self, PyObject* args)
+  PyObject* py_mms;
+  size_type mm_num;
+  market_makers_type pmms;
+  MarketMaker_Py* tmp;
+  SimpleOrderbook::FullInterface* sob;
+
+  if(!PyArg_ParseTuple(args, "O", &py_mms)) /* DO WEE NEED TO INCREF ?? */
+  {
+    PyErr_SetString(PyExc_ValueError, "error parsing args");
+    return NULL;
+  }
+
+  try{
+    mm_num = PyList_Size(py_mms);
+    sob = (SimpleOrderbook::FullInterface*)self->_sob;
+
+    while(--mm_num){
+      tmp = (MarketMaker_Py*)PyList_GetItem(py_mms,mm_num);
+      pmms.push_back(tmp->_move_to_new());
+    }
+    sob->add_market_makers(std::move(pmms));
+  }
+  catch(std::exception& e)
+  {
+    PyErr_SetString(PyExc_Exception, e.what());
+    return NULL;
+  }
+  Py_RETURN_NONE;
+}
+
+static PyObject* VOB_add_market_makers_native(pySOB* self, PyObject* args)
 {
   using namespace NativeLayer;
 
   size_type mm_ty, mm_num, mm_1, mm_2, mm_3;
   int mm_4;
-  market_makers_type* pmms;
+  market_makers_type pmms;
   SimpleOrderbook::FullInterface* sob;
 
   mm_3 = 0; /* <-- so we can check the optional arg */
@@ -527,7 +549,6 @@ static PyObject* VOB_add_market_makers(pySOB* self, PyObject* args)
   }
 
   try{
-    pmms = new market_makers_type;
     sob = (SimpleOrderbook::FullInterface*)self->_sob;
     /*
      * slightly cleaner if we were to use the ::Factory method but we
@@ -536,41 +557,36 @@ static PyObject* VOB_add_market_makers(pySOB* self, PyObject* args)
     while( mm_num-- ){ /* potential issues with the bad args */
       switch(mm_ty){
       case(MM_RANDOM):
-        {
-          if(mm_2 < mm_1 || mm_3 < mm_2 || mm_1 == 0)
-            throw std::invalid_argument("invalid args (type,num,low,high,max)");
-          switch(mm_4){
-            case (int)MarketMaker_Random::dispersion::none: break;
-            case (int)MarketMaker_Random::dispersion::low: break;
-            case (int)MarketMaker_Random::dispersion::moderate: break;
-            case (int)MarketMaker_Random::dispersion::high: break;
-            case (int)MarketMaker_Random::dispersion::very_high: break;
-            default:
-              throw std::invalid_argument("mm_4 not valid dispersion enum");
-          }
-          pmms->push_back(
-            pMarketMaker(new MarketMaker_Random(mm_1,mm_2,mm_3,
-                               (MarketMaker_Random::dispersion)mm_4)));
+      {
+        if(mm_2 < mm_1 || mm_3 < mm_2 || mm_1 == 0)
+          throw std::invalid_argument("invalid args (type,num,low,high,max)");
+        switch(mm_4){
+          case (int)MarketMaker_Random::dispersion::none: break;
+          case (int)MarketMaker_Random::dispersion::low: break;
+          case (int)MarketMaker_Random::dispersion::moderate: break;
+          case (int)MarketMaker_Random::dispersion::high: break;
+          case (int)MarketMaker_Random::dispersion::very_high: break;
+          default:
+            throw std::invalid_argument("mm_4 not valid dispersion enum");
         }
-        break;
+        pmms.push_back(pMarketMaker(new MarketMaker_Random(mm_1,mm_2,mm_3,
+                                    (MarketMaker_Random::dispersion)mm_4)));
+      } break;
       case(MM_SIMPLE1):
-        {
-          if(mm_2 < mm_1 || mm_1 == 0)
-            throw std::invalid_argument("invalid args (type,num,sz,max)");
-          pmms->push_back(pMarketMaker(new MarketMaker_Simple1(mm_1,mm_2)));
-        }
-        break;
+      {
+        if(mm_2 < mm_1 || mm_1 == 0)
+          throw std::invalid_argument("invalid args (type,num,sz,max)");
+        pmms.push_back(pMarketMaker(new MarketMaker_Simple1(mm_1,mm_2)));
+      } break;
       default:
         throw std::runtime_error("invalid market maker type");
       }
     }
-
-   sob->add_market_makers(std::move(*pmms));
-
-  }catch(std::exception& e){
+    sob->add_market_makers(std::move(pmms));
+  }
+  catch(std::exception& e)
+  {
     PyErr_SetString(PyExc_Exception, e.what());
-    if(pmms)
-      delete pmms;
     return NULL;
   }
   Py_RETURN_NONE;
@@ -654,12 +670,16 @@ static PyMethodDef pySOB_methods[] =
                                   "order; (id, stop, limit, size, callback) "
                                   "-> new order ID"},
   /* MARKET MAKERS */
-  {"add_market_makers",(PyCFunction)VOB_add_market_makers,
-    METH_VARARGS | METH_KEYWORDS,
+  {"add_native_market_makers",(PyCFunction)VOB_add_market_makers_native,
+    METH_VARARGS ,
     "add market makers to orderbook; (MM_TYPE, num, varargs...) -> void\n"
     "MM_TYPE: use the MM_[...] constants to indicate type of market maker\n"
     "num: how many market makers of this type to create\n"
     "varargs: variable args depending on the type's (C++) constructor"},
+  {"add_local_market_makers",(PyCFunction)VOB_add_market_makers_local,
+    METH_VARARGS ,
+    "add market makers to orderbook; ( (mms,) ) -> void\n"
+    "(mms,): a tuple of local(python) market makers (MarketMaker type)"},
   /* TIME & SALES */
   {"time_and_sales",(PyCFunction)VOB_time_and_sales, METH_VARARGS,
     "(size) -> list of 3-tuples [(str,float,int),(str,float,int),..] "},
