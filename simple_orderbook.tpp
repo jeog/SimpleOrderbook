@@ -4,6 +4,10 @@
 namespace NativeLayer{
 namespace SimpleOrderbook{
 
+#define SOB_ON_TRADE_COMPLETION_() \
+  do{ this->_clear_callback_queue(); \
+      this->_look_for_triggered_stops(); }while(0)
+
 SOB_TEMPLATE
 void SOB_CLASS::_clear_callback_queue()
 {
@@ -16,17 +20,9 @@ void SOB_CLASS::_clear_callback_queue()
       cb = std::get<1>(e);   
       this->_deferred_callback_queue.pop();
       /* BE SURE TO POP BEFORE WE CALL BACK */
-      if(cb) 
-        cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));   
+      if(cb) cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));   
     }    
   }
-}
-
-SOB_TEMPLATE
-void SOB_CLASS::_on_trade_completion()
-{
-  this->_clear_callback_queue();
-  this->_look_for_triggered_stops();  
 }
 
 SOB_TEMPLATE
@@ -46,37 +42,31 @@ void SOB_CLASS::_threaded_order_dispatcher()
     id = std::get<6>(e);
     if(id == 0) /* might want to protect this at some point */
       id = this->_generate_id();
+    
     {
       std::lock_guard<std::mutex> lock(this->_master_order_mtx);    
       switch(std::get<0>(e)){      
-      case order_type::limit:
-        {
-          this->_insert_limit_order(std::get<1>(e),std::get<2>(e),
-                                    std::get<4>(e),std::get<5>(e),id,
-                                    std::get<7>(e)); 
-        }
-        break;
+      case order_type::limit: 
+      {
+        this->_insert_limit_order(std::get<1>(e),std::get<2>(e),std::get<4>(e),
+                                  std::get<5>(e),id,std::get<7>(e));       
+      } break;
       case order_type::market:
-        {
-          this->_insert_market_order(std::get<1>(e),std::get<4>(e),
-                                     std::get<5>(e),id,std::get<7>(e));        
-        }
-        break;
+      {
+        this->_insert_market_order(std::get<1>(e),std::get<4>(e),std::get<5>(e),
+                                   id,std::get<7>(e));        
+      } break;
       case order_type::stop:
-        {
-          this->_insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<4>(e),
-                                   std::get<5>(e),id,std::get<7>(e));
-        }
-        break;
+      {
+        this->_insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<4>(e),
+                                 std::get<5>(e),id,std::get<7>(e));
+      } break;
       case order_type::stop_limit:
-        {
-          this->_insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<2>(e),
-                                   std::get<4>(e),std::get<5>(e),id,
-                                   std::get<7>(e));         
-        }
-        break;
-      default:
-        throw std::runtime_error("invalid order type in order_queue");
+      {
+        this->_insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<2>(e),
+                                 std::get<4>(e),std::get<5>(e),id,std::get<7>(e));         
+      } break;
+      default: throw std::runtime_error("invalid order type in order_queue");
       }
     }   
     std::get<8>(e).set_value(id);  
@@ -103,7 +93,7 @@ id_type SOB_CLASS::_push_order_and_wait(order_type oty,
   }  
   this->_order_queue_cond.notify_one();
   ret_id = f.get();
-  this->_on_trade_completion();
+  SOB_ON_TRADE_COMPLETION_();
   
   return ret_id;
 }
@@ -120,7 +110,7 @@ void SOB_CLASS::_trade_has_occured(plevel plev,
   * CAREFUL: we can't insert orders from here since we have yet to finish
   * processing the initial order (possible infinite loop);
   *
-  * adjust state and use _on_trade_completion() method for earliest insert
+  * adjust state and use SOB_ON_TRADE_COMPLETION_() macro for earliest insert
   */
   price_type p = this->_itop(plev);
   
@@ -218,7 +208,7 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
       this->_push_order_and_wait(order_type::market, std::get<0>(e.second),
                                  nullptr, nullptr, sz, cb, nullptr, e.first);
   }
-  this->_on_trade_completion(); // <- this could be an issue
+  SOB_ON_TRADE_COMPLETION_(); // <- this could be an issue
 }
 
 /*
@@ -239,51 +229,45 @@ size_type SOB_CLASS::_lift_offers(plevel plev,
                                   order_exec_cb_type& exec_cb)
 {
   limit_chain_type::iterator del_iter;
-  size_type amount, for_sale;
+  size_type amount;
   plevel inside;
-
-  long rmndr = 0;
-  inside = this->_ask;  
-         
-  while( (inside <= plev || !plev) && size > 0 && (inside < this->_end) )
-  {     
-    del_iter = inside->first.begin();
-    for(limit_chain_type::value_type& elem : inside->first){
-      /* check each order , FIFO, for that price level
-       * if here we must fill something */
-      for_sale = elem.second.first;
-      rmndr = size - for_sale;
-      amount = std::min(size,for_sale);
-      this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
-                               elem.second.second, true);    
-      /* reduce the amount left to trade */
-      size -= amount;
-      /* if we don't need all, adjust the outstanding order size,
-       * otherwise indicate order should be removed from the chain */
-      if(rmndr < 0)
-        elem.second.first -= amount;
-      else
-        ++del_iter;      
-      if(size <= 0)
-        break; /* if we have nothing left */
-    }
-    inside->first.erase(inside->first.begin(),del_iter);     
-    
-    for( ; inside->first.empty() && inside < this->_end; ++inside)
-      { /* if we we're on an empty chain 'jump' to one that isn't */     
-      }      
-    this->_ask = inside; /* @ +1 the beg if we went all the way ! */
-    
-    if(inside >= this->_end){
-      this->_ask_size = 0;    
-      break;
-    }else
-      this->_ask_size = this->_chain_size(&this->_ask->first);  
-    
-    /* adjust cached val */
-    if(this->_ask > this->_high_sell_limit)
-      this->_high_sell_limit = this->_ask;
-  }
+ 
+  inside = this->_ask;
+  while((inside <= plev || !plev) 
+        && size > 0 
+        && (inside < this->_end))
+       {     
+         del_iter = inside->first.begin();
+         for(limit_chain_type::value_type& elem : inside->first){
+           /* check each order , FIFO, for that price level */        
+           amount = std::min(size, elem.second.first);
+           this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
+                                    elem.second.second, true);               
+           size -= amount; /* reduce the amount left to trade */           
+           if((size - elem.second.first) < 0) 
+             elem.second.first -= amount; /* adjust outstanding order size */
+           else          
+             ++del_iter; /* indicate removal if we cleared offer */
+           if(size <= 0) break; /* if we have nothing left to trade*/
+         }
+         inside->first.erase(inside->first.begin(),del_iter);   
+         for( ; 
+             inside->first.empty() && inside < this->_end; 
+             ++inside) /* if an empty chain 'jump' to one that isn't */ 
+             {      
+             }        
+         this->_ask = inside; /* @ +1 the beg if we went all the way ! */
+        
+         if(inside >= this->_end){
+           this->_ask_size = 0;    
+           break;
+         }else
+           this->_ask_size = this->_chain_size(&this->_ask->first);  
+        
+         /* adjust cached val */
+         if(this->_ask > this->_high_sell_limit)
+           this->_high_sell_limit = this->_ask;
+       }
   return size; /* what we couldn't fill */
 }
 
@@ -294,51 +278,45 @@ size_type SOB_CLASS::_hit_bids(plevel plev,
                                order_exec_cb_type& exec_cb)
 {
   limit_chain_type::iterator del_iter;
-  size_type amount, to_buy;
+  size_type amount;
   plevel inside;
-
-  long rmndr = 0;
-  inside = this->_bid;  
-         
-  while( (inside >= plev || !plev) && size > 0 && (inside >= this->_beg) )
-  {     
-    del_iter = inside->first.begin();
-    for(limit_chain_type::value_type& elem : inside->first){
-      /* check each order , FIFO, for that price level
-       * if here we must fill something */
-      to_buy = elem.second.first;
-      rmndr = size - to_buy;
-      amount = std::min(size,to_buy);
-      this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
-                               elem.second.second, true);  
-      /* reduce the amount left to trade */
-      size -= amount;
-      /* if we don't need all, adjust the outstanding order size,
-       * otherwise indicate order should be removed from the chain */
-      if(rmndr < 0)
-        elem.second.first -= amount;
-      else
-        ++del_iter;      
-      if(size <= 0)
-        break; /* if we have nothing left */
-    }
-    inside->first.erase(inside->first.begin(),del_iter);
-    
-    for( ; inside->first.empty() && inside >= this->_beg; --inside)
-      { /* if we we're on an empty chain 'jump' to one that isn't */    
-      }      
-    this->_bid = inside; /* @ -1 the beg if we went all the way ! */
-    
-    if(inside < this->_beg){
-      this->_bid_size = 0;    
-      break;
-    }else
-      this->_bid_size = this->_chain_size(&this->_bid->first);   
-    
-    /* adjust cached val */
-    if(this->_bid < this->_low_buy_limit)
-      this->_low_buy_limit = this->_bid;
-  }
+  
+  inside = this->_bid;
+  while((inside >= plev || !plev) 
+        && size > 0 
+        && (inside >= this->_beg))
+       {     
+         del_iter = inside->first.begin();
+         for(limit_chain_type::value_type& elem : inside->first){
+           /* check each order, FIFO, for that price level */
+           amount = std::min(size, elem.second.first);
+           this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
+                                    elem.second.second, true);
+           size -= amount; /* reduce the amount left to trade */         
+           if((size - elem.second.first) < 0) 
+             elem.second.first -= amount; /* adjust outstanding order size */
+           else          
+             ++del_iter;  /* indicate removal if we cleared bid */    
+           if(size <= 0) break; /* if we have nothing left to trade*/
+         }
+         inside->first.erase(inside->first.begin(),del_iter);        
+         for( ; 
+             inside->first.empty() && inside >= this->_beg; 
+             --inside) /* if  on an empty chain 'jump' to one that isn't */ 
+             {    
+             }      
+         this->_bid = inside; /* @ -1 the beg if we went all the way ! */
+          
+         if(inside < this->_beg){
+           this->_bid_size = 0;    
+           break;
+         }else
+           this->_bid_size = this->_chain_size(&this->_bid->first);   
+          
+         /* adjust cached val */
+         if(this->_bid < this->_low_buy_limit)
+           this->_low_buy_limit = this->_bid;
+      }
   return size; /* what we couldn't fill */
 }
 

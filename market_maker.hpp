@@ -18,7 +18,6 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #ifndef JO_0815_MARKET_MAKER
 #define JO_0815_MARKET_MAKER
 
-#include "types.hpp"
 #include <random>
 #include <vector>
 #include <functional>
@@ -26,16 +25,16 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <map>
 #include <mutex>
 #include <ratio>
+#include <algorithm>
+
+#include "interfaces.hpp"
+#include "types.hpp"
 
 namespace NativeLayer{
 
 /* move forward declrs to types.hpp */
 
 using namespace std::placeholders;
-
-class MarketMaker;
-typedef std::unique_ptr<MarketMaker> pMarketMaker;
-typedef std::vector<pMarketMaker> market_makers_type;
 
 market_makers_type operator+(market_makers_type&& l, market_makers_type&& r);
 market_makers_type operator+(market_makers_type&& l, MarketMaker&& r);
@@ -232,7 +231,7 @@ protected:
   id_type high_price_order();
   id_type low_price_order();
   template<bool BuyNotSell>
-  size_type random_remove( price_type minp, id_type this_id);
+  size_type random_remove(price_type minp, id_type this_id);
 
   /* derived need to call down to start / stop */
   virtual void start(sob_iface_type *book, price_type implied, price_type tick);
@@ -242,7 +241,6 @@ protected:
 
 public:
   typedef std::initializer_list<order_exec_cb_type> init_list_type;
-
   MarketMaker(order_exec_cb_type callback = nullptr);
   MarketMaker(MarketMaker&& mm) noexcept;
 
@@ -258,6 +256,74 @@ public:
     return (p1 - p2) / t;
   }
 };
+
+template<bool BuyNotSell>
+void MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
+{
+
+  if(!this->_is_running)
+    throw invalid_state("market/market-maker is not in a running state");
+
+  if(this->_recurse_count > this->_recurse_limit){
+    /*
+     * note we are reseting the count; caller can catch and keep going with
+     * the recursive calls if they want, we did our part...
+     */
+    this->_recurse_count = 0;
+    throw callback_overflow("market maker trying to insert after exceeding the"
+                            " recursion limit set for the callback stack");
+  }
+
+
+  this->_book->insert_limit_order(BuyNotSell, price,size,
+                                  (!no_order_cb
+                                     ? dynamic_functor_wrap(this->_callback)
+                                     : dynamic_functor_wrap(nullptr) )                                   ,
+    /*
+     * the post-insertion / pre-completion callback
+     *
+     * this guarantees to complete before the standard callbacks for
+     * this order can be triggered
+     */
+    [=](id_type id)
+    {
+      if(id == 0)
+        throw invalid_order("order could not be inserted");
+
+      this->_my_orders.insert(
+        std::move(orders_value_type(id,order_bndl_type(BuyNotSell,price,size))));
+
+      if(BuyNotSell) this->_bid_out += size;
+      else           this->_offer_out += size;
+    });
+}
+
+template<bool BuyNotSell>
+size_type MarketMaker::random_remove(price_type minp, id_type this_id)
+{ /*
+   * O(n) as-is
+   * could be O(c) in pracice if we exclude minp:
+   *   (1 - .50^n) chance we find it in n iters
+   */
+  size_type s;
+  orders_map_type::const_iterator riter, eiter;
+
+  eiter = this->_my_orders.end();
+  riter = std::find_if(this->_my_orders.cbegin(),eiter,
+                      [=](orders_value_type p){
+                        return std::get<0>(p.second) == BuyNotSell
+                            && (BuyNotSell ? std::get<1>(p.second) < minp
+                                           : std::get<1>(p.second) > minp)
+                            && p.first != this_id ;
+                     });
+  s = 0;
+  if(riter != eiter){
+    s = std::get<2>(riter->second);
+   //std::cout<< "pulling: " << std::to_string(riter->first) << std::endl;
+    this->_book->pull_order(riter->first);
+  }
+  return s;
+}
 
 
 class MarketMaker_Simple1
@@ -304,7 +370,7 @@ public:
     };
 
 private:
-  size_type _max_pos, _lowsz, _highsz, _bcumm, _scumm;
+  size_type _max_pos, _lowsz, _highsz, _midsz, _bcumm, _scumm;
   std::default_random_engine _rand_engine;
   std::uniform_int_distribution<size_type> _distr, _distr2;
   dispersion _disp;

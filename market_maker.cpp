@@ -112,48 +112,6 @@ void MarketMaker::stop()
   this->_book = nullptr;
 }
 
-template<bool BuyNotSell>
-void MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
-{
-
-  if(!this->_is_running)
-    throw invalid_state("market/market-maker is not in a running state");
-
-  if(this->_recurse_count > this->_recurse_limit){
-    /*
-     * note we are reseting the count; caller can catch and keep going with
-     * the recursive calls if they want, we did our part...
-     */
-    this->_recurse_count = 0;
-    throw callback_overflow("market maker trying to insert after exceeding the"
-                            " recursion limit set for the callback stack");
-  }
-
-
-  this->_book->insert_limit_order(BuyNotSell, price,size,
-                                  (!no_order_cb
-                                     ? dynamic_functor_wrap(this->_callback)
-                                     : dynamic_functor_wrap(nullptr) )                                   ,
-    /*
-     * the post-insertion / pre-completion callback
-     *
-     * this guarantees to complete before the standard callbacks for
-     * this order can be triggered
-     */
-    [=](id_type id)
-    {
-      if(id == 0)
-        throw invalid_order("order could not be inserted");
-
-      this->_my_orders.insert(
-        std::move(orders_value_type(id,order_bndl_type(BuyNotSell,price,size))));
-
-      if(BuyNotSell) this->_bid_out += size;
-      else           this->_offer_out += size;
-    });
-}
-
-
 void MarketMaker::_base_callback(callback_msg msg,
                                  id_type id,
                                  price_type price,
@@ -206,33 +164,6 @@ void MarketMaker::_base_callback(callback_msg msg,
 //{
 
 //}
-
-template<bool BuyNotSell>
-size_type MarketMaker::random_remove(price_type minp, id_type this_id)
-{ /*
-   * O(n) as-is
-   * could be O(c) in pracice if we exclude minp:
-   *   (1 - .50^n) chance we find it in n iters
-   */
-  size_type s;
-  orders_map_type::const_iterator riter, eiter;
-
-  eiter = this->_my_orders.end();
-  riter = std::find_if(this->_my_orders.cbegin(),eiter,
-                      [=](orders_value_type p){
-                        return std::get<0>(p.second) == BuyNotSell
-                            && (BuyNotSell ? std::get<1>(p.second) <= minp
-                                           : std::get<1>(p.second) >= minp)
-                            && p.first != this_id ;
-                     });
-  s = 0;
-  if(riter != eiter){
-    s = std::get<2>(riter->second);
-   //std::cout<< "pulling: " << std::to_string(riter->first) << std::endl;
-    this->_book->pull_order(riter->first);
-  }
-  return s;
-}
 
 market_makers_type MarketMaker::Factory(init_list_type il)
 {
@@ -403,6 +334,7 @@ MarketMaker_Random::MarketMaker_Random(size_type sz_low,
     _max_pos(max_pos),
     _lowsz(sz_low),
     _highsz(sz_high),
+    _midsz( (sz_high-sz_low)/2),
     _bcumm(0),
     _scumm(0),
     _rand_engine(this->_gen_seed()),
@@ -419,6 +351,7 @@ MarketMaker_Random::MarketMaker_Random(MarketMaker_Random&& mm) noexcept
     _max_pos(mm._max_pos),
     _lowsz(mm._lowsz),
     _highsz(mm._highsz),
+    _midsz(mm._midsz),
     _bcumm(mm._bcumm),
     _scumm(mm._scumm),
     _rand_engine( std::move(mm._rand_engine) ),
@@ -459,14 +392,14 @@ void MarketMaker_Random::start(sob_iface_type *book,
   amt = this->_distr(this->_rand_engine);
 
   for( price = implied + tick*mod ;
-       (this->offer_out() + amt  <= this->_max_pos/10);
+       (this->offer_out() + amt  <= this->_max_pos/2);
        price += mod * tick )
   {
     try{ this->insert<false>(price, amt); }catch(...){ break; }
   }
 
   for( price = implied - tick*mod ;
-       (this->bid_out() + amt <= this->_max_pos/10);
+       (this->bid_out() + amt <= this->_max_pos/2);
        price -= mod * tick)
   {
     try{ this->insert<true>(price, amt); }catch(...){ break; }
@@ -518,7 +451,7 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
 
         if(this->this_fill_was_buy()){
           if(this->bid_out() + amt + this->pos() > this->_max_pos){
-            cumm = rret = this->random_remove<true>(price -adj*3,id);
+            cumm = rret = this->random_remove<true>(price -adj,id);
             while(cumm < amt){
               if(rret ==0){
                 skip = true;
@@ -527,16 +460,17 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
               rret = this->random_remove<true>(price -adj*3,id);
               cumm += rret;
             }
-            if(!skip){
-              this->insert<true>(price - adj, amt);
-            //  for(int i = 1; i <= 5; ++i)
-            //    this->insert<true>(price - adj*i,  (int)(amt/10));
-            }
           }
-          this->insert<false>(price + adj, size);
+          if(!skip){
+            this->insert<true>(price - adj, amt);
+          //  for(int i = 1; i <= 5; ++i)
+          //    this->insert<true>(price - adj*i,  (int)(amt/10));
+          }
+          if(amt > this->_midsz)
+            this->insert<false>(price + adj, size);
         }else{
           if(this->offer_out() + amt - this->pos() > this->_max_pos){
-            cumm = rret = this->random_remove<false>(price + adj*3,id);
+            cumm = rret = this->random_remove<false>(price + adj,id);
             while(cumm < amt){
               if(rret ==0){
                 skip = true;
@@ -545,13 +479,14 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
               rret = this->random_remove<false>(price + adj*3,id);
               cumm += rret;
             }
-            if(!skip){
-              this->insert<false>(price + adj, amt);
-           //   for(int i = 1; i < 5; ++i)
-           //     this->insert<false>(price + adj*i,  (int)(amt/10));
-            }
           }
-          this->insert<true>(price - adj, size);
+          if(!skip){
+            this->insert<false>(price + adj, amt);
+         //   for(int i = 1; i < 5; ++i)
+         //     this->insert<false>(price + adj*i,  (int)(amt/10));
+          }
+          if(amt > this->_midsz)
+            this->insert<true>(price - adj, size);
         }
       }
       break;

@@ -17,11 +17,14 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 
 #include <Python.h>
 #include <structmember.h>
-#include "../types.hpp"
+//#include "../types.hpp"
 #include "../simple_orderbook.hpp"
 
 //#define IGNORE_TO_DEBUG_NATIVE
 #ifndef IGNORE_TO_DEBUG_NATIVE
+
+/* python/marketmaker.cpp */
+extern PyTypeObject pyMM_type;
 
 class CallbackWrapper{
   PyObject* _callback;
@@ -60,6 +63,7 @@ public:
  */
 #define MM_RANDOM 1
 #define MM_SIMPLE1 2
+#define MM_PYOBJ 3
 
 #define SOB_QUARTER_TICK 1
 #define SOB_TENTH_TICK 2
@@ -779,7 +783,7 @@ PyMODINIT_FUNC PyInit_simpleorderbook(void)
 {
   PyObject* mod;
 
-  if(PyType_Ready(&pySOB_type) < 0)
+  if(PyType_Ready(&pySOB_type) < 0 || PyType_Ready(&pyMM_type) < 0)
     return NULL;
 
   mod = PyModule_Create(&pySOB_mod_def);
@@ -788,6 +792,9 @@ PyMODINIT_FUNC PyInit_simpleorderbook(void)
 
   Py_INCREF(&pySOB_type);
   PyModule_AddObject(mod, "SimpleOrderbook", (PyObject*)&pySOB_type);
+  /* python/marketmaker.cpp */
+  Py_INCREF(&pyMM_type);
+  PyModule_AddObject(mod, "MarketMaker", (PyObject*)&pyMM_type);
 
   /* market maker types */
   for( auto& p : MM_TYPES )

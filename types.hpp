@@ -25,6 +25,9 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <iostream>
 #include <functional>
 #include <ratio>
+#include <memory>
+#include <vector>
+#include <map>
 #include "trimmed_rational.hpp"
 
 #define SOB_MAX_MEM (1024 * 1024 * 1024)
@@ -56,6 +59,10 @@ typedef SimpleOrderbook<std::ratio<1,1000>>  ThousandthTick;
 typedef SimpleOrderbook<std::ratio<1,10000>> TenThousandthTick;
 }
 
+class MarketMaker;
+typedef std::unique_ptr<MarketMaker> pMarketMaker;
+typedef std::vector<pMarketMaker> market_makers_type;
+
 typedef std::pair<price_type,size_type>         limit_order_type;
 typedef std::pair<price_type,limit_order_type>  stop_order_type;
 
@@ -84,6 +91,7 @@ typedef std::function<void(callback_msg,id_type,
                            price_type,size_type)> order_exec_cb_type;
 
 typedef std::function<void(id_type)> order_admin_cb_type;
+
 
 /*
 template< typename T, typename Pt1, typename Pt2 >
