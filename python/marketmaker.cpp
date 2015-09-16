@@ -24,7 +24,7 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 
 
 static char keywords[][20] = {"limit", "size", "no_order_cb",
-                              "start_func", "stop_func", "exec_callback_func"};
+                              "exec_callback_func", "start_func", "stop_func"};
 
 template<bool BuyNotSell>
 PyObject* MM_insert(pyMM* self, PyObject* args, PyObject* kwds)
@@ -32,11 +32,11 @@ PyObject* MM_insert(pyMM* self, PyObject* args, PyObject* kwds)
   using namespace NativeLayer;
   price_type limit;
   size_type size;
-  bool no_order_cb;
+  bool no_order_cb = false;
 
   static char* kwlist[] = {keywords[0],keywords[1],keywords[2],NULL};
 
-  if(!PyArg_ParseTupleAndKeywords(args, kwds, "fkb", kwlist, &limit, &size,
+  if(!PyArg_ParseTupleAndKeywords(args, kwds, "fk|b", kwlist, &limit, &size,
                                   &no_order_cb))
   {
     PyErr_SetString(PyExc_ValueError, "error parsing args");
@@ -57,8 +57,10 @@ PyObject* MM_insert(pyMM* self, PyObject* args, PyObject* kwds)
 
 static PyMethodDef pyMM_methods[] =
 {
-  {"insert_buy",(PyCFunction)MM_insert<true>, METH_VARARGS, "[to do]"},
-  {"insert_sell",(PyCFunction)MM_insert<false>, METH_VARARGS, "[to do]"},
+  {"insert_buy",(PyCFunction)MM_insert<true>, METH_VARARGS | METH_KEYWORDS,
+    "insert buy order (float,int,bool(optional)) -> void"},
+  {"insert_sell",(PyCFunction)MM_insert<false>, METH_VARARGS | METH_KEYWORDS,
+    "insert sell order (float,int,bool(optional)) -> void"},
   {NULL}
 };
 
@@ -71,17 +73,22 @@ static PyObject* MM_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
   MarketMaker_Py* mm;
   PyObject *start, *stop, *cb;
 
+  start = nullptr;
+  stop = nullptr;
+  cb = nullptr;
+
   static char* kwlist[] = {keywords[3],keywords[4],keywords[5],NULL};
 
-  if(!PyArg_ParseTupleAndKeywords(args, kwds, "OOO:__new__", kwlist,
-                                  &start,&stop,&cb))
+  if(!PyArg_ParseTupleAndKeywords(args, kwds, "OO|O:__new__", kwlist,
+                                  &cb, &start, &stop))
     PyErr_SetString(PyExc_ValueError, "error parsing args to __new__");
-  else if(!PyCallable_Check(start))
-    PyErr_SetString(PyExc_TypeError, "start_func must be callable");
-  else if(!PyCallable_Check(stop))
-    PyErr_SetString(PyExc_TypeError, "stop_func must be callable");
   else if(!PyCallable_Check(cb))
     PyErr_SetString(PyExc_TypeError, "exec_callback_func must be callable");
+  else if(start && !PyCallable_Check(start))
+    PyErr_SetString(PyExc_TypeError, "start_func must be callable");
+  else if(stop && !PyCallable_Check(stop))
+    PyErr_SetString(PyExc_TypeError, "stop_func must be callable");
+
 
   if(PyErr_Occurred())
     return NULL;
@@ -112,7 +119,8 @@ static PyObject* MM_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 
 static void MM_Delete(pyMM* self)
 {
-  delete (MarketMaker_Py*)(self->_mm);
+  if(self->_mm)
+    delete (MarketMaker_Py*)(self->_mm);
   Py_TYPE(self)->tp_free((PyObject*)self);
 }
 

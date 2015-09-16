@@ -245,8 +245,8 @@ public:
   MarketMaker(MarketMaker&& mm) noexcept;
 
   virtual ~MarketMaker() noexcept
-    { /* change state of callback so we don't used freed memory */
-      this->_callback->kill();
+    { /* if alive change state of callback so we don't used freed memory */
+      if(this->_callback) this->_callback->kill();
     }
 
   static market_makers_type Factory(init_list_type il);

@@ -465,10 +465,10 @@ static PyObject* SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
 {
   using namespace NativeLayer;
 
-  PyObject* py_mms;
+  PyObject *py_mms, *tmp;
   size_type mm_num;
   market_makers_type pmms;
-  MarketMaker_Py* tmp;
+  MarketMaker_Py* mm;
   SimpleOrderbook::FullInterface* sob;
 
   if(!PyArg_ParseTuple(args, "O", &py_mms)) /* DO WEE NEED TO INCREF ?? */
@@ -478,14 +478,42 @@ static PyObject* SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
   }
 
   try{
-    mm_num = PyList_Size(py_mms);
+    tmp = nullptr;
+    mm = nullptr;
+    mm_num = PyTuple_Size(py_mms);
     sob = (SimpleOrderbook::FullInterface*)self->_sob;
+    while(mm_num--){
+      try{
+        /* DEBUG */
+        std::cout<< "DEBUG, beg: " << std::to_string(mm_num) << std::endl;
+        /* DEBUG */
+        tmp = PyTuple_GetItem(py_mms,mm_num); /* borrow tmp */
+        mm = (MarketMaker_Py*)(((pyMM*)tmp)->_mm);
+        if(!mm)
+          throw invalid_state("NULL item MarketMaker_Py* in tuple");
+        /*
+         * NOTE: we are stealing the internal MM object and deleting the
+         * original allocated memory. We need to make it clear to the caller
+         * that they CAN NOT access the memory any longer...
+         */
+        pmms.push_back(mm->_move_to_new());
+        /* DEBUG */
+        std::cout<< "DEBUG, end-try: " << std::to_string(mm_num) << std::endl;
+        /* DEBUG */
+      }
+      catch(invalid_state& e) { throw; }
+      catch(...) { if(mm) delete mm; }
 
-    while(--mm_num){
-      tmp = (MarketMaker_Py*)PyList_GetItem(py_mms,mm_num);
-      pmms.push_back(tmp->_move_to_new());
+      if(mm) delete mm; // !! <- seg fault
+
+      /* DEBUG */
+      std::cout<< "DEBUG, end-while: " << std::to_string(mm_num) << std::endl;
+      /* DEBUG */
     }
-    sob->add_market_makers(std::move(pmms));
+    if(pmms.size())
+      sob->add_market_makers(std::move(pmms));
+    else
+      throw std::runtime_error("no market makers to add");
   }
   catch(std::exception& e)
   {
@@ -691,7 +719,6 @@ static PyObject* SOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
         throw std::runtime_error("self->_sob was not constructed");
       else
         self->_sob = (PyObject*)sob;
-
     }catch(const std::invalid_argument & e){
       PyErr_SetString(PyExc_ValueError, e.what());
     }catch(const std::runtime_error & e){
@@ -700,7 +727,6 @@ static PyObject* SOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
       PyErr_SetString(PyExc_Exception, e.what());
     }
     if(PyErr_Occurred()){
-      std::cout<<"caught 2\n";
       Py_DECREF(self);
       return NULL;
     }
@@ -711,7 +737,8 @@ static PyObject* SOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 
 static void SOB_Delete(pySOB* self)
 {
-  delete (NativeLayer::SimpleOrderbook::FullInterface*)(self->_sob);
+  if(self->_sob)
+    delete (NativeLayer::SimpleOrderbook::FullInterface*)(self->_sob);
   Py_TYPE(self)->tp_free((PyObject*)self);
 }
 

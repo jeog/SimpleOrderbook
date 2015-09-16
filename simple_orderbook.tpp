@@ -825,8 +825,8 @@ SOB_CLASS::~SimpleOrderbook()
 SOB_TEMPLATE
 void SOB_CLASS::add_market_makers(market_makers_type&& mms)
 { /* start and steal the market_maker smart_pointers */
-  for(pMarketMaker& mm : mms){
-    mm->start(this, this->_itop(this->_last), tick_size);
+  for(pMarketMaker& mm : mms){   
+    mm->start(this, this->_itop(this->_last), tick_size);    
     this->_market_makers.push_back(std::move(mm));
   }
 }

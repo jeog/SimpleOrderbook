@@ -42,7 +42,7 @@ typedef struct {
 class PyFuncWrap {
 protected:
   PyObject* _callback;
-  PyFuncWrap(PyObject* callback)
+  PyFuncWrap(PyObject* callback = nullptr)
     : _callback(callback)
     { Py_XINCREF(callback); }
   PyFuncWrap(const PyFuncWrap& obj)
@@ -50,12 +50,13 @@ protected:
     { Py_XINCREF(obj._callback); }
 public:
   virtual ~PyFuncWrap() { Py_XDECREF(this->_callback); }
+  operator bool(){ return this->_callback; }
 };
 
 class ExecCallbackWrap
-    : PyFuncWrap {
+    : public PyFuncWrap {
 public:
-  ExecCallbackWrap(PyObject* callback)
+  ExecCallbackWrap(PyObject* callback = nullptr)
     : PyFuncWrap(callback) {}
   ExecCallbackWrap(const ExecCallbackWrap& obj)
     : PyFuncWrap(obj) {}
@@ -70,9 +71,9 @@ public:
 };
 
 class StartFuncWrap
-    : PyFuncWrap {
+    : public PyFuncWrap {
 public:
-  StartFuncWrap(PyObject* callback)
+  StartFuncWrap(PyObject* callback = nullptr)
     : PyFuncWrap(callback) {}
   StartFuncWrap(const StartFuncWrap& obj)
     : PyFuncWrap(obj) {}
@@ -86,9 +87,9 @@ public:
 };
 
 class StopFuncWrap
-    : PyFuncWrap {
+    : public PyFuncWrap {
 public:
-  StopFuncWrap(PyObject* callback)
+  StopFuncWrap(PyObject* callback = nullptr)
     : PyFuncWrap(callback) {}
   StopFuncWrap(const StopFuncWrap& obj)
     : PyFuncWrap(obj) {}
@@ -109,18 +110,24 @@ private:
   void _exec_callback(NativeLayer::callback_msg msg,NativeLayer::id_type id,
                       NativeLayer::price_type price,NativeLayer::size_type size)
   {
-    this->_cb(msg,id,price,size);
+    if(this->_cb)
+      this->_cb(msg,id,price,size);
+    /* else throw */
   }
   void start(NativeLayer::MarketMaker::sob_iface_type *book,
              NativeLayer::price_type implied, NativeLayer::price_type tick)
   {
     my_base_type::start(book,implied,tick);
-    this->_start(implied, tick);
+    if(this->_start)
+      this->_start(implied, tick);
+    /* else throw */
   }
   void stop()
   {
     my_base_type::stop();
-    this->_stop();
+    if(this->_stop)
+      this->_stop();
+    /* else O.K. (for now) */
   }
   virtual NativeLayer::pMarketMaker _move_to_new()
  {
