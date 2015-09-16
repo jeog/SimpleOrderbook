@@ -39,27 +39,77 @@ typedef struct {
   PyObject* _sob;
 } pySOB;
 
+class PyFuncWrap {
+protected:
+  PyObject* _callback;
+  PyFuncWrap(PyObject* callback)
+    : _callback(callback)
+    { Py_XINCREF(callback); }
+  PyFuncWrap(const PyFuncWrap& obj)
+    : _callback(obj._callback)
+    { Py_XINCREF(obj._callback); }
+public:
+  virtual ~PyFuncWrap() { Py_XDECREF(this->_callback); }
+};
+
+class ExecCallbackWrap
+    : PyFuncWrap {
+public:
+  ExecCallbackWrap(PyObject* callback)
+    : PyFuncWrap(callback) {}
+  ExecCallbackWrap(const ExecCallbackWrap& obj)
+    : PyFuncWrap(obj) {}
+  void operator()(NativeLayer::callback_msg msg, NativeLayer::id_type id,
+                  NativeLayer::price_type price, NativeLayer::size_type size)
+    const
+  {
+    PyObject* args = Py_BuildValue("kkfk", (int)msg, id, price, size);
+    PyObject_CallObject(this->_callback, args);
+    Py_DECREF(args);
+  }
+};
+
+class StartFuncWrap
+    : PyFuncWrap {
+public:
+  StartFuncWrap(PyObject* callback)
+    : PyFuncWrap(callback) {}
+  StartFuncWrap(const StartFuncWrap& obj)
+    : PyFuncWrap(obj) {}
+  void operator()(NativeLayer::price_type implied, NativeLayer::price_type tick)
+    const
+  {
+    PyObject* args = Py_BuildValue("ff", implied, tick);
+    PyObject_CallObject(this->_callback, args);
+    Py_DECREF(args);
+  }
+};
+
+class StopFuncWrap
+    : PyFuncWrap {
+public:
+  StopFuncWrap(PyObject* callback)
+    : PyFuncWrap(callback) {}
+  StopFuncWrap(const StopFuncWrap& obj)
+    : PyFuncWrap(obj) {}
+  void operator()() const { PyObject_CallObject(this->_callback, NULL); }
+};
+
 class MarketMaker_Py
     : public NativeLayer::MarketMaker {
 
   template<bool BuyNotSell>
   friend PyObject* MM_insert(pyMM* self, PyObject* args, PyObject* kwds);
-  friend PyObject* VOB_add_market_makers_local(pySOB* self, PyObject* args);
+  friend PyObject* SOB_add_market_makers_local(pySOB* self, PyObject* args);
 
-public:
-  /* easier to use ptrs than function objects for Py_INCR/DECR */
-  typedef void(*start_type)(NativeLayer::price_type,NativeLayer::price_type);
-  typedef void(*stop_type)(void);
-  typedef void(*callback_type)(int,NativeLayer::id_type,NativeLayer::price_type,
-                               NativeLayer::size_type);
 private:
-  start_type _start;
-  stop_type  _stop;
-  callback_type _cb;
+  StartFuncWrap _start;
+  StopFuncWrap  _stop;
+  ExecCallbackWrap _cb;
   void _exec_callback(NativeLayer::callback_msg msg,NativeLayer::id_type id,
                       NativeLayer::price_type price,NativeLayer::size_type size)
   {
-    this->_cb((int)msg,id,price,size);
+    this->_cb(msg,id,price,size);
   }
   void start(NativeLayer::MarketMaker::sob_iface_type *book,
              NativeLayer::price_type implied, NativeLayer::price_type tick)
@@ -87,25 +137,15 @@ public:
       _cb(mm._cb)
     {
     }
-  MarketMaker_Py(start_type start, stop_type stop,
-                 callback_type cb)
+  MarketMaker_Py(StartFuncWrap start, StopFuncWrap stop, ExecCallbackWrap cb)
     :
       my_base_type(),
       _start(start),
       _stop(stop),
       _cb(cb)
     {
-      Py_XINCREF((PyObject*)(this->_start));
-      Py_XINCREF((PyObject*)(this->_stop));
-      Py_XINCREF((PyObject*)(this->_cb));
     }
-  virtual ~MarketMaker_Py() noexcept
-    {
-      Py_XDECREF((PyObject*)(this->_start));
-      Py_XDECREF((PyObject*)(this->_stop));
-      Py_XDECREF((PyObject*)(this->_cb));
-    }
-
+  virtual ~MarketMaker_Py() noexcept {}
 };
 
 #endif /* IGNORE_TO_DEBUG_NATIVE */

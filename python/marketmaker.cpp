@@ -73,21 +73,26 @@ static PyObject* MM_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 
   static char* kwlist[] = {keywords[3],keywords[4],keywords[5],NULL};
 
-  if(!PyArg_ParseTupleAndKeywords(args, kwds, "O:callbackO:callbackO:callback",
-                                  kwlist, &start, &stop, &cb))
-  {
+  if(!PyArg_ParseTupleAndKeywords(args, kwds, "OOO:__new__", kwlist,
+                                  &start,&stop,&cb))
     PyErr_SetString(PyExc_ValueError, "error parsing args to __new__");
+  else if(!PyCallable_Check(start))
+    PyErr_SetString(PyExc_TypeError, "start_func must be callable");
+  else if(!PyCallable_Check(stop))
+    PyErr_SetString(PyExc_TypeError, "stop_func must be callable");
+  else if(!PyCallable_Check(cb))
+    PyErr_SetString(PyExc_TypeError, "exec_callback_func must be callable");
+
+  if(PyErr_Occurred())
     return NULL;
-  }
 
   self = (pyMM*)type->tp_alloc(type,0);
   self->_mm = nullptr;
 
   if(self != NULL){
     try{
-      mm = new MarketMaker_Py((MarketMaker_Py::start_type)start,
-                              (MarketMaker_Py::stop_type)stop,
-                              (MarketMaker_Py::callback_type)cb);
+      mm = new MarketMaker_Py(StartFuncWrap(start),StopFuncWrap(stop),
+                              ExecCallbackWrap(cb));
       if(!mm)
         throw std::runtime_error("self->_sob was not constructed");
       else
