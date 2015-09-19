@@ -21,22 +21,6 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 //#define IGNORE_TO_DEBUG_NATIVE
 #ifndef IGNORE_TO_DEBUG_NATIVE
 
-
-/*
- * consts to be defined in python
- * indicate the type of orderbook and market makers to construct
- */
-#define MM_RANDOM 1
-#define MM_SIMPLE1 2
-#define MM_PYOBJ 3
-
-#define SOB_QUARTER_TICK 1
-#define SOB_TENTH_TICK 2
-#define SOB_THIRTYSECONDTH_TICK 3
-#define SOB_HUNDREDTH_TICK 4
-#define SOB_THOUSANDTH_TICK 5
-#define SOB_TENTHOUSANDTH_TICK 6
-
 /* try to make the nested types somewhat readable */
 #define NL_SO NativeLayer::SimpleOrderbook
 
@@ -105,24 +89,6 @@ CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_limits )
 CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_buy_stops )
 CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_stops )
 
-#define UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( order ) \
-  static PyObject* \
-  SOB_buy_ ## order(pySOB* self, PyObject* args, PyObject* kwds){ \
-    return SOB_trade_ ## order ## _<true,false>(self,args,kwds); \
-  } \
-  static PyObject* \
-  SOB_sell_ ## order(pySOB* self, PyObject* args, PyObject* kwds){ \
-    return SOB_trade_ ## order ## _<false,false>(self,args,kwds); \
-  } \
-  static PyObject* \
-  SOB_replace_with_buy_ ## order(pySOB* self, PyObject* args, PyObject* kwds){ \
-    return SOB_trade_ ## order ## _<true,true>(self,args,kwds); \
-  } \
-  static PyObject* \
-  SOB_replace_with_sell_ ## order(pySOB* self, PyObject* args, PyObject* kwds){ \
-    return SOB_trade_ ## order ## _<false,true>(self,args,kwds); \
-  }
-
 static char okws[][16] = { "id", "stop","limit","size","callback" };
 
 template<typename... Types>
@@ -157,7 +123,7 @@ bool get_order_args(PyObject* args,
  *  is different than what we pass into get_order_args because of varargs...
  */
 template<bool BuyNotSell, bool Replace>
-PyObject* SOB_trade_limit_(pySOB* self, PyObject* args, PyObject* kwds)
+PyObject* SOB_trade_limit(pySOB* self, PyObject* args, PyObject* kwds)
 {
   using namespace NativeLayer;
 
@@ -201,10 +167,10 @@ PyObject* SOB_trade_limit_(pySOB* self, PyObject* args, PyObject* kwds)
 
   return PyLong_FromUnsignedLong(id);
 }
-UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( limit )
+
 
 template< bool BuyNotSell, bool Replace >
-PyObject* SOB_trade_market_(pySOB* self, PyObject* args, PyObject* kwds)
+PyObject* SOB_trade_market(pySOB* self, PyObject* args, PyObject* kwds)
 {
   using namespace NativeLayer;
 
@@ -247,10 +213,10 @@ PyObject* SOB_trade_market_(pySOB* self, PyObject* args, PyObject* kwds)
 
   return PyLong_FromUnsignedLong(id);
 }
-UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( market )
+
 
 template<bool BuyNotSell, bool Replace>
-PyObject* SOB_trade_stop_(pySOB* self,PyObject* args,PyObject* kwds)
+PyObject* SOB_trade_stop(pySOB* self,PyObject* args,PyObject* kwds)
 {
   using namespace NativeLayer;
 
@@ -293,10 +259,10 @@ PyObject* SOB_trade_stop_(pySOB* self,PyObject* args,PyObject* kwds)
   }
   return PyLong_FromUnsignedLong(id);
 }
-UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( stop )
+
 
 template<bool BuyNotSell, bool Replace>
-PyObject* SOB_trade_stop_limit_(pySOB* self, PyObject* args, PyObject* kwds)
+PyObject* SOB_trade_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
 {
   using namespace NativeLayer;
 
@@ -341,7 +307,7 @@ PyObject* SOB_trade_stop_limit_(pySOB* self, PyObject* args, PyObject* kwds)
   }
   return PyLong_FromUnsignedLong(id);
 }
-UNPACK_TRADE_TEMPL_ENTER_CALLS_BY_ORDER_TYPE( stop_limit )
+
 
 PyObject* SOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
 {
@@ -620,51 +586,55 @@ static PyMethodDef pySOB_methods[] =
   {"dump_sell_stops",(PyCFunction)SOB_dump_sell_stops, METH_NOARGS,
       "dump (to stdout) all active sell stop orders; () -> void"},
   /* INSERT */
-  {"buy_limit",(PyCFunction)SOB_buy_limit, METH_VARARGS | METH_KEYWORDS,
+  {"buy_limit",(PyCFunction)SOB_trade_limit<true,false>,
+    METH_VARARGS | METH_KEYWORDS,
     "buy limit order; (limit, size, callback) -> order ID"},
-  {"sell_limit",(PyCFunction)SOB_sell_limit, METH_VARARGS | METH_KEYWORDS,
+  {"sell_limit",(PyCFunction)SOB_trade_limit<false,false>,
+    METH_VARARGS | METH_KEYWORDS,
     "sell limit order; (limit, size, callback) -> order ID"},
-  {"buy_market",(PyCFunction)SOB_buy_market, METH_VARARGS | METH_KEYWORDS,
+  {"buy_market",(PyCFunction)SOB_trade_market<true,false>,
+    METH_VARARGS | METH_KEYWORDS,
     "buy market order; (size, callback) -> order ID"},
-  {"sell_market",(PyCFunction)SOB_sell_market, METH_VARARGS | METH_KEYWORDS,
+  {"sell_market",(PyCFunction)SOB_trade_market<false,false>,
+    METH_VARARGS | METH_KEYWORDS,
     "sell market order; (size, callback) -> order ID"},
-  {"buy_stop",(PyCFunction)SOB_buy_stop, METH_VARARGS | METH_KEYWORDS,
+  {"buy_stop",(PyCFunction)SOB_trade_stop<true,false>, METH_VARARGS | METH_KEYWORDS,
     "buy stop order; (stop, size, callback) -> order ID"},
-  {"sell_stop",(PyCFunction)SOB_sell_stop, METH_VARARGS | METH_KEYWORDS,
+  {"sell_stop",(PyCFunction)SOB_trade_stop<false,false>, METH_VARARGS | METH_KEYWORDS,
     "sell stop order; (stop, size, callback) -> order ID"},
-  {"buy_stop_limit",(PyCFunction)SOB_buy_stop_limit,
+  {"buy_stop_limit",(PyCFunction)SOB_trade_stop_limit<true,false>,
     METH_VARARGS | METH_KEYWORDS,
     "buy stop limit order; (stop, limit, size, callback) -> order ID"},
-  {"sell_stop_limit",(PyCFunction)SOB_sell_stop_limit,
+  {"sell_stop_limit",(PyCFunction)SOB_trade_stop_limit<false,false>,
     METH_VARARGS | METH_KEYWORDS,
     "sell stop limit order; (stop, limit, size, callback) -> order ID"},
   /* PULL */
   {"pull_order",(PyCFunction)SOB_pull_order, METH_VARARGS | METH_KEYWORDS,
     "remove order; (id) -> success/failure(boolean)"},
   /* REPLACE */
-  {"replace_with_buy_limit",(PyCFunction)SOB_replace_with_buy_limit,
+  {"replace_with_buy_limit",(PyCFunction)SOB_trade_limit<true,true>,
     METH_VARARGS | METH_KEYWORDS, "replace old order with new buy limit order; "
                                   "(id, limit, size, callback) -> new order ID"},
-  {"replace_with_sell_limit",(PyCFunction)SOB_replace_with_sell_limit,
+  {"replace_with_sell_limit",(PyCFunction)SOB_trade_limit<false,true>,
     METH_VARARGS | METH_KEYWORDS, "replace old order with new sell limit order; "
                                   "(id, limit, size, callback) -> new order ID"},
-  {"replace_with_buy_market",(PyCFunction)SOB_replace_with_buy_market,
+  {"replace_with_buy_market",(PyCFunction)SOB_trade_market<true,true>,
     METH_VARARGS | METH_KEYWORDS, "replace old order with new buy market order; "
                                   "(id, size, callback) -> new order ID"},
-  {"replace_with_sell_market",(PyCFunction)SOB_replace_with_sell_market,
+  {"replace_with_sell_market",(PyCFunction)SOB_trade_market<false,true>,
     METH_VARARGS | METH_KEYWORDS, "replace old order with new sell market order; "
                                   "(id, size, callback) -> new order ID"},
-  {"replace_with_buy_stop",(PyCFunction)SOB_replace_with_buy_stop,
+  {"replace_with_buy_stop",(PyCFunction)SOB_trade_stop<true,true>,
     METH_VARARGS | METH_KEYWORDS, "replace old order with new buy stop order; "
                                   "(id, stop, size, callback) -> new order ID"},
-  {"replace_with_sell_stop",(PyCFunction)SOB_replace_with_sell_stop,
+  {"replace_with_sell_stop",(PyCFunction)SOB_trade_stop<false,true>,
     METH_VARARGS | METH_KEYWORDS, "replace old order with new sell stop order; "
                                   "(id, stop, size, callback) -> new order ID"},
-  {"replace_with_buy_stop_limit",(PyCFunction)SOB_replace_with_buy_stop_limit,
+  {"replace_with_buy_stop_limit",(PyCFunction)SOB_trade_stop_limit<true,true>,
     METH_VARARGS | METH_KEYWORDS, "replace old order with new buy stop limit "
                                   "order; (id, stop, limit, size, callback) "
                                   "-> new order ID"},
-  {"replace_with_sell_stop_limit",(PyCFunction)SOB_replace_with_sell_stop_limit,
+  {"replace_with_sell_stop_limit",(PyCFunction)SOB_trade_stop_limit<false,true>,
     METH_VARARGS | METH_KEYWORDS, "replace old order with new sell stop limit "
                                   "order; (id, stop, limit, size, callback) "
                                   "-> new order ID"},

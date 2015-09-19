@@ -228,8 +228,6 @@ protected:
   inline size_type offer_out() const { return this->_offer_out; }
   inline size_type pos() const { return this->_pos; }
 
-  id_type high_price_order();
-  id_type low_price_order();
   template<bool BuyNotSell>
   size_type random_remove(price_type minp, id_type this_id);
 

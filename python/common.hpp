@@ -26,6 +26,17 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 //#define IGNORE_TO_DEBUG_NATIVE
 #ifndef IGNORE_TO_DEBUG_NATIVE
 
+#define MM_RANDOM 1
+#define MM_SIMPLE1 2
+#define MM_PYOBJ 3
+
+#define SOB_QUARTER_TICK 1
+#define SOB_TENTH_TICK 2
+#define SOB_THIRTYSECONDTH_TICK 3
+#define SOB_HUNDREDTH_TICK 4
+#define SOB_THOUSANDTH_TICK 5
+#define SOB_TENTHOUSANDTH_TICK 6
+
 /* python/marketmaker.cpp */
 extern PyTypeObject pyMM_type;
 
