@@ -93,6 +93,7 @@ id_type SOB_CLASS::_push_order_and_wait(order_type oty,
   }  
   this->_order_queue_cond.notify_one();
   ret_id = f.get();
+  
   SOB_ON_TRADE_COMPLETION_();
   
   return ret_id;
@@ -436,27 +437,41 @@ void SOB_CLASS::_insert_stop_order(bool buy,
 }
 
 SOB_TEMPLATE
-template<side_of_market Side, typename My> struct SOB_CLASS::_set_h_l{
-  public:  
-    void operator()(const My* sob, plevel* ph, plevel* pl,size_type depth){
-      *ph = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
-      *pl = (plevel)max(sob->_beg, sob->_bid - depth +1);
+template<typename My> struct SOB_CLASS::_adj_h_l{
+public: /* adjust for 1-past range val */
+  void operator()(const My* sob, plevel* ph, plevel* pl){    
+    *ph = (*ph >= sob->_end) ? sob->_end - 1 : *ph;
+    *pl = (*pl < sob->_beg) ? sob->_beg : *pl;
   }
 };
 SOB_TEMPLATE
-template<typename My> struct SOB_CLASS::_set_h_l<side_of_market::bid,My>{ 
-  public: 
-    void operator()(const My* sob, plevel* ph, plevel* pl,size_type depth){
-      *ph = sob->_bid;
-      *pl = (plevel)max(sob->_beg, sob->_bid - depth +1);
+template<side_of_market Side, typename My> struct SOB_CLASS::_set_h_l 
+    : private _adj_h_l<My> {
+public:  
+  void operator()(const My* sob, plevel* ph, plevel* pl,size_type depth){
+    *ph = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
+    *pl = (plevel)max(sob->_beg, sob->_bid - depth +1);
+    _adj_h_l<My>::operator()(sob,ph,pl);
   }
 };
 SOB_TEMPLATE
-template<typename My> struct SOB_CLASS::_set_h_l<side_of_market::ask,My>{
-  public: 
-    void operator()(const My* sob, plevel* ph, plevel* pl,size_type depth){
-      *ph = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
-      *pl = sob->_ask;
+template<typename My> struct SOB_CLASS::_set_h_l<side_of_market::bid,My>
+  : private _adj_h_l<My> {
+public: 
+  void operator()(const My* sob, plevel* ph, plevel* pl,size_type depth){
+    *ph = sob->_bid;
+    *pl = (plevel)max(sob->_beg, sob->_bid - depth +1);
+    _adj_h_l<My>::operator()(sob,ph,pl);
+  }
+};
+SOB_TEMPLATE
+template<typename My> struct SOB_CLASS::_set_h_l<side_of_market::ask,My>
+  : private _adj_h_l<My> {
+public: 
+  void operator()(const My* sob, plevel* ph, plevel* pl,size_type depth){
+    *ph = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
+    *pl = sob->_ask;
+    _adj_h_l<My>::operator()(sob,ph,pl);
   } 
 };
 
@@ -471,10 +486,6 @@ SOB_CLASS::_market_depth(size_type depth) const
   
   _set_h_l<Side>()(this,&h,&l,depth);
 
-  /* adjust for 1-past range val */
-  l = (l < this->_beg) ? this->_beg : l;
-  h = (h >= this->_end) ? this->_end - 1 : h;
-  
   for( ; h >= l; --h)
     if(!h->first.empty())
       md.insert( market_depth_type::value_type(this->_itop(h), 
@@ -496,10 +507,8 @@ size_type SOB_CLASS::_chain_size(ChainTy* chain) const
 
 SOB_TEMPLATE
 template<typename ChainTy, bool IsLimit>
-bool SOB_CLASS::_pull_order(id_type id, std::unique_lock<std::mutex>& lock)
-{ /**/
-  /* BUG: we had a fill callback occur AFTER a cancle callback */
-  /**/
+bool SOB_CLASS::_pull_order(id_type id)
+{ 
   plevel beg, end, hstop, lstop;  
   order_exec_cb_type cb;
   ChainTy* c;
@@ -516,10 +525,8 @@ bool SOB_CLASS::_pull_order(id_type id, std::unique_lock<std::mutex>& lock)
   /* form low to high */
   beg = IsLimit ? this->_low_buy_limit : lstop;
   end = IsLimit ? this->_high_sell_limit : hstop; 
-
-  /* adjust for 1-past range val */
-  beg = (beg < this->_beg) ? this->_beg : beg;
-  end = (end >= this->_end) ? this->_beg - 1 : end;
+  
+  _adj_h_l<>()(this,&end,&beg);
 
   for( ; beg <= end; ++beg)
   {
@@ -618,10 +625,8 @@ void SOB_CLASS::_dump_limits() const
   /* from high to low */
   h = BuyNotSell ? this->_bid : this->_high_sell_limit;
   l = BuyNotSell ? this->_low_buy_limit : this->_ask;
-  
-  /* adjust for 1-past range val */
-  l = (l < this->_beg) ? this->_beg : l;
-  h = (h >= this->_end) ? this->_end - 1 : h;
+
+  _adj_h_l<>()(this,&h,&l);
 
   for( ; h >= l; --h)  
     if(!h->first.empty())
@@ -642,10 +647,8 @@ void SOB_CLASS::_dump_stops() const
   /* from high to low */
   h = BuyNotSell ? this->_high_buy_stop : this->_high_sell_stop;
   l = BuyNotSell ? this->_low_buy_stop : this->_low_sell_stop;
-  
-  /* adjust for 1-past range val */
-  l = (l < this->_beg) ? this->_beg : l;
-  h = (h >= this->_end) ? this->_end - 1 : h;
+
+  _adj_h_l<>()(this,&h,&l);
   
   for( ; h >= l; --h) 
     if(!h->second.empty())
@@ -915,34 +918,26 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
   return this->_push_order_and_wait(oty,buy,plimit,pstop,size,exec_cb,admin_cb);  
 }
 
+#define PULL_LIMITS_FIRST(id) \
+this->_pull_order<limit_chain_type>(id) || this->_pull_order<stop_chain_type>(id)
+
+#define PULL_STOPS_FIRST(id) \
+this->_pull_order<stop_chain_type>(id) || this->_pull_order<limit_chain_type>(id)
+
 SOB_TEMPLATE
 bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
-{   
-  /* DEADLOCKING !!!!! */
-  std::unique_lock<std::mutex> lock(this->_master_order_mtx);
-  bool res;
-  
-  try{
-    if(search_limits_first){ 
-      res = this->_pull_order<limit_chain_type>(id,lock) ||
-            this->_pull_order<stop_chain_type>(id,lock);
-    }
-    else
-      res = this->_pull_order<stop_chain_type>(id,lock) ||
-            this->_pull_order<limit_chain_type>(id,lock);    
-  }catch(...){ 
-   // lock.unlock(); 
-    throw; 
-  }
-  /* 
-   * can this create a situation where a fill callback can be released/called
-   * and _look_for_triggered stops is not called ???
-   */
-  if(lock) lock.unlock();
+{
+  bool res;  
+  {
+    std::lock_guard<std::mutex> _(this->_master_order_mtx); 
+    res = search_limits_first ? PULL_LIMITS_FIRST(id) : PULL_STOPS_FIRST(id);     
+  }/* 
+    * can this create a situation where a fill callback can be released/called
+    * and _look_for_triggered stops is not called ???
+    */ 
   this->_clear_callback_queue();  
   return res;
 }
-
 
 SOB_TEMPLATE
 id_type SOB_CLASS::replace_with_limit_order(id_type id,

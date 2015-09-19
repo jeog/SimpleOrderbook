@@ -242,7 +242,8 @@ private:
    * use depth increments on each side of last  */
   template< side_of_market Side>
   market_depth_type _market_depth(size_type depth) const;
-  template< side_of_market Side, typename My = my_type> struct _set_h_l;
+  template<typename My = my_type> struct _adj_h_l;
+  template<side_of_market Side, typename My = my_type> struct _set_h_l;
   template<typename My> struct _set_h_l<side_of_market::bid, My>;
   template<typename My> struct _set_h_l<side_of_market::ask, My>;
 
@@ -253,10 +254,11 @@ private:
   /* remove a particular order */
   template<typename ChainTy,
            bool IsLimit = std::is_same<ChainTy,limit_chain_type>::value>
-  bool _pull_order(id_type id, std::unique_lock<std::mutex>& lock);
+  bool _pull_order(id_type id);
 
+  /* helper for getting exec callback (what about admin_cb specialization?) */
   order_exec_cb_type _get_cb_from_bndl(limit_bndl_type& b){ return b.second; }
-  order_exec_cb_type _get_cb_from_bndl(stop_bndl_type& b){ return std::get<3>(b); }
+  order_exec_cb_type _get_cb_from_bndl(stop_bndl_type& b){ return std::get<3>(b);}
 
   /* called from _pull order to update cached pointers */
   template<bool BuyStop>

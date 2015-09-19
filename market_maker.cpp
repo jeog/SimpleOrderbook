@@ -147,8 +147,10 @@ void MarketMaker::_base_callback(callback_msg msg,
       break;
     case callback_msg::cancel:
       ob = this->_my_orders.at(id); /* THROW */
-      if(std::get<0>(ob)) this->_bid_out -= std::get<2>(ob);
-      else                this->_offer_out -= std::get<2>(ob);
+      if(std::get<0>(ob))
+        this->_bid_out -= std::get<2>(ob);
+      else
+        this->_offer_out -= std::get<2>(ob);
       this->_my_orders.erase(id);
       break;
     case callback_msg::stop_to_limit:

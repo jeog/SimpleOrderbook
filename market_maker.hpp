@@ -290,8 +290,8 @@ void MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
       if(id == 0)
         throw invalid_order("order could not be inserted");
 
-      this->_my_orders.insert(
-        std::move(orders_value_type(id,order_bndl_type(BuyNotSell,price,size))));
+      this->_my_orders.insert(orders_value_type(id,order_bndl_type(BuyNotSell,
+                                                                   price,size)));
 
       if(BuyNotSell) this->_bid_out += size;
       else           this->_offer_out += size;
