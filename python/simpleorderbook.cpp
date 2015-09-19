@@ -24,39 +24,11 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 /* try to make the nested types somewhat readable */
 #define NL_SO NativeLayer::SimpleOrderbook
 
-typedef std::pair<std::string, NL_SO::FullInterface::cnstr_type> sob_type_entry;
-
-#define MAKE_SOB(I,S,T) std::make_pair(I, \
-  std::make_pair(S, &(NL_SO::New<NL_SO::FullInterface,NL_SO::T>)))
-
-const std::map<int,sob_type_entry> SOB_TYPES = {
-  /*
-   * (arbitrary const, const name in python, SimpleOrderbook explicit inst.)
-   */
-  MAKE_SOB(SOB_QUARTER_TICK,"SOB_QUARTER_TICK",QuarterTick),
-  MAKE_SOB(SOB_TENTH_TICK,"SOB_TENTH_TICK",TenthTick),
-  MAKE_SOB(SOB_THIRTYSECONDTH_TICK,"SOB_THIRTYSECONDTH_TICK",ThirtySecondthTick),
-  MAKE_SOB(SOB_HUNDREDTH_TICK,"SOB_HUNDREDTH_TICK",HundredthTick),
-  MAKE_SOB(SOB_THOUSANDTH_TICK,"SOB_THOUSANDTH_TICK",ThousandthTick),
-  MAKE_SOB(SOB_TENTHOUSANDTH_TICK,"SOB_TENTHOUSANDTH_TICK",TenThousandthTick)
-};
-
-const std::map<int,std::string> MM_TYPES = {
-  /*
-   * (arbitrary const, const name in python)
-   * note: construction handle in switch because of varargs
-   */
-  std::make_pair(MM_RANDOM,"MM_RANDOM"),
-  std::make_pair(MM_SIMPLE1,"MM_SIMPLE1")
-};
-
-
 #define CALLDOWN_FOR_STATE_WITH_TRY_BLOCK(apicall,sobcall) \
   static PyObject* SOB_ ## sobcall(pySOB* self){ \
     try{ \
-      NativeLayer::SimpleOrderbook::FullInterface* sob = \
-        (NativeLayer::SimpleOrderbook::FullInterface*)self->_sob; \
-      return apicall( sob->sobcall()); \
+      NL_SO::FullInterface* sob = (NL_SO::FullInterface*)self->_sob; \
+      return apicall(sob->sobcall()); \
     }catch(std::exception& e){ \
       PyErr_SetString(PyExc_Exception, e.what()); \
       return NULL; \
@@ -74,8 +46,7 @@ CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLongLong, volume )
 #define CALLDOWN_TO_DUMP_WITH_TRY_BLOCK(sobcall) \
   static PyObject* SOB_ ## sobcall(pySOB* self){ \
     try{ \
-      NativeLayer::SimpleOrderbook::FullInterface* sob = \
-        (NativeLayer::SimpleOrderbook::FullInterface*)self->_sob; \
+      NL_SO::FullInterface* sob = (NL_SO::FullInterface*)self->_sob; \
       sob->sobcall(); \
     }catch(std::exception& e){ \
       PyErr_SetString(PyExc_Exception, e.what()); \
@@ -458,19 +429,23 @@ static PyObject* SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
         if(!mm)
           throw invalid_state("NULL item MarketMaker_Py* in tuple");
         /*
-         * NOTE: we are stealing the internal MM object and deleting the
-         * original allocated memory. We need to make it clear to the caller
-         * that they CAN NOT access the memory any longer...
+         * DEBUG
+         *
+         * for now let's do the dangerous thing and maintain a reference to
+         * the object(instead of moving via _move_to_new()) so we can access
+         * the MM from outside the SOB
+         *
+         * DEBUG
          */
-        pmms.push_back(mm->_move_to_new());
+        pmms.push_back(pMarketMaker(mm));
         /* DEBUG */
         std::cout<< "DEBUG, end-try: " << std::to_string(mm_num) << std::endl;
         /* DEBUG */
       }
       catch(invalid_state& e) { throw; }
-      catch(...) { if(mm) delete mm; }
+      catch(...) { } // if(mm) delete mm; }
 
-      if(mm) delete mm; // !! <- seg fault
+      // if(mm) delete mm;
 
       /* DEBUG */
       std::cout<< "DEBUG, end-while: " << std::to_string(mm_num) << std::endl;
@@ -655,6 +630,40 @@ static PyMethodDef pySOB_methods[] =
   {NULL}
 };
 
+/************************/
+/*** MM and SOB types ***/
+/************************/
+
+typedef std::pair<std::string, NL_SO::FullInterface::cnstr_type> sob_type_entry;
+
+#define MAKE_SOB(I,S,T) std::make_pair(I, \
+  std::make_pair(S, &(NL_SO::New<NL_SO::FullInterface,NL_SO::T>)))
+
+const std::map<int,sob_type_entry> SOB_TYPES = {
+  /*
+   * (arbitrary const, const name in python, SimpleOrderbook explicit inst.)
+   */
+  MAKE_SOB(SOB_QUARTER_TICK,"SOB_QUARTER_TICK",QuarterTick),
+  MAKE_SOB(SOB_TENTH_TICK,"SOB_TENTH_TICK",TenthTick),
+  MAKE_SOB(SOB_THIRTYSECONDTH_TICK,"SOB_THIRTYSECONDTH_TICK",ThirtySecondthTick),
+  MAKE_SOB(SOB_HUNDREDTH_TICK,"SOB_HUNDREDTH_TICK",HundredthTick),
+  MAKE_SOB(SOB_THOUSANDTH_TICK,"SOB_THOUSANDTH_TICK",ThousandthTick),
+  MAKE_SOB(SOB_TENTHOUSANDTH_TICK,"SOB_TENTHOUSANDTH_TICK",TenThousandthTick)
+};
+
+const std::map<int,std::string> MM_TYPES = {
+  /*
+   * (arbitrary const, const name in python)
+   * note: construction handle in switch because of varargs
+   */
+  std::make_pair(MM_RANDOM,"MM_RANDOM"),
+  std::make_pair(MM_SIMPLE1,"MM_SIMPLE1")
+};
+
+/************************/
+/*** MM and SOB types ***/
+/************************/
+
 static PyObject* SOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 {
   using namespace NativeLayer;
@@ -708,7 +717,7 @@ static PyObject* SOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 static void SOB_Delete(pySOB* self)
 {
   if(self->_sob)
-    delete (NativeLayer::SimpleOrderbook::FullInterface*)(self->_sob);
+    delete (NL_SO::FullInterface*)(self->_sob);
   Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
@@ -791,7 +800,7 @@ PyMODINIT_FUNC PyInit_simpleorderbook(void)
   /* simple orderbook types */
   for(auto& p : SOB_TYPES)
     PyObject_SetAttrString(mod, p.second.first.c_str(),
-                           Py_BuildValue("i",p.first));
+                          Py_BuildValue("i",p.first));
 
   return mod;
 }
