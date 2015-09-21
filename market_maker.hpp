@@ -390,7 +390,6 @@ protected:
   void start(sob_iface_type *book, price_type implied, price_type tick);
 
 public:
-
   typedef std::tuple<size_type,size_type,size_type,dispersion> init_params_type;
   typedef std::initializer_list<init_params_type> init_list_type;
 

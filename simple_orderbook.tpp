@@ -508,20 +508,79 @@ size_type SOB_CLASS::_chain_size(ChainTy* chain) const
   return sz;
 }
 
+SOB_TEMPLATE
+typename SOB_CLASS::order_info_type 
+SOB_CLASS::_gen_order_info_type_tuple(id_type id, 
+                                      order_type ot, 
+                                      plevel p, 
+                                      void* c) const
+{ /*
+   * order_type more specific; no ChainTy template 
+   */  
+  switch(ot){
+  case order_type::limit:
+  {
+    limit_bndl_type bndl = ((limit_chain_type*)c)->at(id);   
+    return order_info_type(order_type::limit, (p < this->_ask), 
+                           this->_itop(p), 0, std::get<0>(bndl));
+  } /* no break */
+  case order_type::stop:
+  case order_type::stop_limit:
+  {
+    stop_bndl_type bndl = ((stop_chain_type*)c)->at(id);
+    plevel stop_limit_plevel = (plevel)std::get<1>(bndl);
+    if(stop_limit_plevel)  
+      return order_info_type(order_type::stop_limit, std::get<0>(bndl), 
+                             this->_itop(p), this->_itop(stop_limit_plevel), 
+                             std::get<2>(bndl));
+    else
+      return order_info_type(order_type::stop, std::get<0>(bndl), 
+                             this->_itop(p), 0, std::get<2>(bndl));   
+  } /* no break */  
+  case order_type::null:
+    break;
+  case order_type::market:
+  default:
+    throw invalid_parameters("order_type not limit, stop, or stop_limit");
+    /* no break */ 
+  }  
+  return order_info_type(order_type::null,false,0,0,0);
+}
+
+SOB_TEMPLATE
+template< typename FirstChainTy, typename SecondChainTy>
+typename SOB_CLASS::order_info_type
+  SOB_CLASS::_get_order_info(id_type id, bool search_limits_first) 
+{
+  plevel p;
+  FirstChainTy* fc;
+  SecondChainTy* sc;
+  
+  std::pair<plevel,FirstChainTy*> pc = _find_order_chain<FirstChainTy>(id);
+  p = std::get<0>(pc);
+  fc = std::get<1>(pc);
+  if(!p || !fc){
+    std::pair<plevel,SecondChainTy*> pc = _find_order_chain<SecondChainTy>(id);
+    p = std::get<0>(pc);
+    sc = std::get<1>(pc);
+    if(!p || !sc)
+      return this->_gen_order_info_type_tuple(id,order_type::null,p,(void*)sc);
+    else
+      return this->_gen_order_info_type_tuple(id,order_type::stop,p,(void*)sc); 
+  }else
+    return this->_gen_order_info_type_tuple(id,order_type::limit,p,(void*)fc);   
+}
 
 SOB_TEMPLATE
 template<typename ChainTy, bool IsLimit>
-bool SOB_CLASS::_pull_order(id_type id)
+std::pair<typename SOB_CLASS::plevel,ChainTy*> 
+  SOB_CLASS::_find_order_chain(id_type id) const
 { 
-  plevel beg, end, hstop, lstop;  
-  order_exec_cb_type cb;
-  ChainTy* c;
-  id_type eid;
-  bool is_buystop;
+  plevel beg, end, hstop, lstop;
+  ChainTy* c;  
 
-  ASSERT_VALID_CHAIN(ChainTy);  
-  
-  eid = 0;   
+  ASSERT_VALID_CHAIN(ChainTy);
+
   lstop = (plevel)min((plevel)min(this->_low_sell_stop,this->_low_buy_stop),
                       (plevel)min(this->_high_sell_stop,this->_high_buy_stop));
   hstop = (plevel)max((plevel)max(this->_low_sell_stop,this->_low_buy_stop),
@@ -536,33 +595,48 @@ bool SOB_CLASS::_pull_order(id_type id)
   {
     c = IsLimit ? (ChainTy*)&beg->first : (ChainTy*)&beg->second;
     for(typename ChainTy::value_type& e : *c)
-      if(e.first == id){
-        /* match id and break so we can safely modify '*c' */       
-        eid = e.first; 
-        break;
-      }  
-    if(eid){      
-      typename ChainTy::mapped_type bndl = c->at(eid);
-      /* get the callback and, if stop order, its direction... before erasing */
-      cb = this->_get_cb_from_bndl(bndl); 
-      if(!IsLimit) 
-        is_buystop = std::get<0>(bndl); 
-      c->erase(eid); 
-      /* adjust cache vals as necessary */
-      if(IsLimit && c->empty())
-        this->_adjust_limit_cache_vals(beg);
-      else if(!IsLimit && is_buystop)     
-          this->_adjust_stop_cache_vals<true>(beg,(stop_chain_type*)c);
-      else if(!IsLimit && !is_buystop)
-          this->_adjust_stop_cache_vals<false>(beg,(stop_chain_type*)c);     
-      /* callback with cancel msg */   
-      this->_is_dirty = true;
-      this->_deferred_callback_queue.push( 
-        dfrd_cb_elem_type(callback_msg::cancel, cb, id, 0, 0) );  
-      return true;
-    }
-  } 
+      if(e.first == id)         
+        return std::pair<plevel,ChainTy*>(beg,c);     
+  }    
+  return std::pair<typename SOB_CLASS::plevel,ChainTy*> (nullptr,nullptr);
+}
 
+
+SOB_TEMPLATE
+template<typename ChainTy, bool IsLimit>
+bool SOB_CLASS::_pull_order(id_type id)
+{ 
+  plevel p; 
+  order_exec_cb_type cb;
+  ChainTy* c;  
+  bool is_buystop;
+
+  ASSERT_VALID_CHAIN(ChainTy);  
+
+  std::pair<plevel,ChainTy*> cp = this->_find_order_chain<ChainTy,IsLimit>(id);
+  p = std::get<0>(cp);
+  c = std::get<1>(cp);
+
+  if(c && p){      
+    typename ChainTy::mapped_type bndl = c->at(id);
+    /* get the callback and, if stop order, its direction... before erasing */
+    cb = this->_get_cb_from_bndl(bndl); 
+    if(!IsLimit) 
+      is_buystop = std::get<0>(bndl); 
+    c->erase(id); 
+    /* adjust cache vals as necessary */
+    if(IsLimit && c->empty())
+      this->_adjust_limit_cache_vals(p);
+    else if(!IsLimit && is_buystop)     
+        this->_adjust_stop_cache_vals<true>(p,(stop_chain_type*)c);
+    else if(!IsLimit && !is_buystop)
+        this->_adjust_stop_cache_vals<false>(p,(stop_chain_type*)c);     
+    /* callback with cancel msg */   
+    this->_is_dirty = true;
+    this->_deferred_callback_queue.push( 
+      dfrd_cb_elem_type(callback_msg::cancel, cb, id, 0, 0) );  
+    return true;
+  }
   return false;
 }
 
@@ -928,11 +1002,11 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
   return this->_push_order_and_wait(oty,buy,plimit,pstop,size,exec_cb,admin_cb);  
 }
 
-#define PULL_LIMITS_FIRST(id) \
-this->_pull_order<limit_chain_type>(id) || this->_pull_order<stop_chain_type>(id)
+#define LIMITS_FIRST(meth,id) \
+this->meth<limit_chain_type>(id) || this->meth<stop_chain_type>(id)
 
-#define PULL_STOPS_FIRST(id) \
-this->_pull_order<stop_chain_type>(id) || this->_pull_order<limit_chain_type>(id)
+#define STOPS_FIRST(meth,id) \
+this->meth<stop_chain_type>(id) || this->meth<limit_chain_type>(id)
 
 SOB_TEMPLATE
 bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
@@ -940,13 +1014,31 @@ bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
   bool res;  
   {
     std::lock_guard<std::mutex> _(this->_master_order_mtx); 
-    res = search_limits_first ? PULL_LIMITS_FIRST(id) : PULL_STOPS_FIRST(id);     
+    res = search_limits_first 
+        ? LIMITS_FIRST(_pull_order,id) 
+        : STOPS_FIRST(_pull_order,id);     
   }/* 
     * can this create a situation where a fill callback can be released/called
     * and _look_for_triggered stops is not called ???
     */ 
   this->_clear_callback_queue();  
   return res;
+}
+
+
+SOB_TEMPLATE
+typename SOB_CLASS::order_info_type
+  SOB_CLASS::get_order_info(id_type id, bool search_limits_first) 
+{   
+  {
+    std::lock_guard<std::mutex> _(this->_master_order_mtx); 
+    if(search_limits_first)
+      return this->_get_order_info<limit_chain_type,
+                                   stop_chain_type>(id,search_limits_first);    
+    else
+      return this->_get_order_info<stop_chain_type,
+                                   limit_chain_type>(id,search_limits_first); 
+  }   
 }
 
 SOB_TEMPLATE

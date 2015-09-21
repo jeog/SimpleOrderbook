@@ -155,6 +155,7 @@ private:
   typedef std::tuple<bool,void*,size_type,order_exec_cb_type>  stop_bndl_type;
   typedef std::map<id_type, stop_bndl_type>                    stop_chain_type;
 
+
 #define ASSERT_VALID_CHAIN(TYPE) \
     static_assert(std::is_same<TYPE,limit_chain_type>::value || \
                   std::is_same<TYPE,stop_chain_type>::value, \
@@ -249,6 +250,18 @@ private:
   template< typename ChainTy>
   size_type _chain_size(ChainTy* chain) const;
 
+  /* generate info for a particular order type*/
+  order_info_type _gen_order_info_type_tuple(id_type id, order_type ot,
+                                             plevel p, void* c) const;
+
+  template<typename FirstChainTy, typename SecondChainTy>
+  order_info_type _get_order_info(id_type id, bool search_limits_first);
+
+  /* find a particular order */
+  template<typename ChainTy,
+           bool IsLimit = std::is_same<ChainTy,limit_chain_type>::value>
+  std::pair<plevel,ChainTy*> _find_order_chain(id_type id) const;
+
   /* remove a particular order */
   template<typename ChainTy,
            bool IsLimit = std::is_same<ChainTy,limit_chain_type>::value>
@@ -321,7 +334,8 @@ public:
   void add_market_maker(MarketMaker&& mms);
   void add_market_maker(pMarketMaker&& mms);
 
-  // TODO callback when a stop is triggered
+  /* should be const ptr, locking mtx though */
+  order_info_type get_order_info(id_type id, bool search_limits_first=true);
 
   id_type insert_limit_order(bool buy, price_type limit, size_type size,
                              order_exec_cb_type exec_cb,

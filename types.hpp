@@ -75,7 +75,8 @@ enum class callback_msg{
 };
 
 enum class order_type {
-  market = 0,
+  null = 0,
+  market,
   limit,
   stop,
   stop_limit

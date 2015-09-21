@@ -48,6 +48,8 @@ public:
   typedef std::vector< t_and_s_type >                       time_and_sales_type;
   typedef std::map<price_type,size_type>                    market_depth_type;
   typedef std::function<my_type*(size_type,size_type,size_type)>  cnstr_type;
+  typedef std::tuple<order_type,bool,price_type,
+                     price_type,size_type>                   order_info_type;
 
   virtual price_type bid_price() const = 0;
   virtual price_type ask_price() const = 0;
@@ -61,6 +63,9 @@ public:
   virtual market_depth_type ask_depth(size_type depth=8) const = 0;
   virtual market_depth_type market_depth(size_type depth=8) const = 0;
   virtual const time_and_sales_type& time_and_sales() const = 0;
+
+  virtual order_info_type /* should be const ptr, locking mtx though */
+    get_order_info(id_type id, bool search_limits_first=true) = 0;
 
   /* convert time & sales chrono timepoint to str via ctime */
   static std::string timestamp_to_str(const time_stamp_type& tp);
@@ -140,6 +145,7 @@ public:
   virtual void dump_sell_limits() const = 0;
   virtual void dump_buy_stops() const = 0;
   virtual void dump_sell_stops() const = 0;
+
 };
 
 };
