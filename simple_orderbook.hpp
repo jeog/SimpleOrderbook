@@ -254,7 +254,11 @@ private:
   order_info_type _gen_order_info_type_tuple(id_type id, order_type ot,
                                              plevel p, void* c) const;
 
-  template<typename FirstChainTy, typename SecondChainTy>
+  template<typename FirstChainTy, typename SecondChainTy,
+           order_type ot1 = std::is_same<FirstChainTy,limit_chain_type>::value
+                            ? order_type::limit : order_type::stop,
+           order_type ot2 = std::is_same<FirstChainTy,stop_chain_type>::value
+                            ? order_type::limit : order_type::stop>
   order_info_type _get_order_info(id_type id, bool search_limits_first);
 
   /* find a particular order */

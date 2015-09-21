@@ -541,20 +541,24 @@ SOB_CLASS::_gen_order_info_type_tuple(id_type id,
     break;
   case order_type::market:
   default:
-    throw invalid_parameters("order_type not limit, stop, or stop_limit");
+    throw invalid_parameters("order_type not limit, stop, stop_limit, or null");
     /* no break */ 
   }  
   return order_info_type(order_type::null,false,0,0,0);
 }
 
 SOB_TEMPLATE
-template< typename FirstChainTy, typename SecondChainTy>
+template<typename FirstChainTy, typename SecondChainTy, 
+         order_type ot1, order_type ot2>
 typename SOB_CLASS::order_info_type
   SOB_CLASS::_get_order_info(id_type id, bool search_limits_first) 
 {
   plevel p;
   FirstChainTy* fc;
   SecondChainTy* sc;
+  
+  ASSERT_VALID_CHAIN(FirstChainTy);
+  ASSERT_VALID_CHAIN(SecondChainTy);
   
   std::pair<plevel,FirstChainTy*> pc = _find_order_chain<FirstChainTy>(id);
   p = std::get<0>(pc);
@@ -566,9 +570,9 @@ typename SOB_CLASS::order_info_type
     if(!p || !sc)
       return this->_gen_order_info_type_tuple(id,order_type::null,p,(void*)sc);
     else
-      return this->_gen_order_info_type_tuple(id,order_type::stop,p,(void*)sc); 
+      return this->_gen_order_info_type_tuple(id, ot2, p, (void*)sc); 
   }else
-    return this->_gen_order_info_type_tuple(id,order_type::limit,p,(void*)fc);   
+    return this->_gen_order_info_type_tuple(id, ot1, p, (void*)fc);   
 }
 
 SOB_TEMPLATE
