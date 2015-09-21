@@ -111,6 +111,7 @@ public:
 
   virtual void add_market_makers(market_makers_type&& mms) = 0;
   virtual void add_market_maker(MarketMaker&& mms) = 0;
+  virtual void add_market_maker(pMarketMaker&& mms) = 0;
   virtual id_type insert_market_order(bool buy, size_type size,
                                     order_exec_cb_type exec_cb,
                                     order_admin_cb_type admin_cb = nullptr) = 0;

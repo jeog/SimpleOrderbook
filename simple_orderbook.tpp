@@ -231,6 +231,7 @@ size_type SOB_CLASS::_lift_offers(plevel plev,
 {
   limit_chain_type::iterator del_iter;
   size_type amount;
+  long long rmndr;
   plevel inside;
  
   inside = this->_ask;
@@ -244,9 +245,10 @@ size_type SOB_CLASS::_lift_offers(plevel plev,
            amount = std::min(size, elem.second.first);
            this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
                                     elem.second.second, true);               
-           size -= amount; /* reduce the amount left to trade */           
-           if((size - elem.second.first) < 0) 
-             elem.second.first -= amount; /* adjust outstanding order size */
+           size -= amount; /* reduce the amount left to trade */     
+           rmndr = elem.second.first - amount;
+           if(rmndr > 0) 
+             elem.second.first = rmndr; /* adjust outstanding order size */
            else          
              ++del_iter; /* indicate removal if we cleared offer */
            if(size <= 0) break; /* if we have nothing left to trade*/
@@ -280,6 +282,7 @@ size_type SOB_CLASS::_hit_bids(plevel plev,
 {
   limit_chain_type::iterator del_iter;
   size_type amount;
+  long long rmndr;
   plevel inside;
   
   inside = this->_bid;
@@ -293,9 +296,10 @@ size_type SOB_CLASS::_hit_bids(plevel plev,
            amount = std::min(size, elem.second.first);
            this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
                                     elem.second.second, true);
-           size -= amount; /* reduce the amount left to trade */         
-           if((size - elem.second.first) < 0) 
-             elem.second.first -= amount; /* adjust outstanding order size */
+           size -= amount; /* reduce the amount left to trade */  
+           rmndr = elem.second.first - amount;
+           if(rmndr > 0) 
+             elem.second.first = rmndr; /* adjust outstanding order size */
            else          
              ++del_iter;  /* indicate removal if we cleared bid */    
            if(size <= 0) break; /* if we have nothing left to trade*/
@@ -838,8 +842,14 @@ SOB_TEMPLATE
 void SOB_CLASS::add_market_maker(MarketMaker&& mm)
 { /* create market_maker smart_pointer, start and push */
   pMarketMaker pmm = mm._move_to_new();
-  pmm->start(this, this->_itop(this->_last), tick_size);
-  this->_market_makers.push_back(std::move(pmm)); 
+  this->add_market_maker(std::move(pmm));
+}
+
+SOB_TEMPLATE
+void SOB_CLASS::add_market_maker(pMarketMaker&& mm)
+{ /* accept market_maker smart_pointer, start and push */
+  mm->start(this, this->_itop(this->_last), tick_size);
+  this->_market_makers.push_back(std::move(mm)); 
 }
 
 SOB_TEMPLATE

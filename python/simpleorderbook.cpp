@@ -135,7 +135,6 @@ PyObject* SOB_trade_limit(pySOB* self, PyObject* args, PyObject* kwds)
     PyErr_SetString(PyExc_Exception, e.what());
     return NULL;
   }
-
   return PyLong_FromUnsignedLong(id);
 }
 
@@ -176,12 +175,10 @@ PyObject* SOB_trade_market(pySOB* self, PyObject* args, PyObject* kwds)
     id = Replace ? sob->replace_with_market_order(id, BuyNotSell, size, cb)
                  : sob->insert_market_order(BuyNotSell, size, cb);
 
-
   }catch(std::exception& e){
     PyErr_SetString(PyExc_Exception, e.what());
     return NULL;
   }
-
   return PyLong_FromUnsignedLong(id);
 }
 
@@ -294,7 +291,6 @@ PyObject* SOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
 
   try{
     rval = ((SimpleOrderbook::FullInterface*)self->_sob)->pull_order(id);
-
   }catch(std::exception& e){
     PyErr_SetString(PyExc_Exception, e.what());
     return NULL;
