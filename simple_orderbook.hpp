@@ -161,6 +161,8 @@ private:
                   std::is_same<TYPE,stop_chain_type>::value, \
                   #TYPE " not limit_chain_type or stop_chain_type")
 
+#define SAME_(Ty1,Ty2) std::is_same<Ty1,Ty2>::value
+
   /* chain pair is the limit and stop chain at a particular price
    * use a (less safe) pointer for plevel because iterator
    * is implemented as a class and creates a number of problems internally */
@@ -254,21 +256,22 @@ private:
   order_info_type _gen_order_info_type_tuple(id_type id, order_type ot,
                                              plevel p, void* c) const;
 
+  /* return an order_info_type tuple for that order id */
   template<typename FirstChainTy, typename SecondChainTy,
-           order_type ot1 = std::is_same<FirstChainTy,limit_chain_type>::value
-                            ? order_type::limit : order_type::stop,
-           order_type ot2 = std::is_same<FirstChainTy,stop_chain_type>::value
-                            ? order_type::limit : order_type::stop>
-  order_info_type _get_order_info(id_type id, bool search_limits_first);
+           order_type ot1 = SAME_(FirstChainTy,limit_chain_type)
+                          ? order_type::limit
+                          : order_type::stop,
+           order_type ot2 = SAME_(FirstChainTy,stop_chain_type)
+                          ? order_type::limit
+                          : order_type::stop>
+  order_info_type _get_order_info(id_type id);
 
   /* find a particular order */
-  template<typename ChainTy,
-           bool IsLimit = std::is_same<ChainTy,limit_chain_type>::value>
+  template<typename ChainTy,bool IsLimit = SAME_(ChainTy,limit_chain_type)>
   std::pair<plevel,ChainTy*> _find_order_chain(id_type id) const;
 
   /* remove a particular order */
-  template<typename ChainTy,
-           bool IsLimit = std::is_same<ChainTy,limit_chain_type>::value>
+  template<typename ChainTy,bool IsLimit = SAME_(ChainTy,limit_chain_type)>
   bool _pull_order(id_type id);
 
   /* helper for getting exec callback (what about admin_cb specialization?) */

@@ -79,7 +79,7 @@ static PyObject* MM_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 
   static char* kwlist[] = {keywords[3],keywords[4],keywords[5],NULL};
 
-  if(!PyArg_ParseTupleAndKeywords(args, kwds, "OO|O:__new__", kwlist,
+  if(!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO:__new__", kwlist,
                                   &cb, &start, &stop))
     PyErr_SetString(PyExc_ValueError, "error parsing args to __new__");
   else if(!PyCallable_Check(cb))

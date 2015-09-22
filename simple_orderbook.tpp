@@ -4,6 +4,72 @@
 namespace NativeLayer{
 namespace SimpleOrderbook{
 
+SOB_TEMPLATE 
+SOB_CLASS::SimpleOrderbook(my_price_type price, 
+                           my_price_type min, 
+                           my_price_type max)
+  :
+  _bid_size(0),
+  _ask_size(0),
+  _last_size(0), 
+  _lower_incr(this->_incrs_in_range(min,price)),
+  _upper_incr(this->_incrs_in_range(price,max)),
+  _total_incr(this->_generate_and_check_total_incr()),
+  _base( min ),
+  _book( _total_incr + 1), /*pad the beg side so we can go past w/o seg fault*/
+  _beg( &(*_book.begin()) + 1 ), /**/
+  _end( &(*_book.end())), 
+  _last( this->_beg + _lower_incr ), 
+  _bid( &(*(this->_beg-1)) ),
+  _ask( &(*this->_end) ),
+  /***************************************************************************
+   :: our ersatz iterator approach ::
+     
+     i = [ 0, _total_incr ) 
+  
+   vector iterator:  [begin()]                                    [ end() ]
+   internal pointer: [ _base ][ _beg ]                            [ _end  ]
+   internal index:   [ NULL  ][  i   ][ i+1 ][ i+2 ]...   [ i-1  ][ NULL  ]
+   external price:   [ THROW ][ min  ]                    [ max  ][ THROW ]    
+  
+   ***************************************************************************/
+  _low_buy_limit( &(*this->_last) ),
+  _high_sell_limit( &(*this->_last) ),
+  _low_buy_stop( &(*this->_end) ),
+  _high_buy_stop( &(*(this->_beg-1)) ),
+  _low_sell_stop( &(*this->_end) ),
+  _high_sell_stop( &(*(this->_beg-1)) ),
+  _total_volume(0),
+  _last_id(0),
+  _market_makers(), 
+  _is_dirty(false),
+  _deferred_callback_queue(), 
+  _t_and_s(),
+  _t_and_s_max_sz(1000),
+  _t_and_s_full(false),
+  _order_queue(),
+  _order_queue_mtx(),
+  _master_order_mtx(),
+  _order_queue_cond()  
+  {       
+    if( min.to_incr() == 0 )
+      throw std::invalid_argument("(TrimmedRational) min price must be > 0");
+    this->_t_and_s.reserve(this->_t_and_s_max_sz); 
+    /* - DONT THROW AFTER THIS POINT - */
+    this->_order_dispatcher_thread = 
+      std::thread( std::bind(&SOB_CLASS::_threaded_order_dispatcher,this) );
+    this->_order_dispatcher_thread.detach();
+    std::cout<< "+ SimpleOrderbook Created\n";
+  }
+
+SOB_TEMPLATE 
+SOB_CLASS::~SimpleOrderbook()
+{
+  std::cout<< "- SimpleOrderbook Destroyed\n";
+}
+
+/*** PRIVATE ***/
+
 #define SOB_ON_TRADE_COMPLETION_() \
   do{ this->_clear_callback_queue(); \
       this->_look_for_triggered_stops(); }while(0)
@@ -548,10 +614,12 @@ SOB_CLASS::_gen_order_info_type_tuple(id_type id,
 }
 
 SOB_TEMPLATE
-template<typename FirstChainTy, typename SecondChainTy, 
-         order_type ot1, order_type ot2>
+template<typename FirstChainTy, 
+         typename SecondChainTy, 
+         order_type ot1, 
+         order_type ot2>
 typename SOB_CLASS::order_info_type
-  SOB_CLASS::_get_order_info(id_type id, bool search_limits_first) 
+  SOB_CLASS::_get_order_info(id_type id) 
 {
   plevel p;
   FirstChainTy* fc;
@@ -843,69 +911,7 @@ size_type SOB_CLASS::_generate_and_check_total_incr()
   return i;
 }
 
-SOB_TEMPLATE 
-SOB_CLASS::SimpleOrderbook(my_price_type price, 
-                           my_price_type min, 
-                           my_price_type max)
-  :
-  _bid_size(0),
-  _ask_size(0),
-  _last_size(0), 
-  _lower_incr(this->_incrs_in_range(min,price)),
-  _upper_incr(this->_incrs_in_range(price,max)),
-  _total_incr(this->_generate_and_check_total_incr()),
-  _base( min ),
-  _book( _total_incr + 1), /*pad the beg side so we can go past w/o seg fault*/
-  _beg( &(*_book.begin()) + 1 ), /**/
-  _end( &(*_book.end())), 
-  _last( this->_beg + _lower_incr ), 
-  _bid( &(*(this->_beg-1)) ),
-  _ask( &(*this->_end) ),
-  /***************************************************************************
-   :: our ersatz iterator approach ::
-     
-     i = [ 0, _total_incr ) 
-  
-   vector iterator:  [begin()]                                    [ end() ]
-   internal pointer: [ _base ][ _beg ]                            [ _end  ]
-   internal index:   [ NULL  ][  i   ][ i+1 ][ i+2 ]...   [ i-1  ][ NULL  ]
-   external price:   [ THROW ][ min  ]                    [ max  ][ THROW ]    
-  
-   ***************************************************************************/
-  _low_buy_limit( &(*this->_last) ),
-  _high_sell_limit( &(*this->_last) ),
-  _low_buy_stop( &(*this->_end) ),
-  _high_buy_stop( &(*(this->_beg-1)) ),
-  _low_sell_stop( &(*this->_end) ),
-  _high_sell_stop( &(*(this->_beg-1)) ),
-  _total_volume(0),
-  _last_id(0),
-  _market_makers(), 
-  _is_dirty(false),
-  _deferred_callback_queue(), 
-  _t_and_s(),
-  _t_and_s_max_sz(1000),
-  _t_and_s_full(false),
-  _order_queue(),
-  _order_queue_mtx(),
-  _master_order_mtx(),
-  _order_queue_cond()  
-  {       
-    if( min.to_incr() == 0 )
-      throw std::invalid_argument("(TrimmedRational) min price must be > 0");
-    this->_t_and_s.reserve(this->_t_and_s_max_sz); 
-    /* - DONT THROW AFTER THIS POINT - */
-    this->_order_dispatcher_thread = 
-      std::thread( std::bind(&SOB_CLASS::_threaded_order_dispatcher,this) );
-    this->_order_dispatcher_thread.detach();
-    std::cout<< "+ SimpleOrderbook Created\n";
-  }
-
-SOB_TEMPLATE 
-SOB_CLASS::~SimpleOrderbook()
-{
-  std::cout<< "- SimpleOrderbook Destroyed\n";
-}
+/*** PUBLIC ***/
 
 SOB_TEMPLATE
 void SOB_CLASS::add_market_makers(market_makers_type&& mms)
@@ -1037,11 +1043,9 @@ typename SOB_CLASS::order_info_type
   {
     std::lock_guard<std::mutex> _(this->_master_order_mtx); 
     if(search_limits_first)
-      return this->_get_order_info<limit_chain_type,
-                                   stop_chain_type>(id,search_limits_first);    
+      return this->_get_order_info<limit_chain_type, stop_chain_type>(id);    
     else
-      return this->_get_order_info<stop_chain_type,
-                                   limit_chain_type>(id,search_limits_first); 
+      return this->_get_order_info<stop_chain_type, limit_chain_type>(id); 
   }   
 }
 
