@@ -68,27 +68,206 @@ SOB_CLASS::~SimpleOrderbook()
   std::cout<< "- SimpleOrderbook Destroyed\n";
 }
 
-/*** PRIVATE ***/
 
-#define SOB_ON_TRADE_COMPLETION_() \
-  do{ this->_clear_callback_queue(); \
-      this->_look_for_triggered_stops(); }while(0)
+/*
+ * nested static calls used to get around member specialization restrictions
+ * 
+ * _high_low::adjust : bounds check and reset plevels if necessary
+ * _high_low::set : populate plevels based for passed depth and internal bounds
+ * 
+ * (note: the _high_low specials inherit from non-special to access adjust())
+ * 
+ * _order_info::generate : generate specialized order_info_type tuples
+ */
+SOB_TEMPLATE
+template<side_of_market Side, typename My> struct SOB_CLASS::_high_low {
+public:   
+  static void adjust(const My* sob, typename SOB_CLASS::plevel* ph, 
+                     typename SOB_CLASS::plevel* pl){
+    *ph = (*ph >= sob->_end) ? sob->_end - 1 : *ph;
+    *pl = (*pl < sob->_beg) ? sob->_beg : *pl;
+  }
+  static void set(const My* sob, typename SOB_CLASS::plevel* ph, 
+                  typename SOB_CLASS::plevel* pl,size_type depth){
+    *ph = (typename SOB_CLASS::plevel)min(sob->_ask + depth - 1, sob->_end - 1);
+    *pl = (typename SOB_CLASS::plevel)max(sob->_beg, sob->_bid - depth +1);
+    SOB_CLASS::_high_low<Side,My>::adjust(sob,ph,pl);
+  }
+};
+SOB_TEMPLATE
+template<typename My> struct SOB_CLASS::_high_low<side_of_market::bid,My>
+  : public _high_low<side_of_market::both,My> {
+public: 
+  static void set(const My* sob, typename SOB_CLASS::plevel* ph, 
+                  typename SOB_CLASS::plevel* pl,size_type depth){
+    *ph = sob->_bid;
+    *pl = (typename SOB_CLASS::plevel)max(sob->_beg, sob->_bid - depth +1);
+    _high_low<side_of_market::both,My>::adjust(sob,ph,pl);
+  }
+};
+SOB_TEMPLATE
+template<typename My> struct SOB_CLASS::_high_low<side_of_market::ask,My>
+  : public _high_low<side_of_market::both,My> {
+public: 
+  static void set(const My* sob, typename SOB_CLASS::plevel* ph, 
+                  typename SOB_CLASS::plevel* pl,size_type depth){
+    *ph = (typename SOB_CLASS::plevel)min(sob->_ask + depth - 1, sob->_end - 1);
+    *pl = sob->_ask;
+    _high_low<side_of_market::both,My>::adjust(sob,ph,pl);
+  } 
+};
 
 SOB_TEMPLATE
-void SOB_CLASS::_clear_callback_queue()
-{
-  order_exec_cb_type cb;
-  
-  if(this->_is_dirty){
-    this->_is_dirty = false;    
-    while(!this->_deferred_callback_queue.empty()){
-      dfrd_cb_elem_type e = this->_deferred_callback_queue.front();
-      cb = std::get<1>(e);   
-      this->_deferred_callback_queue.pop();
-      /* BE SURE TO POP BEFORE WE CALL BACK */
-      if(cb) cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));   
-    }    
+template<typename ChainTy, typename My> 
+struct SOB_CLASS::_order_info{
+  typedef typename SOB_CLASS::order_info_type order_info_type;
+public:
+  static order_info_type generate(){
+    return order_info_type(order_type::null,false,0,0,0);
   }
+};
+SOB_TEMPLATE
+template<typename My> 
+struct SOB_CLASS::_order_info<typename SOB_CLASS::limit_chain_type, My>{
+  typedef typename SOB_CLASS::order_info_type order_info_type; 
+  typedef typename SOB_CLASS::plevel plevel;
+public:  
+  static order_info_type generate(const My* sob, id_type id, plevel p, 
+                                  typename SOB_CLASS::limit_chain_type* c){
+    return order_info_type(order_type::limit,(p < sob->_ask), 
+                           sob->_itop(p), 0, std::get<0>(c->at(id)));
+  } 
+};
+SOB_TEMPLATE
+template<typename My> 
+struct SOB_CLASS::_order_info<typename SOB_CLASS::stop_chain_type, My>{
+  typedef typename SOB_CLASS::order_info_type order_info_type;  
+  typedef typename SOB_CLASS::plevel plevel;
+public:
+  static order_info_type generate(const My* sob, id_type id, plevel p, 
+                                  typename SOB_CLASS::stop_chain_type* c)
+  {
+    typename SOB_CLASS::stop_bndl_type bndl = c->at(id);
+    plevel stop_limit_plevel = (plevel)std::get<1>(bndl);    
+    return stop_limit_plevel  
+      ? order_info_type(order_type::stop_limit, std::get<0>(bndl), sob->_itop(p), 
+                        sob->_itop(stop_limit_plevel), std::get<2>(bndl))
+      : order_info_type(order_type::stop, std::get<0>(bndl), sob->_itop(p), 
+                        0, std::get<2>(bndl));
+  }
+};
+
+/*
+ ****************************************************************************
+ ****************************************************************************
+ ***                                                                      ***
+ *** _lift_offers / _hit_bids are the guts of order execution: attempting ***
+ *** to match limit/market orders against the order book, adjusting       ***
+ *** state, checking for overflows, signaling etc.                        ***
+ ***                                                                      ***
+ ****************************************************************************
+ ****************************************************************************
+ */
+SOB_TEMPLATE 
+size_type SOB_CLASS::_lift_offers(plevel plev,
+                                  id_type id,
+                                  size_type size,
+                                  order_exec_cb_type& exec_cb)
+{
+  limit_chain_type::iterator del_iter;
+  size_type amount;
+  long long rmndr;
+  plevel inside;
+ 
+  inside = this->_ask;
+  while((inside <= plev || !plev) 
+        && size > 0 
+        && (inside < this->_end))
+       {     
+         del_iter = inside->first.begin();
+         for(limit_chain_type::value_type& elem : inside->first){
+           /* check each order , FIFO, for that price level */        
+           amount = std::min(size, elem.second.first);
+           this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
+                                    elem.second.second, true);               
+           size -= amount; /* reduce the amount left to trade */     
+           rmndr = elem.second.first - amount;
+           if(rmndr > 0) 
+             elem.second.first = rmndr; /* adjust outstanding order size */
+           else          
+             ++del_iter; /* indicate removal if we cleared offer */
+           if(size <= 0) break; /* if we have nothing left to trade*/
+         }
+         inside->first.erase(inside->first.begin(),del_iter);   
+         for( ; 
+             inside->first.empty() && inside < this->_end; 
+             ++inside) /* if an empty chain 'jump' to one that isn't */ 
+             {      
+             }        
+         this->_ask = inside; /* @ +1 the beg if we went all the way ! */
+        
+         if(inside >= this->_end){
+           this->_ask_size = 0;    
+           break;
+         }else
+           this->_ask_size = this->_chain_size(&this->_ask->first);  
+        
+         /* adjust cached val */
+         if(this->_ask > this->_high_sell_limit)
+           this->_high_sell_limit = this->_ask;
+       }
+  return size; /* what we couldn't fill */
+}
+
+SOB_TEMPLATE 
+size_type SOB_CLASS::_hit_bids(plevel plev,
+                               id_type id,
+                               size_type size,
+                               order_exec_cb_type& exec_cb)
+{
+  limit_chain_type::iterator del_iter;
+  size_type amount;
+  long long rmndr;
+  plevel inside;
+  
+  inside = this->_bid;
+  while((inside >= plev || !plev) 
+        && size > 0 
+        && (inside >= this->_beg))
+       {     
+         del_iter = inside->first.begin();
+         for(limit_chain_type::value_type& elem : inside->first){
+           /* check each order, FIFO, for that price level */
+           amount = std::min(size, elem.second.first);
+           this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
+                                    elem.second.second, true);
+           size -= amount; /* reduce the amount left to trade */  
+           rmndr = elem.second.first - amount;
+           if(rmndr > 0) 
+             elem.second.first = rmndr; /* adjust outstanding order size */
+           else          
+             ++del_iter;  /* indicate removal if we cleared bid */    
+           if(size <= 0) break; /* if we have nothing left to trade*/
+         }
+         inside->first.erase(inside->first.begin(),del_iter);        
+         for( ; 
+             inside->first.empty() && inside >= this->_beg; 
+             --inside) /* if  on an empty chain 'jump' to one that isn't */ 
+             {    
+             }      
+         this->_bid = inside; /* @ -1 the beg if we went all the way ! */
+          
+         if(inside < this->_beg){
+           this->_bid_size = 0;    
+           break;
+         }else
+           this->_bid_size = this->_chain_size(&this->_bid->first);   
+          
+         /* adjust cached val */
+         if(this->_bid < this->_low_buy_limit)
+           this->_low_buy_limit = this->_bid;
+      }
+  return size; /* what we couldn't fill */
 }
 
 SOB_TEMPLATE
@@ -139,6 +318,10 @@ void SOB_CLASS::_threaded_order_dispatcher()
   }  
 }
 
+#define SOB_ON_TRADE_COMPLETION_() \
+  do{ this->_clear_callback_queue(); \
+      this->_look_for_triggered_stops(); }while(0)
+
 SOB_TEMPLATE
 id_type SOB_CLASS::_push_order_and_wait(order_type oty, 
                                         bool buy, 
@@ -163,6 +346,24 @@ id_type SOB_CLASS::_push_order_and_wait(order_type oty,
   SOB_ON_TRADE_COMPLETION_();
   
   return ret_id;
+}
+
+
+SOB_TEMPLATE
+void SOB_CLASS::_clear_callback_queue()
+{
+  order_exec_cb_type cb;
+  
+  if(this->_is_dirty){
+    this->_is_dirty = false;    
+    while(!this->_deferred_callback_queue.empty()){
+      dfrd_cb_elem_type e = this->_deferred_callback_queue.front();
+      cb = std::get<1>(e);   
+      this->_deferred_callback_queue.pop();
+      /* BE SURE TO POP BEFORE WE CALL BACK */
+      if(cb) cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));   
+    }    
+  }
 }
 
 SOB_TEMPLATE
@@ -278,118 +479,7 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
   SOB_ON_TRADE_COMPLETION_(); // <- this could be an issue
 }
 
-/*
- ****************************************************************************
- ****************************************************************************
- *** _lift_offers / _hit_bids are the guts of order execution: attempting ***
- *** to match limit/market orders against the order book, adjusting       ***
- *** state, checking for overflows, signaling etc.                        ***
- ***                                                                      ***
- *** ... NEEDS MORE TESTING ...                                           ***
- ****************************************************************************
- ****************************************************************************
- */
-SOB_TEMPLATE 
-size_type SOB_CLASS::_lift_offers(plevel plev,
-                                  id_type id,
-                                  size_type size,
-                                  order_exec_cb_type& exec_cb)
-{
-  limit_chain_type::iterator del_iter;
-  size_type amount;
-  long long rmndr;
-  plevel inside;
- 
-  inside = this->_ask;
-  while((inside <= plev || !plev) 
-        && size > 0 
-        && (inside < this->_end))
-       {     
-         del_iter = inside->first.begin();
-         for(limit_chain_type::value_type& elem : inside->first){
-           /* check each order , FIFO, for that price level */        
-           amount = std::min(size, elem.second.first);
-           this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
-                                    elem.second.second, true);               
-           size -= amount; /* reduce the amount left to trade */     
-           rmndr = elem.second.first - amount;
-           if(rmndr > 0) 
-             elem.second.first = rmndr; /* adjust outstanding order size */
-           else          
-             ++del_iter; /* indicate removal if we cleared offer */
-           if(size <= 0) break; /* if we have nothing left to trade*/
-         }
-         inside->first.erase(inside->first.begin(),del_iter);   
-         for( ; 
-             inside->first.empty() && inside < this->_end; 
-             ++inside) /* if an empty chain 'jump' to one that isn't */ 
-             {      
-             }        
-         this->_ask = inside; /* @ +1 the beg if we went all the way ! */
-        
-         if(inside >= this->_end){
-           this->_ask_size = 0;    
-           break;
-         }else
-           this->_ask_size = this->_chain_size(&this->_ask->first);  
-        
-         /* adjust cached val */
-         if(this->_ask > this->_high_sell_limit)
-           this->_high_sell_limit = this->_ask;
-       }
-  return size; /* what we couldn't fill */
-}
 
-SOB_TEMPLATE 
-size_type SOB_CLASS::_hit_bids(plevel plev,
-                               id_type id,
-                               size_type size,
-                               order_exec_cb_type& exec_cb)
-{
-  limit_chain_type::iterator del_iter;
-  size_type amount;
-  long long rmndr;
-  plevel inside;
-  
-  inside = this->_bid;
-  while((inside >= plev || !plev) 
-        && size > 0 
-        && (inside >= this->_beg))
-       {     
-         del_iter = inside->first.begin();
-         for(limit_chain_type::value_type& elem : inside->first){
-           /* check each order, FIFO, for that price level */
-           amount = std::min(size, elem.second.first);
-           this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
-                                    elem.second.second, true);
-           size -= amount; /* reduce the amount left to trade */  
-           rmndr = elem.second.first - amount;
-           if(rmndr > 0) 
-             elem.second.first = rmndr; /* adjust outstanding order size */
-           else          
-             ++del_iter;  /* indicate removal if we cleared bid */    
-           if(size <= 0) break; /* if we have nothing left to trade*/
-         }
-         inside->first.erase(inside->first.begin(),del_iter);        
-         for( ; 
-             inside->first.empty() && inside >= this->_beg; 
-             --inside) /* if  on an empty chain 'jump' to one that isn't */ 
-             {    
-             }      
-         this->_bid = inside; /* @ -1 the beg if we went all the way ! */
-          
-         if(inside < this->_beg){
-           this->_bid_size = 0;    
-           break;
-         }else
-           this->_bid_size = this->_chain_size(&this->_bid->first);   
-          
-         /* adjust cached val */
-         if(this->_bid < this->_low_buy_limit)
-           this->_low_buy_limit = this->_bid;
-      }
-  return size; /* what we couldn't fill */
-}
 
 
 SOB_TEMPLATE
@@ -507,50 +597,6 @@ void SOB_CLASS::_insert_stop_order(bool buy,
 }
 
 SOB_TEMPLATE
-template<typename My> struct SOB_CLASS::_adj_h_l{
-public: /* adjust for 1-past range val */
-  void operator()(const My* sob, typename SOB_CLASS::plevel* ph, 
-                  typename SOB_CLASS::plevel* pl){    
-    *ph = (*ph >= sob->_end) ? sob->_end - 1 : *ph;
-    *pl = (*pl < sob->_beg) ? sob->_beg : *pl;
-  }
-};
-SOB_TEMPLATE
-template<side_of_market Side, typename My> struct SOB_CLASS::_set_h_l 
-    : private _adj_h_l<My> {
-public:  
-  void operator()(const My* sob, typename SOB_CLASS::plevel* ph, 
-                  typename SOB_CLASS::plevel* pl,size_type depth){
-    *ph = (typename SOB_CLASS::plevel)min(sob->_ask + depth - 1, sob->_end - 1);
-    *pl = (typename SOB_CLASS::plevel)max(sob->_beg, sob->_bid - depth +1);
-    SOB_CLASS::_adj_h_l<My>::operator()(sob,ph,pl);
-  }
-};
-SOB_TEMPLATE
-template<typename My> struct SOB_CLASS::_set_h_l<side_of_market::bid,My>
-  : private _adj_h_l<My> {
-public: 
-  void operator()(const My* sob, typename SOB_CLASS::plevel* ph, 
-                  typename SOB_CLASS::plevel* pl,size_type depth){
-    *ph = sob->_bid;
-    *pl = (typename SOB_CLASS::plevel)max(sob->_beg, sob->_bid - depth +1);
-    SOB_CLASS::_adj_h_l<My>::operator()(sob,ph,pl);
-  }
-};
-SOB_TEMPLATE
-template<typename My> struct SOB_CLASS::_set_h_l<side_of_market::ask,My>
-  : private _adj_h_l<My> {
-public: 
-  void operator()(const My* sob, typename SOB_CLASS::plevel* ph, 
-                  typename SOB_CLASS::plevel* pl,size_type depth){
-    *ph = (typename SOB_CLASS::plevel)min(sob->_ask + depth - 1, sob->_end - 1);
-    *pl = sob->_ask;
-    SOB_CLASS::_adj_h_l<My>::operator()(sob,ph,pl);
-  } 
-};
-
-
-SOB_TEMPLATE
 template< side_of_market Side >
 typename SOB_CLASS::market_depth_type 
 SOB_CLASS::_market_depth(size_type depth) const
@@ -558,7 +604,7 @@ SOB_CLASS::_market_depth(size_type depth) const
   plevel h,l;
   market_depth_type md;
   
-  _set_h_l<Side>()(this,&h,&l,depth);
+  _high_low<Side>::set(this,&h,&l,depth);
 
   for( ; h >= l; --h)
     if(!h->first.empty())
@@ -577,45 +623,6 @@ size_type SOB_CLASS::_chain_size(ChainTy* chain) const
     sz += e.second.first;
   return sz;
 }
-
-
-SOB_TEMPLATE
-template<typename ChainTy, typename My> 
-struct SOB_CLASS::_gen_order_info_type{
-public:
-  typename SOB_CLASS::order_info_type operator()(){
-    return typename SOB_CLASS::order_info_type(order_type::null,false,0,0,0);
-  }
-};
-SOB_TEMPLATE
-template<typename My> 
-struct SOB_CLASS::_gen_order_info_type<typename SOB_CLASS::limit_chain_type, My>{
-public:
-  typename SOB_CLASS::order_info_type operator()(const My* sob, id_type id, 
-      typename SOB_CLASS::plevel p, typename SOB_CLASS::limit_chain_type* c){
-    return typename SOB_CLASS::order_info_type(order_type::limit,(p < sob->_ask), 
-        sob->_itop(p), 0, std::get<0>(c->at(id)));
-  } 
-};
-SOB_TEMPLATE
-template<typename My> 
-struct SOB_CLASS::_gen_order_info_type<typename SOB_CLASS::stop_chain_type, My>{
-public:
-  typename SOB_CLASS::order_info_type operator()(const My* sob, id_type id, 
-      typename SOB_CLASS::plevel p, typename SOB_CLASS::stop_chain_type* c){
-    typename SOB_CLASS::stop_bndl_type bndl = c->at(id);
-    typename SOB_CLASS::plevel stop_limit_plevel = 
-      (typename SOB_CLASS::plevel)std::get<1>(bndl);
-    if(stop_limit_plevel)  
-      return typename SOB_CLASS::order_info_type(order_type::stop_limit, 
-          std::get<0>(bndl), sob->_itop(p), sob->_itop(stop_limit_plevel), 
-          std::get<2>(bndl));
-    else
-      return typename SOB_CLASS::order_info_type(order_type::stop,
-          std::get<0>(bndl), sob->_itop(p), 0, std::get<2>(bndl));
-  }
-};
-
 
 SOB_TEMPLATE
 template<typename FirstChainTy, typename SecondChainTy>
@@ -636,12 +643,11 @@ typename SOB_CLASS::order_info_type
     std::pair<plevel,SecondChainTy*> pc = _find_order_chain<SecondChainTy>(id);
     p = std::get<0>(pc);
     sc = std::get<1>(pc);
-    if(!p || !sc)
-      return _gen_order_info_type<void>()();
-    else
-      return _gen_order_info_type<SecondChainTy>()(this, id, p, sc); 
+    return (!p || !sc)
+      ? _order_info<void>::generate() /* null version */
+      : _order_info<SecondChainTy>::generate(this, id, p, sc); 
   }else
-    return _gen_order_info_type<FirstChainTy>()(this, id, p, fc);   
+    return _order_info<FirstChainTy>::generate(this, id, p, fc);   
  
 }
 
@@ -663,7 +669,7 @@ std::pair<typename SOB_CLASS::plevel,ChainTy*>
   beg = IsLimit ? this->_low_buy_limit : lstop;
   end = IsLimit ? this->_high_sell_limit : hstop; 
   
-  _adj_h_l<>()(this,&end,&beg);
+  _high_low<>::adjust(this,&end,&beg);
 
   for( ; beg <= end; ++beg)
   {
@@ -778,7 +784,7 @@ void SOB_CLASS::_dump_limits() const
   h = BuyNotSell ? this->_bid : this->_high_sell_limit;
   l = BuyNotSell ? this->_low_buy_limit : this->_ask;
 
-  _adj_h_l<>()(this,&h,&l);
+  _high_low<>::adjust(this,&h,&l);
 
   for( ; h >= l; --h)  
     if(!h->first.empty())
@@ -800,7 +806,7 @@ void SOB_CLASS::_dump_stops() const
   h = BuyNotSell ? this->_high_buy_stop : this->_high_sell_stop;
   l = BuyNotSell ? this->_low_buy_stop : this->_low_sell_stop;
 
-  _adj_h_l<>()(this,&h,&l);
+  _high_low<>::adjust(this,&h,&l);
   
   for( ; h >= l; --h) 
     if(!h->second.empty())

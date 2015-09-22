@@ -243,11 +243,14 @@ private:
   template< side_of_market Side>
   market_depth_type _market_depth(size_type depth) const;
 
-  /* set/adjust high low plevels via side_of_market specializations (in .tpp) */
+  /* set/adjust high low plevels via side_of_market specializations (in .tpp)
   template<typename My = my_type>
   struct _adj_h_l;
   template<side_of_market Side, typename My = my_type>
-  struct _set_h_l;
+  struct _set_h_l;*/
+
+  template<side_of_market Side = side_of_market::both, typename My = my_type>
+  struct _high_low;
 
   /* calculate total volume in the chain */
   template< typename ChainTy>
@@ -255,7 +258,7 @@ private:
 
   /* generate order_info_type tuple via chain specializations (in .tpp) */
   template<typename ChainTy, typename My = my_type>
-  struct _gen_order_info_type;
+  struct _order_info;
 
   /* return an order_info_type tuple for that order id */
   template<typename FirstChainTy, typename SecondChainTy>
