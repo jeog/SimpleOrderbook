@@ -42,6 +42,7 @@ public:
   virtual ~QueryInterface()
     {
     }
+
   typedef QueryInterface my_type;
   typedef typename clock_type::time_point                   time_stamp_type;
   typedef std::tuple<time_stamp_type,price_type,size_type>  t_and_s_type;

@@ -155,7 +155,6 @@ private:
   typedef std::tuple<bool,void*,size_type,order_exec_cb_type>  stop_bndl_type;
   typedef std::map<id_type, stop_bndl_type>                    stop_chain_type;
 
-
 #define ASSERT_VALID_CHAIN(TYPE) \
     static_assert(std::is_same<TYPE,limit_chain_type>::value || \
                   std::is_same<TYPE,stop_chain_type>::value, \
@@ -243,30 +242,26 @@ private:
    * use depth increments on each side of last  */
   template< side_of_market Side>
   market_depth_type _market_depth(size_type depth) const;
-  template<typename My = my_type> struct _adj_h_l;
-  template<side_of_market Side, typename My = my_type> struct _set_h_l;
-  template<typename My> struct _set_h_l<side_of_market::bid, My>;
-  template<typename My> struct _set_h_l<side_of_market::ask, My>;
+
+  /* set/adjust high low plevels via side_of_market specializations (in .tpp) */
+  template<typename My = my_type>
+  struct _adj_h_l;
+  template<side_of_market Side, typename My = my_type>
+  struct _set_h_l;
 
   /* calculate total volume in the chain */
   template< typename ChainTy>
   size_type _chain_size(ChainTy* chain) const;
 
-  /* generate info for a particular order type*/
-  order_info_type _gen_order_info_type_tuple(id_type id, order_type ot,
-                                             plevel p, void* c) const;
+  /* generate order_info_type tuple via chain specializations (in .tpp) */
+  template<typename ChainTy, typename My = my_type>
+  struct _gen_order_info_type;
 
   /* return an order_info_type tuple for that order id */
-  template<typename FirstChainTy, typename SecondChainTy,
-           order_type ot1 = SAME_(FirstChainTy,limit_chain_type)
-                          ? order_type::limit
-                          : order_type::stop,
-           order_type ot2 = SAME_(FirstChainTy,stop_chain_type)
-                          ? order_type::limit
-                          : order_type::stop>
+  template<typename FirstChainTy, typename SecondChainTy>
   order_info_type _get_order_info(id_type id);
 
-  /* find a particular order */
+  /* find a particular order, return the plevel and chain pointer */
   template<typename ChainTy,bool IsLimit = SAME_(ChainTy,limit_chain_type)>
   std::pair<plevel,ChainTy*> _find_order_chain(id_type id) const;
 

@@ -509,7 +509,8 @@ void SOB_CLASS::_insert_stop_order(bool buy,
 SOB_TEMPLATE
 template<typename My> struct SOB_CLASS::_adj_h_l{
 public: /* adjust for 1-past range val */
-  void operator()(const My* sob, plevel* ph, plevel* pl){    
+  void operator()(const My* sob, typename SOB_CLASS::plevel* ph, 
+                  typename SOB_CLASS::plevel* pl){    
     *ph = (*ph >= sob->_end) ? sob->_end - 1 : *ph;
     *pl = (*pl < sob->_beg) ? sob->_beg : *pl;
   }
@@ -518,30 +519,33 @@ SOB_TEMPLATE
 template<side_of_market Side, typename My> struct SOB_CLASS::_set_h_l 
     : private _adj_h_l<My> {
 public:  
-  void operator()(const My* sob, plevel* ph, plevel* pl,size_type depth){
-    *ph = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
-    *pl = (plevel)max(sob->_beg, sob->_bid - depth +1);
-    _adj_h_l<My>::operator()(sob,ph,pl);
+  void operator()(const My* sob, typename SOB_CLASS::plevel* ph, 
+                  typename SOB_CLASS::plevel* pl,size_type depth){
+    *ph = (typename SOB_CLASS::plevel)min(sob->_ask + depth - 1, sob->_end - 1);
+    *pl = (typename SOB_CLASS::plevel)max(sob->_beg, sob->_bid - depth +1);
+    SOB_CLASS::_adj_h_l<My>::operator()(sob,ph,pl);
   }
 };
 SOB_TEMPLATE
 template<typename My> struct SOB_CLASS::_set_h_l<side_of_market::bid,My>
   : private _adj_h_l<My> {
 public: 
-  void operator()(const My* sob, plevel* ph, plevel* pl,size_type depth){
+  void operator()(const My* sob, typename SOB_CLASS::plevel* ph, 
+                  typename SOB_CLASS::plevel* pl,size_type depth){
     *ph = sob->_bid;
-    *pl = (plevel)max(sob->_beg, sob->_bid - depth +1);
-    _adj_h_l<My>::operator()(sob,ph,pl);
+    *pl = (typename SOB_CLASS::plevel)max(sob->_beg, sob->_bid - depth +1);
+    SOB_CLASS::_adj_h_l<My>::operator()(sob,ph,pl);
   }
 };
 SOB_TEMPLATE
 template<typename My> struct SOB_CLASS::_set_h_l<side_of_market::ask,My>
   : private _adj_h_l<My> {
 public: 
-  void operator()(const My* sob, plevel* ph, plevel* pl,size_type depth){
-    *ph = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
+  void operator()(const My* sob, typename SOB_CLASS::plevel* ph, 
+                  typename SOB_CLASS::plevel* pl,size_type depth){
+    *ph = (typename SOB_CLASS::plevel)min(sob->_ask + depth - 1, sob->_end - 1);
     *pl = sob->_ask;
-    _adj_h_l<My>::operator()(sob,ph,pl);
+    SOB_CLASS::_adj_h_l<My>::operator()(sob,ph,pl);
   } 
 };
 
@@ -574,50 +578,47 @@ size_type SOB_CLASS::_chain_size(ChainTy* chain) const
   return sz;
 }
 
-SOB_TEMPLATE
-typename SOB_CLASS::order_info_type 
-SOB_CLASS::_gen_order_info_type_tuple(id_type id, 
-                                      order_type ot, 
-                                      plevel p, 
-                                      void* c) const
-{ /*
-   * order_type more specific; no ChainTy template 
-   */  
-  switch(ot){
-  case order_type::limit:
-  {
-    limit_bndl_type bndl = ((limit_chain_type*)c)->at(id);   
-    return order_info_type(order_type::limit, (p < this->_ask), 
-                           this->_itop(p), 0, std::get<0>(bndl));
-  } /* no break */
-  case order_type::stop:
-  case order_type::stop_limit:
-  {
-    stop_bndl_type bndl = ((stop_chain_type*)c)->at(id);
-    plevel stop_limit_plevel = (plevel)std::get<1>(bndl);
-    if(stop_limit_plevel)  
-      return order_info_type(order_type::stop_limit, std::get<0>(bndl), 
-                             this->_itop(p), this->_itop(stop_limit_plevel), 
-                             std::get<2>(bndl));
-    else
-      return order_info_type(order_type::stop, std::get<0>(bndl), 
-                             this->_itop(p), 0, std::get<2>(bndl));   
-  } /* no break */  
-  case order_type::null:
-    break;
-  case order_type::market:
-  default:
-    throw invalid_parameters("order_type not limit, stop, stop_limit, or null");
-    /* no break */ 
-  }  
-  return order_info_type(order_type::null,false,0,0,0);
-}
 
 SOB_TEMPLATE
-template<typename FirstChainTy, 
-         typename SecondChainTy, 
-         order_type ot1, 
-         order_type ot2>
+template<typename ChainTy, typename My> 
+struct SOB_CLASS::_gen_order_info_type{
+public:
+  typename SOB_CLASS::order_info_type operator()(){
+    return typename SOB_CLASS::order_info_type(order_type::null,false,0,0,0);
+  }
+};
+SOB_TEMPLATE
+template<typename My> 
+struct SOB_CLASS::_gen_order_info_type<typename SOB_CLASS::limit_chain_type, My>{
+public:
+  typename SOB_CLASS::order_info_type operator()(const My* sob, id_type id, 
+      typename SOB_CLASS::plevel p, typename SOB_CLASS::limit_chain_type* c){
+    return typename SOB_CLASS::order_info_type(order_type::limit,(p < sob->_ask), 
+        sob->_itop(p), 0, std::get<0>(c->at(id)));
+  } 
+};
+SOB_TEMPLATE
+template<typename My> 
+struct SOB_CLASS::_gen_order_info_type<typename SOB_CLASS::stop_chain_type, My>{
+public:
+  typename SOB_CLASS::order_info_type operator()(const My* sob, id_type id, 
+      typename SOB_CLASS::plevel p, typename SOB_CLASS::stop_chain_type* c){
+    typename SOB_CLASS::stop_bndl_type bndl = c->at(id);
+    typename SOB_CLASS::plevel stop_limit_plevel = 
+      (typename SOB_CLASS::plevel)std::get<1>(bndl);
+    if(stop_limit_plevel)  
+      return typename SOB_CLASS::order_info_type(order_type::stop_limit, 
+          std::get<0>(bndl), sob->_itop(p), sob->_itop(stop_limit_plevel), 
+          std::get<2>(bndl));
+    else
+      return typename SOB_CLASS::order_info_type(order_type::stop,
+          std::get<0>(bndl), sob->_itop(p), 0, std::get<2>(bndl));
+  }
+};
+
+
+SOB_TEMPLATE
+template<typename FirstChainTy, typename SecondChainTy>
 typename SOB_CLASS::order_info_type
   SOB_CLASS::_get_order_info(id_type id) 
 {
@@ -636,11 +637,12 @@ typename SOB_CLASS::order_info_type
     p = std::get<0>(pc);
     sc = std::get<1>(pc);
     if(!p || !sc)
-      return this->_gen_order_info_type_tuple(id,order_type::null,p,(void*)sc);
+      return _gen_order_info_type<void>()();
     else
-      return this->_gen_order_info_type_tuple(id, ot2, p, (void*)sc); 
+      return _gen_order_info_type<SecondChainTy>()(this, id, p, sc); 
   }else
-    return this->_gen_order_info_type_tuple(id, ot1, p, (void*)fc);   
+    return _gen_order_info_type<FirstChainTy>()(this, id, p, fc);   
+ 
 }
 
 SOB_TEMPLATE
