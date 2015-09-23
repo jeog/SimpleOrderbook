@@ -66,12 +66,17 @@ public:
   virtual const time_and_sales_type& time_and_sales() const = 0;
 
   virtual order_info_type /* should be const ptr, locking mtx though */
-    get_order_info(id_type id, bool search_limits_first=true) = 0;
+  get_order_info(id_type id, bool search_limits_first=true) = 0;
 
   /* convert time & sales chrono timepoint to str via ctime */
-  static std::string timestamp_to_str(const time_stamp_type& tp);
+  static std::string timestamp_to_str(const time_stamp_type& tp)
+  {
+    std::time_t t = clock_type::to_time_t(tp);
+    std::string ts = std::ctime(&t);
+    ts.resize(ts.size() -1);
+    return ts;
+  }
 };
-
 
 class LimitInterface
     : public QueryInterface{

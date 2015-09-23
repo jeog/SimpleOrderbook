@@ -16,8 +16,8 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 */
 
 #include "market_maker.hpp"
-#include "simple_orderbook.hpp"
-#include "types.hpp"
+#include "../simple_orderbook.hpp"
+#include "../types.hpp"
 #include <chrono>
 #include <cmath>
 

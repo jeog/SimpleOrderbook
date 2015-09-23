@@ -79,6 +79,7 @@ SOB_CLASS::~SimpleOrderbook()
  * 
  * _order_info::generate : generate specialized order_info_type tuples
  */
+
 SOB_TEMPLATE
 template<side_of_market Side, typename My> struct SOB_CLASS::_high_low {
 public:   
@@ -411,7 +412,6 @@ void SOB_CLASS::_trade_has_occured(plevel plev,
  ************************************************************************
  ************************************************************************
  */
-
 SOB_TEMPLATE
 void SOB_CLASS::_look_for_triggered_stops()
 { /* we don't check against max/min, because of the cached high/lows */
@@ -919,7 +919,6 @@ size_type SOB_CLASS::_generate_and_check_total_incr()
   return i;
 }
 
-/*** PUBLIC ***/
 
 SOB_TEMPLATE
 void SOB_CLASS::add_market_makers(market_makers_type&& mms)

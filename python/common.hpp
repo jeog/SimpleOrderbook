@@ -21,7 +21,7 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <Python.h>
 #include <structmember.h>
 #include "../types.hpp"
-#include "../market_maker.hpp"
+#include "../market_maker_native/market_maker.hpp"
 
 //#define IGNORE_TO_DEBUG_NATIVE
 #ifndef IGNORE_TO_DEBUG_NATIVE

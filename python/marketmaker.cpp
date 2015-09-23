@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see http://www.gnu.org/licenses.
 */
 
-#include "../market_maker.hpp"
+#include "../market_maker_native/market_maker.hpp"
 #include "common.hpp"
 
 //#define IGNORE_TO_DEBUG_NATIVE

@@ -36,7 +36,7 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <condition_variable>
 #include <chrono>
 
-#include "market_maker.hpp"
+#include "market_maker_native/market_maker.hpp"
 
 namespace NativeLayer{
 

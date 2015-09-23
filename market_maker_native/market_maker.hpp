@@ -27,8 +27,8 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <ratio>
 #include <algorithm>
 
-#include "interfaces.hpp"
-#include "types.hpp"
+#include "../interfaces.hpp"
+#include "../types.hpp"
 
 namespace NativeLayer{
 
