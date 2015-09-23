@@ -63,10 +63,8 @@ class MarketMaker;
 typedef std::unique_ptr<MarketMaker> pMarketMaker;
 typedef std::vector<pMarketMaker> market_makers_type;
 
-typedef std::pair<price_type,size_type>         limit_order_type;
-typedef std::pair<price_type,limit_order_type>  stop_order_type;
-
-typedef typename std::chrono::steady_clock      clock_type;
+typedef typename std::chrono::steady_clock  clock_type;
+typedef typename clock_type::time_point     time_stamp_type;
 
 enum class callback_msg{
   cancel = 0,
@@ -82,49 +80,22 @@ enum class order_type {
   stop_limit
 };
 
+std::string order_type_str(const order_type& ot);
+
 enum class side_of_market {
   bid = 1,
   ask = -1,
   both = 0
 };
 
-typedef std::function<void(callback_msg,id_type,
-                           price_type,size_type)> order_exec_cb_type;
+typedef std::function<
+  void(callback_msg,id_type,price_type,size_type)>  order_exec_cb_type;
+typedef std::function<void(id_type)>                order_admin_cb_type;
 
-typedef std::function<void(id_type)> order_admin_cb_type;
+typedef std::tuple<order_type,bool,price_type,
+                   price_type,size_type>            order_info_type;
 
-
-/*
-template< typename T, typename Pt1, typename Pt2 >
-class TypeTag
-    : public std::pair<Pt1,Pt2>
-{
-public:
-  typedef T tag_type;
-  TypeTag(Pt1 arg1, Pt2 arg2)
-    :
-      std::pair<Pt1,Pt2>(arg1,arg2)
-    {
-    }
-};
-
-template<typename T>
-constexpr TypeTag<T,int,std::string> make_ttp(int i, std::string str)
-{
-  return TypeTag<T,int,std::string>(i,str);
-}*/
-
-inline std::ostream& operator<<(std::ostream& out, limit_order_type lim)
-{
-  std::cout<< lim.second << ',' << lim.first;
-  return out;
-}
-
-inline std::ostream& operator<<(std::ostream& out, stop_order_type stp)
-{
-  std::cout<< stp.first << ',' << stp.second;  // chain to limit overload
-  return out;
-}
+std::ostream& operator<<(std::ostream& out, const order_info_type& o);
 
 class liquidity_exception
     : public std::logic_error{

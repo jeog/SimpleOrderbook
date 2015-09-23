@@ -142,8 +142,6 @@ private:
   /* how callback info is stored in the deferred callback queue */
   typedef std::tuple<callback_msg, order_exec_cb_type,
                      id_type, price_type,size_type>  dfrd_cb_elem_type;
-  //typedef std::tuple<order_exec_cb_type,order_exec_cb_type,
-    //                 id_type, id_type, price_type,size_type>  dfrd_cb_elem_type;
 
   /* limit bundle type holds the size and callback of each limit order
    * limit 'chain' type holds all limit orders at a price */
@@ -243,12 +241,7 @@ private:
   template< side_of_market Side>
   market_depth_type _market_depth(size_type depth) const;
 
-  /* set/adjust high low plevels via side_of_market specializations (in .tpp)
-  template<typename My = my_type>
-  struct _adj_h_l;
-  template<side_of_market Side, typename My = my_type>
-  struct _set_h_l;*/
-
+  /* set/adjust high low plevels via side_of_market specializations (in .tpp) */
   template<side_of_market Side = side_of_market::both, typename My = my_type>
   struct _high_low;
 
@@ -265,11 +258,11 @@ private:
   order_info_type _get_order_info(id_type id);
 
   /* find a particular order, return the plevel and chain pointer */
-  template<typename ChainTy,bool IsLimit = SAME_(ChainTy,limit_chain_type)>
+  template<typename ChainTy>
   std::pair<plevel,ChainTy*> _find_order_chain(id_type id) const;
 
   /* remove a particular order */
-  template<typename ChainTy,bool IsLimit = SAME_(ChainTy,limit_chain_type)>
+  template<typename ChainTy>
   bool _pull_order(id_type id);
 
   /* helper for getting exec callback (what about admin_cb specialization?) */

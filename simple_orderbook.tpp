@@ -120,8 +120,7 @@ public:
 
 SOB_TEMPLATE
 template<typename ChainTy, typename My> 
-struct SOB_CLASS::_order_info{
-  typedef typename SOB_CLASS::order_info_type order_info_type;
+struct SOB_CLASS::_order_info{  
 public:
   static order_info_type generate(){
     return order_info_type(order_type::null,false,0,0,0);
@@ -130,7 +129,6 @@ public:
 SOB_TEMPLATE
 template<typename My> 
 struct SOB_CLASS::_order_info<typename SOB_CLASS::limit_chain_type, My>{
-  typedef typename SOB_CLASS::order_info_type order_info_type; 
   typedef typename SOB_CLASS::plevel plevel;
 public:  
   static order_info_type generate(const My* sob, id_type id, plevel p, 
@@ -141,8 +139,7 @@ public:
 };
 SOB_TEMPLATE
 template<typename My> 
-struct SOB_CLASS::_order_info<typename SOB_CLASS::stop_chain_type, My>{
-  typedef typename SOB_CLASS::order_info_type order_info_type;  
+struct SOB_CLASS::_order_info<typename SOB_CLASS::stop_chain_type, My>{  
   typedef typename SOB_CLASS::plevel plevel;
 public:
   static order_info_type generate(const My* sob, id_type id, plevel p, 
@@ -626,8 +623,7 @@ size_type SOB_CLASS::_chain_size(ChainTy* chain) const
 
 SOB_TEMPLATE
 template<typename FirstChainTy, typename SecondChainTy>
-typename SOB_CLASS::order_info_type
-  SOB_CLASS::_get_order_info(id_type id) 
+order_info_type SOB_CLASS::_get_order_info(id_type id) 
 {
   plevel p;
   FirstChainTy* fc;
@@ -652,14 +648,15 @@ typename SOB_CLASS::order_info_type
 }
 
 SOB_TEMPLATE
-template<typename ChainTy, bool IsLimit>
+template<typename ChainTy>
 std::pair<typename SOB_CLASS::plevel,ChainTy*> 
   SOB_CLASS::_find_order_chain(id_type id) const
 { 
   plevel beg, end, hstop, lstop;
   ChainTy* c;  
-
+  
   ASSERT_VALID_CHAIN(ChainTy);
+  constexpr bool IsLimit = SAME_(ChainTy,limit_chain_type);
 
   lstop = (plevel)min((plevel)min(this->_low_sell_stop,this->_low_buy_stop),
                       (plevel)min(this->_high_sell_stop,this->_high_buy_stop));
@@ -683,7 +680,7 @@ std::pair<typename SOB_CLASS::plevel,ChainTy*>
 
 
 SOB_TEMPLATE
-template<typename ChainTy, bool IsLimit>
+template<typename ChainTy>
 bool SOB_CLASS::_pull_order(id_type id)
 { 
   plevel p; 
@@ -691,9 +688,10 @@ bool SOB_CLASS::_pull_order(id_type id)
   ChainTy* c;  
   bool is_buystop;
 
-  ASSERT_VALID_CHAIN(ChainTy);  
+  ASSERT_VALID_CHAIN(ChainTy); 
+  constexpr bool IsLimit = SAME_(ChainTy,limit_chain_type);
 
-  std::pair<plevel,ChainTy*> cp = this->_find_order_chain<ChainTy,IsLimit>(id);
+  std::pair<plevel,ChainTy*> cp = this->_find_order_chain<ChainTy>(id);
   p = std::get<0>(cp);
   c = std::get<1>(cp);
 
@@ -1019,11 +1017,11 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
   return this->_push_order_and_wait(oty,buy,plimit,pstop,size,exec_cb,admin_cb);  
 }
 
-#define LIMITS_FIRST(meth,id) \
-this->meth<limit_chain_type>(id) || this->meth<stop_chain_type>(id)
+#define SEARCH_LIMITS_FIRST(id) \
+this->_pull_order<limit_chain_type>(id) || this->_pull_order<stop_chain_type>(id)
 
-#define STOPS_FIRST(meth,id) \
-this->meth<stop_chain_type>(id) || this->meth<limit_chain_type>(id)
+#define SEARCH_STOPS_FIRST(id) \
+this->_pull_order<stop_chain_type>(id) || this->_pull_order<limit_chain_type>(id)
 
 SOB_TEMPLATE
 bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
@@ -1031,9 +1029,7 @@ bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
   bool res;  
   {
     std::lock_guard<std::mutex> _(this->_master_order_mtx); 
-    res = search_limits_first 
-        ? LIMITS_FIRST(_pull_order,id) 
-        : STOPS_FIRST(_pull_order,id);     
+    res = search_limits_first ? SEARCH_LIMITS_FIRST(id) : SEARCH_STOPS_FIRST(id);     
   }/* 
     * can this create a situation where a fill callback can be released/called
     * and _look_for_triggered stops is not called ???
@@ -1044,15 +1040,13 @@ bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
 
 
 SOB_TEMPLATE
-typename SOB_CLASS::order_info_type
-  SOB_CLASS::get_order_info(id_type id, bool search_limits_first) 
+order_info_type SOB_CLASS::get_order_info(id_type id, bool search_limits_first) 
 {   
   {
     std::lock_guard<std::mutex> _(this->_master_order_mtx); 
-    if(search_limits_first)
-      return this->_get_order_info<limit_chain_type, stop_chain_type>(id);    
-    else
-      return this->_get_order_info<stop_chain_type, limit_chain_type>(id); 
+    return search_limits_first
+      ? this->_get_order_info<limit_chain_type, stop_chain_type>(id)    
+      : this->_get_order_info<stop_chain_type, limit_chain_type>(id); 
   }   
 }
 

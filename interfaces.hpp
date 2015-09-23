@@ -34,23 +34,15 @@ namespace SimpleOrderbook{
 
 class QueryInterface{
 protected:
-  QueryInterface()
-    {
-    }
-
+  QueryInterface() {}
 public:
-  virtual ~QueryInterface()
-    {
-    }
+  virtual ~QueryInterface() {}
 
   typedef QueryInterface my_type;
-  typedef typename clock_type::time_point                   time_stamp_type;
   typedef std::tuple<time_stamp_type,price_type,size_type>  t_and_s_type;
   typedef std::vector< t_and_s_type >                       time_and_sales_type;
   typedef std::map<price_type,size_type>                    market_depth_type;
   typedef std::function<my_type*(size_type,size_type,size_type)>  cnstr_type;
-  typedef std::tuple<order_type,bool,price_type,
-                     price_type,size_type>                   order_info_type;
 
   virtual price_type bid_price() const = 0;
   virtual price_type ask_price() const = 0;
@@ -69,13 +61,7 @@ public:
   get_order_info(id_type id, bool search_limits_first=true) = 0;
 
   /* convert time & sales chrono timepoint to str via ctime */
-  static std::string timestamp_to_str(const time_stamp_type& tp)
-  {
-    std::time_t t = clock_type::to_time_t(tp);
-    std::string ts = std::ctime(&t);
-    ts.resize(ts.size() -1);
-    return ts;
-  }
+  static std::string timestamp_to_str(const time_stamp_type& tp);
 };
 
 class LimitInterface
@@ -101,6 +87,7 @@ public:
   id_type replace_with_limit_order(id_type id, bool buy, price_type limit,
                                    size_type size, order_exec_cb_type exec_cb,
                                    order_admin_cb_type admin_cb = nullptr) = 0;
+
   virtual bool pull_order(id_type id, bool search_limits_first=true) = 0;
 };
 
@@ -123,6 +110,7 @@ public:
   virtual void add_market_makers(market_makers_type&& mms) = 0;
   virtual void add_market_maker(MarketMaker&& mms) = 0;
   virtual void add_market_maker(pMarketMaker&& mms) = 0;
+
   virtual id_type insert_market_order(bool buy, size_type size,
                                     order_exec_cb_type exec_cb,
                                     order_admin_cb_type admin_cb = nullptr) = 0;
@@ -133,6 +121,7 @@ public:
                                     size_type size,
                                     order_exec_cb_type exec_cb,
                                     order_admin_cb_type admin_cb = nullptr) = 0;
+
   virtual id_type
   replace_with_market_order(id_type id, bool buy, size_type size,
                             order_exec_cb_type exec_cb,
