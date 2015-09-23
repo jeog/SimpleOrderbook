@@ -73,7 +73,9 @@ SOB_CLASS::~SimpleOrderbook()
  * nested static calls used to get around member specialization restrictions
  * 
  * _high_low::adjust : bounds check and reset plevels if necessary
- * _high_low::set : populate plevels based for passed depth and internal bounds
+ * _high_low::set_using_depth : populate plevels using passed depth 
+ *   from 'inside' bid/ask and internal bounds
+ * _high_low::set_using_cached : populate plevels using cached extremes
  * 
  * (note: the _high_low specials inherit from non-special to access adjust())
  * 
@@ -82,16 +84,41 @@ SOB_CLASS::~SimpleOrderbook()
 
 SOB_TEMPLATE
 template<side_of_market Side, typename My> struct SOB_CLASS::_high_low {
+  typedef typename SOB_CLASS::plevel plevel;
+  template<typename DummyChainTY, typename Dummy=void> struct _set_using_cached;  
+  template<typename Dummy> 
+  struct _set_using_cached<typename SOB_CLASS::limit_chain_type,Dummy>{
+  public:
+    static void call(const My* sob,plevel* ph,plevel *pl){
+      *pl = sob->_low_buy_limit;
+      *ph = sob->_high_sell_limit; 
+    }
+  };
+  template<typename Dummy> 
+  struct _set_using_cached<typename SOB_CLASS::stop_chain_type,Dummy>{
+  public:
+    static void call(const My* sob,plevel* ph,plevel *pl){
+      *pl = (plevel)min((plevel)min(sob->_low_sell_stop, sob->_low_buy_stop),
+                        (plevel)min(sob->_high_sell_stop, sob->_high_buy_stop));
+      *ph = (plevel)max((plevel)max(sob->_low_sell_stop, sob->_low_buy_stop),
+                        (plevel)max(sob->_high_sell_stop, sob->_high_buy_stop)); 
+    }
+  };
 public:   
-  static void adjust(const My* sob, typename SOB_CLASS::plevel* ph, 
-                     typename SOB_CLASS::plevel* pl){
+  static void adjust(const My* sob, plevel* ph, plevel* pl){
     *ph = (*ph >= sob->_end) ? sob->_end - 1 : *ph;
     *pl = (*pl < sob->_beg) ? sob->_beg : *pl;
   }
-  static void set(const My* sob, typename SOB_CLASS::plevel* ph, 
-                  typename SOB_CLASS::plevel* pl,size_type depth){
-    *ph = (typename SOB_CLASS::plevel)min(sob->_ask + depth - 1, sob->_end - 1);
-    *pl = (typename SOB_CLASS::plevel)max(sob->_beg, sob->_bid - depth +1);
+  static void set_using_depth(const My* sob, plevel* ph, 
+                              plevel* pl,size_type depth){
+    *ph = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
+    *pl = (plevel)max(sob->_beg, sob->_bid - depth +1);
+    SOB_CLASS::_high_low<Side,My>::adjust(sob,ph,pl);
+  }
+  template <typename ChainTy> 
+  static void set_using_cached(const My* sob, plevel* ph, plevel *pl,
+                               ChainTy* dummy_chain_ptr){
+    _set_using_cached<ChainTy>::call(sob,ph,pl);
     SOB_CLASS::_high_low<Side,My>::adjust(sob,ph,pl);
   }
 };
@@ -99,8 +126,8 @@ SOB_TEMPLATE
 template<typename My> struct SOB_CLASS::_high_low<side_of_market::bid,My>
   : public _high_low<side_of_market::both,My> {
 public: 
-  static void set(const My* sob, typename SOB_CLASS::plevel* ph, 
-                  typename SOB_CLASS::plevel* pl,size_type depth){
+  static void set_using_depth(const My* sob, typename SOB_CLASS::plevel* ph, 
+                              typename SOB_CLASS::plevel* pl,size_type depth){
     *ph = sob->_bid;
     *pl = (typename SOB_CLASS::plevel)max(sob->_beg, sob->_bid - depth +1);
     _high_low<side_of_market::both,My>::adjust(sob,ph,pl);
@@ -110,8 +137,8 @@ SOB_TEMPLATE
 template<typename My> struct SOB_CLASS::_high_low<side_of_market::ask,My>
   : public _high_low<side_of_market::both,My> {
 public: 
-  static void set(const My* sob, typename SOB_CLASS::plevel* ph, 
-                  typename SOB_CLASS::plevel* pl,size_type depth){
+  static void set_using_depth(const My* sob, typename SOB_CLASS::plevel* ph, 
+                              typename SOB_CLASS::plevel* pl,size_type depth){
     *ph = (typename SOB_CLASS::plevel)min(sob->_ask + depth - 1, sob->_end - 1);
     *pl = sob->_ask;
     _high_low<side_of_market::both,My>::adjust(sob,ph,pl);
@@ -601,7 +628,7 @@ SOB_CLASS::_market_depth(size_type depth) const
   plevel h,l;
   market_depth_type md;
   
-  _high_low<Side>::set(this,&h,&l,depth);
+  _high_low<Side>::set_using_depth(this,&h,&l,depth);
 
   for( ; h >= l; --h)
     if(!h->first.empty())
@@ -655,22 +682,15 @@ std::pair<typename SOB_CLASS::plevel,ChainTy*>
   plevel beg, end, hstop, lstop;
   ChainTy* c;  
   
-  ASSERT_VALID_CHAIN(ChainTy);
-  constexpr bool IsLimit = SAME_(ChainTy,limit_chain_type);
+  ASSERT_VALID_CHAIN(ChainTy); 
 
-  lstop = (plevel)min((plevel)min(this->_low_sell_stop,this->_low_buy_stop),
-                      (plevel)min(this->_high_sell_stop,this->_high_buy_stop));
-  hstop = (plevel)max((plevel)max(this->_low_sell_stop,this->_low_buy_stop),
-                      (plevel)max(this->_high_sell_stop,this->_high_buy_stop));
-  /* form low to high */
-  beg = IsLimit ? this->_low_buy_limit : lstop;
-  end = IsLimit ? this->_high_sell_limit : hstop; 
+  _high_low<>::set_using_cached(this,&end,&beg,c=nullptr);
   
-  _high_low<>::adjust(this,&end,&beg);
-
   for( ; beg <= end; ++beg)
   {
-    c = IsLimit ? (ChainTy*)&beg->first : (ChainTy*)&beg->second;
+    c = SAME_(ChainTy,limit_chain_type) 
+      ? (ChainTy*)&beg->first 
+      : (ChainTy*)&beg->second;
     for(typename ChainTy::value_type& e : *c)
       if(e.first == id)         
         return std::pair<plevel,ChainTy*>(beg,c);     

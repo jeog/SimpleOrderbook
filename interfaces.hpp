@@ -67,26 +67,22 @@ public:
 class LimitInterface
     : public QueryInterface{
 protected:
-  LimitInterface()
-    {
-    }
-
+  LimitInterface() {}
 public:
-  virtual ~LimitInterface()
-    {
-    }
+  virtual ~LimitInterface() {}
+
   typedef LimitInterface my_type;
   typedef QueryInterface my_base_type;
   typedef std::function<my_type*(size_type,size_type,size_type)> cnstr_type;
 
-  virtual
-  id_type insert_limit_order(bool buy, price_type limit, size_type size,
-                             order_exec_cb_type exec_cb,
-                             order_admin_cb_type admin_cb = nullptr) = 0;
-  virtual
-  id_type replace_with_limit_order(id_type id, bool buy, price_type limit,
-                                   size_type size, order_exec_cb_type exec_cb,
-                                   order_admin_cb_type admin_cb = nullptr) = 0;
+  virtual id_type
+  insert_limit_order(bool buy, price_type limit, size_type size,
+                     order_exec_cb_type exec_cb,
+                     order_admin_cb_type admin_cb = nullptr) = 0;
+  virtual id_type
+  replace_with_limit_order(id_type id, bool buy, price_type limit,
+                           size_type size, order_exec_cb_type exec_cb,
+                           order_admin_cb_type admin_cb = nullptr) = 0;
 
   virtual bool pull_order(id_type id, bool search_limits_first=true) = 0;
 };
@@ -95,14 +91,10 @@ public:
 class FullInterface
     : public LimitInterface{
 protected:
-  FullInterface()
-    {
-    }
-
+  FullInterface() {}
 public:
-  virtual ~FullInterface()
-    {
-    }
+  virtual ~FullInterface() {}
+
   typedef FullInterface my_type;
   typedef LimitInterface my_base_type;
   typedef std::function<my_type*(size_type,size_type,size_type)> cnstr_type;
@@ -111,16 +103,17 @@ public:
   virtual void add_market_maker(MarketMaker&& mms) = 0;
   virtual void add_market_maker(pMarketMaker&& mms) = 0;
 
-  virtual id_type insert_market_order(bool buy, size_type size,
-                                    order_exec_cb_type exec_cb,
-                                    order_admin_cb_type admin_cb = nullptr) = 0;
-  virtual id_type insert_stop_order(bool buy, price_type stop, size_type size,
-                                    order_exec_cb_type exec_cb,
-                                    order_admin_cb_type admin_cb = nullptr) = 0;
-  virtual id_type insert_stop_order(bool buy, price_type stop, price_type limit,
-                                    size_type size,
-                                    order_exec_cb_type exec_cb,
-                                    order_admin_cb_type admin_cb = nullptr) = 0;
+  virtual id_type
+  insert_market_order(bool buy, size_type size, order_exec_cb_type exec_cb,
+                      order_admin_cb_type admin_cb = nullptr) = 0;
+  virtual id_type
+  insert_stop_order(bool buy, price_type stop, size_type size,
+                    order_exec_cb_type exec_cb,
+                    order_admin_cb_type admin_cb = nullptr) = 0;
+  virtual id_type
+  insert_stop_order(bool buy, price_type stop, price_type limit,
+                    size_type size, order_exec_cb_type exec_cb,
+                    order_admin_cb_type admin_cb = nullptr) = 0;
 
   virtual id_type
   replace_with_market_order(id_type id, bool buy, size_type size,
