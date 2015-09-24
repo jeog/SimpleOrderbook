@@ -75,6 +75,7 @@ MarketMaker::MarketMaker(MarketMaker&& mm) noexcept
     _callback( std::move(mm._callback) ),
     _my_orders( std::move(mm._my_orders) ),
     _is_running(mm._is_running),
+    _mtx(),
     _this_fill(std::move(mm._this_fill)),
     _last_fill(std::move(mm._last_fill)),
     _tick(mm._tick),
@@ -124,7 +125,12 @@ void MarketMaker::_base_callback(callback_msg msg,
   switch(msg){
   case callback_msg::fill:
     {
+      try{
       ob = this->_my_orders.at(id); /* THROW */
+      }catch(...){
+        int i = 1;
+        ++i;
+      }
       rem = std::get<2>(ob) - size;
 
       /* for our derived class */
@@ -139,8 +145,10 @@ void MarketMaker::_base_callback(callback_msg msg,
         this->_offer_out -= size;
       }
 
-      if(rem <= 0)
+      if(rem <= 0){
         this->_my_orders.erase(id);
+        (*pfout)<<"MM-ERASE-"<<std::to_string(id)<<std::endl;
+      }
       else
         this->_my_orders[id] =
           order_bndl_type(this->this_fill_was_buy(), price, rem);
@@ -149,6 +157,7 @@ void MarketMaker::_base_callback(callback_msg msg,
   case callback_msg::cancel:
     {
       ob = this->_my_orders.at(id); /* THROW */
+      (*pfout)<<"MM-CANCEL-"<<std::to_string(id)<<std::endl;
 
       if(std::get<0>(ob))
         this->_bid_out -= std::get<2>(ob);
@@ -228,6 +237,8 @@ void MarketMaker_Simple1::_exec_callback(callback_msg msg,
     switch(msg){
     case callback_msg::fill:
       {
+        if(size <3) break;
+
         if(this->this_fill_was_buy())
         {
           if(this->bid_out() + this->_sz + this->pos() > this->_max_pos)
@@ -305,13 +316,13 @@ MarketMaker_Random::MarketMaker_Random(size_type sz_low,
     _lowsz(sz_low),
     _highsz(sz_high),
     _midsz( (sz_high-sz_low)/2),
-    _bcumm(0),
-    _scumm(0),
     _rand_engine(this->_gen_seed()),
     _distr(sz_low, sz_high),
     _distr2(1, (int)d),
-    _disp(d)
+    _disp(d),
+    _refresher(this)
   {
+    // add a thread that checks/updates/removes orders to avoid staleness
   }
 
 MarketMaker_Random::MarketMaker_Random(MarketMaker_Random&& mm) noexcept
@@ -321,13 +332,13 @@ MarketMaker_Random::MarketMaker_Random(MarketMaker_Random&& mm) noexcept
     _lowsz(mm._lowsz),
     _highsz(mm._highsz),
     _midsz(mm._midsz),
-    _bcumm(mm._bcumm),
-    _scumm(mm._scumm),
     _rand_engine(std::move(mm._rand_engine)),
     _distr(std::move(mm._distr)),
     _distr2(std::move(mm._distr2)),
-    _disp(mm._disp)
+    _disp(mm._disp),
+    _refresher(std::move(mm._refresher))
   {
+    this->_refresher.rebind(this);
   }
 
 unsigned long long MarketMaker_Random::_gen_seed()
@@ -361,6 +372,7 @@ void MarketMaker_Random::start(sob_iface_type *book,
      {
        try{ this->insert<true>(price, amt); }catch(...){ break; }
      }
+  this->_refresher.start(); /* need to stop */
 }
 
 void MarketMaker_Random::_exec_callback(callback_msg msg,
@@ -376,8 +388,8 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
     switch(msg){
     case callback_msg::fill:
       {
-        if(size < 5)
-          break;
+    //    if(size < 5)
+     //     break;
 
         adj = this->tick() * this->_distr2(this->_rand_engine);
         amt = this->_distr(this->_rand_engine);

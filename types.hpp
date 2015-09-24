@@ -32,6 +32,11 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 
 #define SOB_MAX_MEM (1024 * 1024 * 1024)
 
+/*DEBUG*/
+#include <fstream>
+extern std::ofstream* pfout;
+/*DEBUG*/
+
 namespace NativeLayer{
 
 typedef float               price_type;

@@ -18,6 +18,10 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include "interfaces.hpp" /* first or fwrd decl issues with QueryInterface */
 #include "types.hpp"
 
+/*DEBUG*/
+std::ofstream* pfout = new std::ofstream("tmp.out");
+/*DEBUG*/
+
 namespace NativeLayer{
 
 std::string order_type_str(const order_type& ot)

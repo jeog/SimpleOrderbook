@@ -26,6 +26,7 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <mutex>
 #include <ratio>
 #include <algorithm>
+#include <thread>
 
 #include "../interfaces.hpp"
 #include "../types.hpp"
@@ -87,11 +88,12 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r);
  * it clear it's contents have been moved.
  *
  * Sub-classes of MarketMaker have to define the _move_to_new(&&) private virtual
- * function which steals its own contents, and passes them to a new derived
- * object inside a unique_ptr(pMarketMaker). This is intended to be used
- * internally BUT (and this not recommended) you can grab a reference -
- * to this or any object after its been moved but before it gets added to
- * the orderbook - and access it after it enters the orderbook.**
+ * function (DEFAULT_MOVE_TO_NEW macro provides a default definition) which
+ * steals its own contents, passing them to a new derived object inside a
+ * unique_ptr(pMarketMaker). This is intended to be used internally BUT
+ * (and this not recommended) you can grab a reference - to this or any object
+ * after its been moved but before it gets added to the orderbook - and access
+ * it after it enters the orderbook.**
  *
  *  **This can be useful for debugging if you want to externally use the
  *    insert<bool> call to inject orders
@@ -105,6 +107,11 @@ class MarketMakerA{
 public:
   virtual ~MarketMakerA() {}
 };
+
+#define DEFAULT_MOVE_TO_NEW(CLS) \
+virtual pMarketMaker _move_to_new(){ \
+  return pMarketMaker(new CLS(std::move(dynamic_cast<CLS&&>(*this)))); \
+}
 
 class MarketMaker
     : public MarketMakerA{
@@ -188,6 +195,7 @@ private:
   df_sptr_type _callback;
   orders_map_type _my_orders;
   bool _is_running;
+  std::recursive_mutex _mtx; /* <- is restrictive enough ?? */
   fill_info _this_fill, _last_fill;
   price_type _tick;
   size_type _bid_out;
@@ -258,9 +266,10 @@ public:
 template<bool BuyNotSell>
 void MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
 {
-
   if(!this->_is_running)
     throw invalid_state("market/market-maker is not in a running state");
+
+  std::lock_guard<std::recursive_mutex> _(this->_mtx);
 
   if(this->_recurse_count > this->_recurse_limit){
     /*
@@ -271,7 +280,6 @@ void MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
     throw callback_overflow("market maker trying to insert after exceeding the"
                             " recursion limit set for the callback stack");
   }
-
 
   this->_book->insert_limit_order(BuyNotSell, price,size,
                                   (!no_order_cb
@@ -306,6 +314,7 @@ size_type MarketMaker::random_remove(price_type minp, id_type this_id)
   size_type s;
   orders_map_type::const_iterator riter, eiter;
 
+  std::lock_guard<std::recursive_mutex> _(this->_mtx);
   eiter = this->_my_orders.end();
   riter = std::find_if(this->_my_orders.cbegin(),eiter,
                       [=](orders_value_type p){
@@ -317,7 +326,6 @@ size_type MarketMaker::random_remove(price_type minp, id_type this_id)
   s = 0;
   if(riter != eiter){
     s = std::get<2>(riter->second);
-   //std::cout<< "pulling: " << std::to_string(riter->first) << std::endl;
     this->_book->pull_order(riter->first);
   }
   return s;
@@ -328,15 +336,11 @@ class MarketMaker_Simple1
     : public MarketMaker{
 
   size_type _sz, _max_pos;
-  virtual void _exec_callback(callback_msg msg, id_type id, price_type price,
-                              size_type size);
 
-  virtual pMarketMaker _move_to_new()
-  {
-    return pMarketMaker( new MarketMaker_Simple1(
-      std::move(dynamic_cast<MarketMaker_Simple1&&>(*this))));
-  }
+  virtual void
+  _exec_callback(callback_msg msg, id_type id, price_type price, size_type size);
 
+  DEFAULT_MOVE_TO_NEW(MarketMaker_Simple1)
   /* disable copy construction */
   MarketMaker_Simple1(const MarketMaker_Simple1& mm);
 
@@ -357,7 +361,6 @@ public:
 
 class MarketMaker_Random
     : public MarketMaker{
-
 public:
   enum class dispersion{
       none = 1,
@@ -368,20 +371,60 @@ public:
     };
 
 private:
-  size_type _max_pos, _lowsz, _highsz, _midsz, _bcumm, _scumm;
+  size_type _max_pos, _lowsz, _highsz, _midsz;
   std::default_random_engine _rand_engine;
   std::uniform_int_distribution<size_type> _distr, _distr2;
   dispersion _disp;
 
-  virtual void _exec_callback(callback_msg msg, id_type id, price_type price,
-                              size_type size);
+  virtual void
+  _exec_callback(callback_msg msg, id_type id, price_type price, size_type size);
+
   unsigned long long _gen_seed();
 
-  virtual pMarketMaker _move_to_new()
-  {
-    return pMarketMaker( new MarketMaker_Random(
-      std::move(dynamic_cast<MarketMaker_Random&&>(*this))));
-  }
+  DEFAULT_MOVE_TO_NEW(MarketMaker_Random);
+
+  struct DynamicThreadWrap{
+    MarketMaker_Random* _mm;
+    std::thread* _thread;
+    volatile bool _run_flag;
+    void _run(MarketMaker_Random** _mm){
+      while(this->_run_flag){
+        size_type cumm;
+        price_type adj, p;
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+        adj = (*_mm)->tick() * (*_mm)->_distr2((*_mm)->_rand_engine);
+        p = (*_mm)->this_fill_price();
+        if(p <= adj)
+          continue;
+        cumm = (*_mm)->random_remove<true>(p - adj,0);
+        if(cumm) (*_mm)->insert<true>(p - adj, cumm);
+        cumm = (*_mm)->random_remove<false>(p + adj,0);
+        if(cumm) (*_mm)->insert<false>(p + adj, cumm);
+      }
+    }
+  public:
+    DynamicThreadWrap(MarketMaker_Random* mm)
+      :  _mm(mm),
+         _thread( nullptr ),
+         _run_flag(false)
+      {}
+    ~DynamicThreadWrap() { this->kill(); }
+    void rebind(MarketMaker_Random* mm){ this->_mm = mm; }
+    void start(){
+      if(this->_thread)
+        throw invalid_state("thread already exists");
+      this->_thread =
+        new std::thread(std::bind(&DynamicThreadWrap::_run,this,&(this->_mm)));
+      this->_thread->detach();
+      this->_run_flag = true;
+    }
+    void kill(){
+      this->_run_flag = false;
+      if(this->_thread)
+        delete this->_thread; // bad feeling about this
+    }
+  };
+  DynamicThreadWrap _refresher;
 
   /* disable copy construction */
   MarketMaker_Random(const MarketMaker_Random& mm);

@@ -35,6 +35,7 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <future>
 #include <condition_variable>
 #include <chrono>
+#include <fstream>
 
 #include "market_maker_native/market_maker.hpp"
 
@@ -160,6 +161,7 @@ private:
 
 #define SAME_(Ty1,Ty2) std::is_same<Ty1,Ty2>::value
 
+
   /* chain pair is the limit and stop chain at a particular price
    * use a (less safe) pointer for plevel because iterator
    * is implemented as a class and creates a number of problems internally */
@@ -195,10 +197,12 @@ private:
   market_makers_type _market_makers;
 
   /* is_dirty: trade/pull has occurred but we've deferred 'handling' it */
-  bool _is_dirty;
+  //bool _is_dirty;
 
-  /* store deferred callback info until we are clear to execute */
-  std::queue<dfrd_cb_elem_type> _deferred_callback_queue;
+  /* store deferred callbacks info until we are clear to execute */
+  std::deque<dfrd_cb_elem_type> _deferred_callback_queue;
+  /* flag used for restricting async attempts to clear queue until done*/
+  bool _cbs_in_progress;
 
   /* time & sales */
   std::vector< t_and_s_type > _t_and_s;
