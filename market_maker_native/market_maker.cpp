@@ -319,8 +319,7 @@ MarketMaker_Random::MarketMaker_Random(size_type sz_low,
     _rand_engine(this->_gen_seed()),
     _distr(sz_low, sz_high),
     _distr2(1, (int)d),
-    _disp(d),
-    _refresher(this)
+    _disp(d)
   {
     // add a thread that checks/updates/removes orders to avoid staleness
   }
@@ -335,10 +334,8 @@ MarketMaker_Random::MarketMaker_Random(MarketMaker_Random&& mm) noexcept
     _rand_engine(std::move(mm._rand_engine)),
     _distr(std::move(mm._distr)),
     _distr2(std::move(mm._distr2)),
-    _disp(mm._disp),
-    _refresher(std::move(mm._refresher))
+    _disp(mm._disp)
   {
-    this->_refresher.rebind(this);
   }
 
 unsigned long long MarketMaker_Random::_gen_seed()
@@ -372,7 +369,6 @@ void MarketMaker_Random::start(sob_iface_type *book,
      {
        try{ this->insert<true>(price, amt); }catch(...){ break; }
      }
-  this->_refresher.start(); /* need to stop */
 }
 
 void MarketMaker_Random::_exec_callback(callback_msg msg,
@@ -451,6 +447,23 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
              << std::to_string(price) << ", size: " << std::to_string(size)
              << ", id: " << std::to_string(id) << std::endl;
   }
+}
+
+void MarketMaker_Random::wake(price_type last)
+{
+  size_type cumm;
+  price_type adj;
+
+  adj = this->tick() * this->_distr2(this->_rand_engine);
+  if(last <= adj)
+    return;
+  cumm = this->random_remove<true>(last - adj,0);
+  if(cumm)
+    this->insert<true>(last - adj, cumm);
+  cumm = this->random_remove<false>(last + adj,0);
+  if(cumm)
+    this->insert<false>(last + adj, cumm);
+
 }
 
 market_makers_type MarketMaker_Random::Factory(init_list_type il)

@@ -202,7 +202,7 @@ private:
   /* store deferred callbacks info until we are clear to execute */
   std::deque<dfrd_cb_elem_type> _deferred_callback_queue;
   /* flag used for restricting async attempts to clear queue until done*/
-  bool _cbs_in_progress;
+  volatile bool _cbs_in_progress;
 
   /* time & sales */
   std::vector< t_and_s_type > _t_and_s;
@@ -217,6 +217,10 @@ private:
 
   /* handles the async/consumer side of the order queue */
   void _threaded_order_dispatcher();
+
+  /* market maker wake thread */
+  std::thread _mm_waker_thread;
+  void _threaded_mm_waker(int sleep);
 
   /* push order onto the order queue and block until execution */
   id_type _push_order_and_wait(order_type oty, bool buy, plevel limit,
@@ -329,7 +333,8 @@ private:
    **************************************************/
 
 public:
-  SimpleOrderbook(my_price_type price, my_price_type min, my_price_type max);
+  SimpleOrderbook(my_price_type price, my_price_type min, my_price_type max,
+                  int mm_wake_sleep=10000);
   ~SimpleOrderbook();
 
   void add_market_makers(market_makers_type&& mms);

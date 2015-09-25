@@ -106,6 +106,7 @@ class MarketMakerA{
   virtual pMarketMaker _move_to_new() = 0;
 public:
   virtual ~MarketMakerA() {}
+  virtual void wake(price_type last) {}
 };
 
 #define DEFAULT_MOVE_TO_NEW(CLS) \
@@ -363,48 +364,6 @@ public:
 class MarketMaker_Random
     : public MarketMaker{
 
-  struct DynamicThreadWrap{
-    MarketMaker_Random* _mm;
-    std::thread* _thread;
-    volatile bool _run_flag;
-    void _run(MarketMaker_Random** _mm){
-      while(this->_run_flag){
-        size_type cumm;
-        price_type adj, p;
-        std::this_thread::sleep_for(std::chrono::seconds(10));
-        adj = (*_mm)->tick() * (*_mm)->_distr2((*_mm)->_rand_engine);
-        p = (*_mm)->this_fill_price();
-        if(p <= adj)
-          continue;
-        cumm = (*_mm)->random_remove<true>(p - adj,0);
-        if(cumm) (*_mm)->insert<true>(p - adj, cumm);
-        cumm = (*_mm)->random_remove<false>(p + adj,0);
-        if(cumm) (*_mm)->insert<false>(p + adj, cumm);
-      }
-    }
-  public:
-    DynamicThreadWrap(MarketMaker_Random* mm)
-      :  _mm(mm),
-         _thread( nullptr ),
-         _run_flag(false)
-      {}
-    ~DynamicThreadWrap() { this->kill(); }
-    void rebind(MarketMaker_Random* mm){ this->_mm = mm; }
-    void start(){
-      if(this->_thread)
-        throw invalid_state("thread already exists");
-      this->_thread =
-        new std::thread(std::bind(&DynamicThreadWrap::_run,this,&(this->_mm)));
-      this->_thread->detach();
-      this->_run_flag = true;
-    }
-    void kill(){
-      this->_run_flag = false;
-      if(this->_thread)
-        delete this->_thread; // bad feeling about this
-    }
-  };
-
 public:
   enum class dispersion{
     none = 1, low = 3, moderate = 5, high = 7, very_high = 10
@@ -415,7 +374,6 @@ private:
   std::default_random_engine _rand_engine;
   std::uniform_int_distribution<size_type> _distr, _distr2;
   dispersion _disp;
-  DynamicThreadWrap _refresher;
 
   DEFAULT_MOVE_TO_NEW(MarketMaker_Random);
 
@@ -438,6 +396,8 @@ public:
                      dispersion d = dispersion::moderate);
   MarketMaker_Random(MarketMaker_Random&& mm) noexcept;
   virtual ~MarketMaker_Random() noexcept {}
+
+  void wake(price_type last);
 
   static market_makers_type Factory(init_list_type il);
   static market_makers_type Factory(size_type n, size_type sz_low,

@@ -11,7 +11,8 @@ namespace SimpleOrderbook{
 SOB_TEMPLATE 
 SOB_CLASS::SimpleOrderbook(my_price_type price, 
                            my_price_type min, 
-                           my_price_type max)
+                           my_price_type max,
+                           int mm_wake_sleep)
   :
   _bid_size(0),
   _ask_size(0),
@@ -63,6 +64,9 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
     this->_order_dispatcher_thread = 
       std::thread( std::bind(&SOB_CLASS::_threaded_order_dispatcher,this) );
     this->_order_dispatcher_thread.detach();
+    this->_mm_waker_thread = 
+      std::thread(std::bind(&SOB_CLASS::_threaded_mm_waker,this,mm_wake_sleep));
+    this->_mm_waker_thread.detach();
     std::cout<< "+ SimpleOrderbook Created\n";
   }
 
@@ -396,6 +400,7 @@ void SOB_CLASS::_clear_callback_queue()
     this->_deferred_callback_queue.clear(); 
     /* --- CRITICAL SECTION --- */
   }
+  std::cout<<"tmp size: "<<std::to_string(tmp.size())<<std::endl;
   for(auto& e : tmp){   
     cb = std::get<1>(e);     
     //(*pfout)<< "CB-" << std::to_string((int)std::get<0>(e)) << '-' 
@@ -966,6 +971,16 @@ size_type SOB_CLASS::_generate_and_check_total_incr()
   return i;
 }
 
+SOB_TEMPLATE
+void SOB_CLASS::_threaded_mm_waker(int sleep)
+{
+  if(sleep <= 0) return;
+  while(true){
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleep));  
+    for(auto& mm : this->_market_makers)
+      mm->wake(this->_itop(this->_last));
+  }
+}
 
 SOB_TEMPLATE
 void SOB_CLASS::add_market_makers(market_makers_type&& mms)
