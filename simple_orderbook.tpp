@@ -53,9 +53,9 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   _t_and_s_max_sz(1000),
   _t_and_s_full(false),
   _order_queue(),
-  _order_queue_mtx(),
-  _master_order_mtx(),
-  _order_queue_cond()  
+  _order_queue_mtx(new std::mutex),  
+  _order_queue_cond(),
+  _master_mtx(new std::mutex)
   {       
     if( min.to_incr() == 0 )
       throw std::invalid_argument("(TrimmedRational) min price must be > 0");
@@ -72,7 +72,7 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
 
 SOB_TEMPLATE 
 SOB_CLASS::~SimpleOrderbook()
-{
+{  
   std::cout<< "- SimpleOrderbook Destroyed\n";
 }
 
@@ -307,22 +307,23 @@ SOB_TEMPLATE
 void SOB_CLASS::_threaded_order_dispatcher()
 {  
   order_queue_elem_type e;
+  std::promise<id_type> p;
   id_type id;
   while(true){
     {
-      std::unique_lock<std::mutex> lock(this->_order_queue_mtx);    
+      std::unique_lock<std::mutex> lock(*(this->_order_queue_mtx));    
       this->_order_queue_cond.wait(lock, 
                                    [this]{return !this->_order_queue.empty();}); 
       e = std::move(this->_order_queue.front());
       this->_order_queue.pop();
     }     
-    
+    p = std::move(std::get<8>(e));
     id = std::get<6>(e);
     if(id == 0) /* might want to protect this at some point */
       id = this->_generate_id();
     
     {
-      std::lock_guard<std::mutex> lock(this->_master_order_mtx); 
+      std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
       /* --- CRITICAL SECTION --- */
       switch(std::get<0>(e)){      
       case order_type::limit: 
@@ -347,9 +348,10 @@ void SOB_CLASS::_threaded_order_dispatcher()
       } break;
       default: throw std::runtime_error("invalid order type in order_queue");
       }
+      this->_look_for_triggered_stops();
       /* --- CRITICAL SECTION --- */
     }   
-    std::get<8>(e).set_value(id);  
+    p.set_value(id);  
   }  
 }
 
@@ -368,52 +370,76 @@ id_type SOB_CLASS::_push_order_and_wait(order_type oty,
   std::promise<id_type> p;
   std::future<id_type> f(p.get_future());  
   {
-     std::lock_guard<std::mutex> _(this->_order_queue_mtx);
+     std::lock_guard<std::mutex> lock(*(this->_order_queue_mtx));
      this->_order_queue.push(
-       order_queue_elem_type(oty, buy, limit, stop, size, cb, id, 
-                             admin_cb,std::move(p)) );
+       order_queue_elem_type(oty, buy, limit, stop, size, cb, id, admin_cb,
+                             std::move(p)));
   }  
   this->_order_queue_cond.notify_one();
   ret_id = f.get();
- 
-  this->_clear_callback_queue(); 
-  this->_look_for_triggered_stops(); 
+    
+  this->_clear_callback_queue();   
   
   return ret_id;
 }
+
+SOB_TEMPLATE
+void SOB_CLASS::_push_order_no_wait(order_type oty, 
+                                    bool buy, 
+                                    plevel limit,
+                                    plevel stop,
+                                    size_type size,
+                                    order_exec_cb_type cb,                                         
+                                    order_admin_cb_type admin_cb,
+                                    id_type id)
+{ 
+  {
+     std::lock_guard<std::mutex> lock(*(this->_order_queue_mtx));
+     this->_order_queue.push(
+       order_queue_elem_type(oty, buy, limit, stop, size, cb, id, 
+                             admin_cb,std::move(std::promise<id_type>())) );
+  }  
+  this->_order_queue_cond.notify_one();
+}
+
 
 SOB_TEMPLATE
 void SOB_CLASS::_clear_callback_queue()
 { /* protect a move to a temp deque, clear actual, then call back */
   order_exec_cb_type cb; 
   std::deque<dfrd_cb_elem_type> tmp; 
-  {    
-    std::lock_guard<std::mutex> lock(this->_master_order_mtx); 
+  {  
+    if(this->_cbs_in_progress.load()) 
+      return;
+    std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
     /* --- CRITICAL SECTION --- */
-    if(this->_cbs_in_progress || this->_deferred_callback_queue.empty())    
+    if(this->_deferred_callback_queue.empty())    
      /* need the .empty() check to break out of loop caused by recursive call*/ 
       return;
-    else
-      this->_cbs_in_progress = true;
+    this->_cbs_in_progress.store(true);
     std::move(this->_deferred_callback_queue.begin(),
               this->_deferred_callback_queue.end(), back_inserter(tmp));     
     this->_deferred_callback_queue.clear(); 
     /* --- CRITICAL SECTION --- */
   }
-  std::cout<<"tmp size: "<<std::to_string(tmp.size())<<std::endl;
-  for(auto& e : tmp){   
-    cb = std::get<1>(e);     
-    //(*pfout)<< "CB-" << std::to_string((int)std::get<0>(e)) << '-' 
-    // << std::to_string(std::get<2>(e))<< ' ' << std::to_string(std::get<4>(e)) 
-    // << std::endl;
-    if(cb) cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));  
+ // std::cout<<"tmp size: "<<std::to_string(tmp.size())<<std::endl;
+  if(tmp.size() <= std::max(this->_market_makers.size(),(size_t)100)){
+    /* 
+     * arbitray check, needed to prevent an exponential explosion in callbacks 
+     * obviously need a better way to handle this than just deleting them
+     */  
+    for(auto& e : tmp){   
+      cb = std::get<1>(e);     
+      //(*pfout)<< "CB-" << std::to_string((int)std::get<0>(e)) << '-' 
+      // << std::to_string(std::get<2>(e))<< ' ' << std::to_string(std::get<4>(e)) 
+      // << std::endl;
+      if(cb) cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));  
+    }
   }
-  {
-    std::lock_guard<std::mutex> lock(this->_master_order_mtx);
-    /* --- CRITICAL SECTION --- */
-    this->_cbs_in_progress = false;
-    /* --- CRITICAL SECTION --- */
-  }
+ 
+  /* since we can't 'atomize' this with the last callback don't use mutex */
+  this->_cbs_in_progress.store(false);   
+  
   this->_clear_callback_queue(); /* take care of the interim pushs */
 }
 
@@ -428,13 +454,10 @@ void SOB_CLASS::_trade_has_occured(plevel plev,
 {/*
   * CAREFUL: we can't insert orders from here since we have yet to finish
   * processing the initial order (possible infinite loop);
-  *
-  * adjust state and use SOB_ON_TRADE_COMPLETION_() macro for earliest insert
   */
   price_type p = this->_itop(plev);
   
  // (*pfout)<<"TRADE-"<<std::to_string(idbuy)<<'-'<<std::to_string(idsell) <<" , "<<std::to_string(size)<<std::endl;
-  
   this->_deferred_callback_queue.push_back( 
     dfrd_cb_elem_type(callback_msg::fill, cbbuy, idbuy, p, size));
   this->_deferred_callback_queue.push_back(
@@ -465,7 +488,11 @@ void SOB_CLASS::_trade_has_occured(plevel plev,
  */
 SOB_TEMPLATE
 void SOB_CLASS::_look_for_triggered_stops()
-{ /* we don't check against max/min, because of the cached high/lows */
+{ /* 
+   * PART OF THE ENCLOSING CRITICAL SECTION  
+   *
+   * we don't check against max/min, because of the cached high/lows 
+   */
   plevel low, high;
 
   for(low = this->_low_buy_stop ; low <= this->_last ; ++low)    
@@ -478,7 +505,9 @@ void SOB_CLASS::_look_for_triggered_stops()
 SOB_TEMPLATE
 template<bool BuyStops>
 void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
-{
+{ /* 
+   * PART OF THE ENCLOSING CRITICAL SECTION 
+   */
   stop_chain_type cchain;
   order_exec_cb_type cb;
   plevel limit;     
@@ -517,25 +546,18 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     */  
     if(limit) /* stop to limit */
     {       
-      if(cb) /* exec callback: pass new limit price and size(??) */
-        cb(callback_msg::stop_to_limit, e.first, this->_itop(limit), sz);
-      
-      this->_push_order_and_wait(order_type::limit, std::get<0>(e.second),
+      if(cb){ /* exec callback: pass new limit price and size(??) */
+        this->_deferred_callback_queue.push_back( 
+          dfrd_cb_elem_type(callback_msg::stop_to_limit, cb, e.first, 
+                            this->_itop(limit), sz) );
+      }
+      this->_push_order_no_wait(order_type::limit, std::get<0>(e.second),
                                  limit, nullptr, sz, cb, nullptr, e.first);           
     }
     else /* stop to market */
-      this->_push_order_and_wait(order_type::market, std::get<0>(e.second),
-                                 nullptr, nullptr, sz, cb, nullptr, e.first);
+      this->_push_order_no_wait(order_type::market, std::get<0>(e.second),
+                                nullptr, nullptr, sz, cb, nullptr, e.first);
   }
-  /* 
-   * this could put us into an infinite loop if we haven't implemented the
-   * _look_for_triggered_stops and internal cache logic perfectly !
-   * 
-   * this could also happen if enough stops orders are entered 
-   * (but that's not our problem)
-   */
-  this->_clear_callback_queue(); 
-  this->_look_for_triggered_stops();  
 }
 
 
@@ -662,13 +684,16 @@ SOB_CLASS::_market_depth(size_type depth) const
   plevel h,l;
   market_depth_type md;
   
+  std::lock_guard<std::mutex> lock(*(this->_master_mtx));
+  /* --- CRITICAL SECTION --- */ 
   _high_low<Side>::set_using_depth(this,&h,&l,depth);
-
+  
   for( ; h >= l; --h)
     if(!h->first.empty())
       md.insert( market_depth_type::value_type(this->_itop(h), 
                                                this->_chain_size(&h->first)));
   return md;
+  /* --- CRITICAL SECTION --- */ 
 }
 
 SOB_TEMPLATE
@@ -693,6 +718,8 @@ order_info_type SOB_CLASS::_get_order_info(id_type id)
   ASSERT_VALID_CHAIN(FirstChainTy);
   ASSERT_VALID_CHAIN(SecondChainTy);
   
+  std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
+  /* --- CRITICAL SECTION --- */  
   std::pair<plevel,FirstChainTy*> pc = _find_order_chain<FirstChainTy>(id);
   p = std::get<0>(pc);
   fc = std::get<1>(pc);
@@ -705,7 +732,7 @@ order_info_type SOB_CLASS::_get_order_info(id_type id)
       : _order_info<SecondChainTy>::generate(this, id, p, sc); 
   }else
     return _order_info<FirstChainTy>::generate(this, id, p, fc);   
- 
+  /* --- CRITICAL SECTION --- */ 
 }
 
 SOB_TEMPLATE
@@ -832,6 +859,9 @@ void SOB_CLASS::_dump_limits() const
 { 
   plevel h,l;
 
+  std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
+  /* --- CRITICAL SECTION --- */
+  
   /* from high to low */
   h = BuyNotSell ? this->_bid : this->_high_sell_limit;
   l = BuyNotSell ? this->_low_buy_limit : this->_ask;
@@ -846,6 +876,7 @@ void SOB_CLASS::_dump_limits() const
         std::cout<< " <" << e.second.first << " #" << e.first << "> ";
       std::cout<< std::endl;
     } 
+  /* --- CRITICAL SECTION --- */
 }
 
 SOB_TEMPLATE
@@ -854,6 +885,9 @@ void SOB_CLASS::_dump_stops() const
 { 
   plevel h, l, plim;
 
+  std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
+  /* --- CRITICAL SECTION --- */
+  
   /* from high to low */
   h = BuyNotSell ? this->_high_buy_stop : this->_high_sell_stop;
   l = BuyNotSell ? this->_low_buy_stop : this->_low_sell_stop;
@@ -873,12 +907,15 @@ void SOB_CLASS::_dump_stops() const
       }
       std::cout<< std::endl;
     } 
+  /* --- CRITICAL SECTION --- */
 }
 
 SOB_TEMPLATE
 void SOB_CLASS::dump_cached_plevels() const
 { /* DEBUG */
   std::cout<< "CACHED PLEVELS" << std::endl;
+  /* --- CRITICAL SECTION --- */
+  std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
   std::cout<< "_high_sell_limit: "
          << std::to_string(this->_itop(this->_high_sell_limit)) << std::endl;
   std::cout<< "_high_buy_stop: "
@@ -893,6 +930,7 @@ void SOB_CLASS::dump_cached_plevels() const
           << std::to_string(this->_itop(this->_low_sell_stop)) << std::endl;
   std::cout<< "_low_buy_limit: "
            << std::to_string(this->_itop(this->_low_buy_limit)) << std::endl;
+  /* --- CRITICAL SECTION --- */
 }
 
 SOB_TEMPLATE
@@ -974,11 +1012,17 @@ size_type SOB_CLASS::_generate_and_check_total_incr()
 SOB_TEMPLATE
 void SOB_CLASS::_threaded_mm_waker(int sleep)
 {
-  if(sleep <= 0) return;
+  int s;
+  if(sleep <= 0) 
+    return;
+  std::this_thread::sleep_for(std::chrono::milliseconds(sleep)); 
   while(true){
-    std::this_thread::sleep_for(std::chrono::milliseconds(sleep));  
-    for(auto& mm : this->_market_makers)
+    /* not exact, but good enough */
+    s = std::max((int)(sleep/std::max(this->_market_makers.size(),(size_t)1)),1);     
+    for(auto& mm : this->_market_makers){   
       mm->wake(this->_itop(this->_last));
+      std::this_thread::sleep_for(std::chrono::milliseconds(s)); 
+    }
   }
 }
 
@@ -1093,7 +1137,8 @@ bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
   bool res;  
   {
     /* --- CRITICAL SECTION --- */
-    std::lock_guard<std::mutex> _(this->_master_order_mtx); 
+    /* lock needs to be out here to enclose both _pull_order calls */
+    std::lock_guard<std::mutex> lock(*(this->_master_mtx));     
     res = search_limits_first ? SEARCH_LIMITS_FIRST(id) : SEARCH_STOPS_FIRST(id);
     /* --- CRITICAL SECTION --- */
   }
@@ -1106,10 +1151,12 @@ SOB_TEMPLATE
 order_info_type SOB_CLASS::get_order_info(id_type id, bool search_limits_first) 
 {   
   {
-    std::lock_guard<std::mutex> _(this->_master_order_mtx); 
+    std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
+    /* --- CRITICAL SECTION --- */
     return search_limits_first
       ? this->_get_order_info<limit_chain_type, stop_chain_type>(id)    
-      : this->_get_order_info<stop_chain_type, limit_chain_type>(id); 
+      : this->_get_order_info<stop_chain_type, limit_chain_type>(id);
+    /* --- CRITICAL SECTION --- */
   }   
 }
 

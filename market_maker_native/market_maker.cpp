@@ -453,17 +453,22 @@ void MarketMaker_Random::wake(price_type last)
 {
   size_type cumm;
   price_type adj;
-
+/*
   adj = this->tick() * this->_distr2(this->_rand_engine);
   if(last <= adj)
     return;
-  cumm = this->random_remove<true>(last - adj,0);
-  if(cumm)
-    this->insert<true>(last - adj, cumm);
-  cumm = this->random_remove<false>(last + adj,0);
-  if(cumm)
-    this->insert<false>(last + adj, cumm);
-
+  if(this->pos() < 0){
+    cumm = this->random_remove<true>(last - adj*2,0);
+    if(cumm)
+      this->insert<true>(last - adj, cumm);
+  }
+  else
+  {
+    cumm = this->random_remove<false>(last + adj*2,0);
+    if(cumm)
+     this->insert<false>(last + adj, cumm);
+  }
+*/
 }
 
 market_makers_type MarketMaker_Random::Factory(init_list_type il)

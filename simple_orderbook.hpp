@@ -202,7 +202,7 @@ private:
   /* store deferred callbacks info until we are clear to execute */
   std::deque<dfrd_cb_elem_type> _deferred_callback_queue;
   /* flag used for restricting async attempts to clear queue until done*/
-  volatile bool _cbs_in_progress;
+  std::atomic_bool _cbs_in_progress;
 
   /* time & sales */
   std::vector< t_and_s_type > _t_and_s;
@@ -211,12 +211,15 @@ private:
 
   /* async order queue and sync objects */
   std::queue<order_queue_elem_type> _order_queue;
-  std::mutex _order_queue_mtx, _master_order_mtx;
+  std::unique_ptr<std::mutex> _order_queue_mtx;
   std::condition_variable _order_queue_cond;
   std::thread _order_dispatcher_thread;
 
   /* handles the async/consumer side of the order queue */
   void _threaded_order_dispatcher();
+
+  /* master sync for accessing internals */
+  std::unique_ptr<std::mutex> _master_mtx;
 
   /* market maker wake thread */
   std::thread _mm_waker_thread;
@@ -227,6 +230,11 @@ private:
                                plevel stop, size_type size, order_exec_cb_type cb,
                                order_admin_cb_type admin_cb= nullptr,
                                id_type id = 0);
+
+  /* push order onto the order queue, DONT block */
+  void _push_order_no_wait(order_type oty, bool buy, plevel limit, plevel stop,
+                           size_type size, order_exec_cb_type cb,
+                           order_admin_cb_type admin_cb= nullptr,id_type id = 0);
 
   /* generate order ids; don't worry about overflow */
   inline large_size_type _generate_id(){ return ++(this->_last_id); }
