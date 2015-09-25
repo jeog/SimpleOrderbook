@@ -269,7 +269,7 @@ void MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
   if(!this->_is_running)
     throw invalid_state("market/market-maker is not in a running state");
 
-  std::lock_guard<std::recursive_mutex> _(this->_mtx);
+  std::lock_guard<std::recursive_mutex> rlock(this->_mtx);
 
   if(this->_recurse_count > this->_recurse_limit){
     /*
@@ -314,7 +314,7 @@ size_type MarketMaker::random_remove(price_type minp, id_type this_id)
   size_type s;
   orders_map_type::const_iterator riter, eiter;
 
-  std::lock_guard<std::recursive_mutex> _(this->_mtx);
+  std::lock_guard<std::recursive_mutex> rlock(this->_mtx);
   eiter = this->_my_orders.end();
   riter = std::find_if(this->_my_orders.cbegin(),eiter,
                       [=](orders_value_type p){
@@ -341,6 +341,7 @@ class MarketMaker_Simple1
   _exec_callback(callback_msg msg, id_type id, price_type price, size_type size);
 
   DEFAULT_MOVE_TO_NEW(MarketMaker_Simple1)
+
   /* disable copy construction */
   MarketMaker_Simple1(const MarketMaker_Simple1& mm);
 
@@ -361,27 +362,6 @@ public:
 
 class MarketMaker_Random
     : public MarketMaker{
-public:
-  enum class dispersion{
-      none = 1,
-      low = 3,
-      moderate = 5,
-      high = 7,
-      very_high = 10
-    };
-
-private:
-  size_type _max_pos, _lowsz, _highsz, _midsz;
-  std::default_random_engine _rand_engine;
-  std::uniform_int_distribution<size_type> _distr, _distr2;
-  dispersion _disp;
-
-  virtual void
-  _exec_callback(callback_msg msg, id_type id, price_type price, size_type size);
-
-  unsigned long long _gen_seed();
-
-  DEFAULT_MOVE_TO_NEW(MarketMaker_Random);
 
   struct DynamicThreadWrap{
     MarketMaker_Random* _mm;
@@ -424,7 +404,25 @@ private:
         delete this->_thread; // bad feeling about this
     }
   };
+
+public:
+  enum class dispersion{
+    none = 1, low = 3, moderate = 5, high = 7, very_high = 10
+  };
+
+private:
+  size_type _max_pos, _lowsz, _highsz, _midsz;
+  std::default_random_engine _rand_engine;
+  std::uniform_int_distribution<size_type> _distr, _distr2;
+  dispersion _disp;
   DynamicThreadWrap _refresher;
+
+  DEFAULT_MOVE_TO_NEW(MarketMaker_Random);
+
+  virtual void
+  _exec_callback(callback_msg msg, id_type id, price_type price, size_type size);
+
+  unsigned long long _gen_seed();
 
   /* disable copy construction */
   MarketMaker_Random(const MarketMaker_Random& mm);

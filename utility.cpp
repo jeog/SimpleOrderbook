@@ -19,7 +19,7 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include "types.hpp"
 
 /*DEBUG*/
-std::ofstream* pfout = new std::ofstream("tmp.out");
+std::ofstream fout("tmp.out");
 /*DEBUG*/
 
 namespace NativeLayer{

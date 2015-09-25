@@ -147,7 +147,7 @@ void MarketMaker::_base_callback(callback_msg msg,
 
       if(rem <= 0){
         this->_my_orders.erase(id);
-        (*pfout)<<"MM-ERASE-"<<std::to_string(id)<<std::endl;
+       // (*pfout)<<"MM-ERASE-"<<std::to_string(id)<<std::endl;
       }
       else
         this->_my_orders[id] =
@@ -157,7 +157,7 @@ void MarketMaker::_base_callback(callback_msg msg,
   case callback_msg::cancel:
     {
       ob = this->_my_orders.at(id); /* THROW */
-      (*pfout)<<"MM-CANCEL-"<<std::to_string(id)<<std::endl;
+     // fout<<"MM-CANCEL-"<<std::to_string(id)<<std::endl;
 
       if(std::get<0>(ob))
         this->_bid_out -= std::get<2>(ob);
