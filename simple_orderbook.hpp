@@ -220,10 +220,12 @@ private:
 
   /* master sync for accessing internals */
   std::unique_ptr<std::mutex> _master_mtx;
+  /* sync mm access */
+  std::unique_ptr<std::recursive_mutex> _mm_mtx;
 
-  /* market maker wake thread */
-  std::thread _mm_waker_thread;
-  void _threaded_mm_waker(int sleep);
+  /* periodic async calls to _clear_callback_cache() and MarketMaker::wake() */
+  std::thread _waker_thread;
+  void _threaded_waker(int sleep);
 
   /* push order onto the order queue and block until execution */
   id_type _push_order_and_wait(order_type oty, bool buy, plevel limit,
@@ -299,7 +301,7 @@ private:
   void _dump_stops() const;
 
   /* handle post-trade tasks */
-  void _clear_callback_queue();
+  void _clear_callback_queue(int rcount=0);
   void _on_trade_completion();
   void _look_for_triggered_stops();
   template< bool BuyStops>
@@ -342,7 +344,7 @@ private:
 
 public:
   SimpleOrderbook(my_price_type price, my_price_type min, my_price_type max,
-                  int mm_wake_sleep=10000);
+                  int sleep=500);
   ~SimpleOrderbook();
 
   void add_market_makers(market_makers_type&& mms);

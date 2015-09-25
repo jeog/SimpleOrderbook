@@ -12,7 +12,7 @@ SOB_TEMPLATE
 SOB_CLASS::SimpleOrderbook(my_price_type price, 
                            my_price_type min, 
                            my_price_type max,
-                           int mm_wake_sleep)
+                           int sleep)
   :
   _bid_size(0),
   _ask_size(0),
@@ -55,7 +55,8 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   _order_queue(),
   _order_queue_mtx(new std::mutex),  
   _order_queue_cond(),
-  _master_mtx(new std::mutex)
+  _master_mtx(new std::mutex),
+  _mm_mtx(new std::recursive_mutex)
   {       
     if( min.to_incr() == 0 )
       throw std::invalid_argument("(TrimmedRational) min price must be > 0");
@@ -64,9 +65,9 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
     this->_order_dispatcher_thread = 
       std::thread( std::bind(&SOB_CLASS::_threaded_order_dispatcher,this) );
     this->_order_dispatcher_thread.detach();
-    this->_mm_waker_thread = 
-      std::thread(std::bind(&SOB_CLASS::_threaded_mm_waker,this,mm_wake_sleep));
-    this->_mm_waker_thread.detach();
+    this->_waker_thread = 
+      std::thread(std::bind(&SOB_CLASS::_threaded_waker,this,sleep));
+    this->_waker_thread.detach();
     std::cout<< "+ SimpleOrderbook Created\n";
   }
 
@@ -396,51 +397,37 @@ void SOB_CLASS::_push_order_no_wait(order_type oty,
   {
      std::lock_guard<std::mutex> lock(*(this->_order_queue_mtx));
      this->_order_queue.push(
-       order_queue_elem_type(oty, buy, limit, stop, size, cb, id, 
-                             admin_cb,std::move(std::promise<id_type>())) );
+       order_queue_elem_type(oty, buy, limit, stop, size, cb, id, admin_cb,
+             /* dummy --> */ std::move(std::promise<id_type>())) );
   }  
   this->_order_queue_cond.notify_one();
 }
 
 
 SOB_TEMPLATE
-void SOB_CLASS::_clear_callback_queue()
+void SOB_CLASS::_clear_callback_queue(int rcount) /*=0*/
 { /* protect a move to a temp deque, clear actual, then call back */
   order_exec_cb_type cb; 
   std::deque<dfrd_cb_elem_type> tmp; 
   {  
-    if(this->_cbs_in_progress.load()) 
+    if(this->_cbs_in_progress.load() || rcount > 1) /* only 2 recurses for now */ 
       return;
     std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
     /* --- CRITICAL SECTION --- */
-    if(this->_deferred_callback_queue.empty())    
-     /* need the .empty() check to break out of loop caused by recursive call*/ 
-      return;
     this->_cbs_in_progress.store(true);
     std::move(this->_deferred_callback_queue.begin(),
               this->_deferred_callback_queue.end(), back_inserter(tmp));     
     this->_deferred_callback_queue.clear(); 
     /* --- CRITICAL SECTION --- */
   }
- // std::cout<<"tmp size: "<<std::to_string(tmp.size())<<std::endl;
-  if(tmp.size() <= std::max(this->_market_makers.size(),(size_t)100)){
-    /* 
-     * arbitray check, needed to prevent an exponential explosion in callbacks 
-     * obviously need a better way to handle this than just deleting them
-     */  
-    for(auto& e : tmp){   
-      cb = std::get<1>(e);     
-      //(*pfout)<< "CB-" << std::to_string((int)std::get<0>(e)) << '-' 
-      // << std::to_string(std::get<2>(e))<< ' ' << std::to_string(std::get<4>(e)) 
-      // << std::endl;
-      if(cb) cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));  
-    }
-  }
- 
+  std::cout<<"tmp size: "<<std::to_string(tmp.size())<<std::endl;
+  for(auto& e : tmp){   
+    cb = std::get<1>(e);  
+    if(cb) cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));  
+  } 
   /* since we can't 'atomize' this with the last callback don't use mutex */
-  this->_cbs_in_progress.store(false);   
-  
-  this->_clear_callback_queue(); /* take care of the interim pushs */
+  this->_cbs_in_progress.store(false);     
+  this->_clear_callback_queue(++rcount); /* take care of the interim pushs */
 }
 
 SOB_TEMPLATE
@@ -457,7 +444,6 @@ void SOB_CLASS::_trade_has_occured(plevel plev,
   */
   price_type p = this->_itop(plev);
   
- // (*pfout)<<"TRADE-"<<std::to_string(idbuy)<<'-'<<std::to_string(idsell) <<" , "<<std::to_string(size)<<std::endl;
   this->_deferred_callback_queue.push_back( 
     dfrd_cb_elem_type(callback_msg::fill, cbbuy, idbuy, p, size));
   this->_deferred_callback_queue.push_back(
@@ -542,17 +528,20 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     cb = std::get<3>(e.second);
     sz = std::get<2>(e.second);
    /*
-    * note below we are keeping the old id
+    * note we are keeping the old id
+    * 
+    * we can't use the blocking version of _push_order or we'll deadlock
+    * the order_queue; since we can't guarantee an exec before clearing
+    * the queue, we don't, allowing the waker thread to do this...
     */  
-    if(limit) /* stop to limit */
-    {       
-      if(cb){ /* exec callback: pass new limit price and size(??) */
+    if(limit){ /* stop to limit */    
+      if(cb){ 
         this->_deferred_callback_queue.push_back( 
           dfrd_cb_elem_type(callback_msg::stop_to_limit, cb, e.first, 
                             this->_itop(limit), sz) );
       }
       this->_push_order_no_wait(order_type::limit, std::get<0>(e.second),
-                                 limit, nullptr, sz, cb, nullptr, e.first);           
+                                limit, nullptr, sz, cb, nullptr, e.first);           
     }
     else /* stop to market */
       this->_push_order_no_wait(order_type::market, std::get<0>(e.second),
@@ -1010,43 +999,67 @@ size_type SOB_CLASS::_generate_and_check_total_incr()
 }
 
 SOB_TEMPLATE
-void SOB_CLASS::_threaded_mm_waker(int sleep)
+void SOB_CLASS::_threaded_waker(int sleep)
 {
-  int s;
   if(sleep <= 0) 
     return;
-  std::this_thread::sleep_for(std::chrono::milliseconds(sleep)); 
-  while(true){
-    /* not exact, but good enough */
-    s = std::max((int)(sleep/std::max(this->_market_makers.size(),(size_t)1)),1);     
-    for(auto& mm : this->_market_makers){   
-      mm->wake(this->_itop(this->_last));
-      std::this_thread::sleep_for(std::chrono::milliseconds(s)); 
+  else if(sleep < 100)
+    std::cerr<< "sleep < 100ms in _threaded_waker; consider larger value\n";
+  
+  while(true){ 
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleep));
+    std::lock_guard<std::recursive_mutex> lock(*(this->_mm_mtx));
+    /* --- CRITICAL SECTION --- */ 
+    if(this->_market_makers.size() == 0){      
+      this->_clear_callback_queue();
+      continue;
     }
+    for(auto& mm : this->_market_makers)
+    {  
+      std::this_thread::sleep_for(std::chrono::milliseconds(sleep)); 
+      mm->wake(this->_itop(this->_last));
+      this->_clear_callback_queue();
+    }
+    /* --- CRITICAL SECTION --- */ 
   }
 }
 
 SOB_TEMPLATE
 void SOB_CLASS::add_market_makers(market_makers_type&& mms)
-{ /* start and steal the market_maker smart_pointers */
+{/* 
+  * start and steal the market_maker smart_pointers 
+  */
+  std::lock_guard<std::recursive_mutex> lock(*(this->_mm_mtx));
+  /* --- CRITICAL SECTION --- */        
   for(pMarketMaker& mm : mms){   
     mm->start(this, this->_itop(this->_last), tick_size);    
-    this->_market_makers.push_back(std::move(mm));
+    this->_market_makers.push_back(std::move(mm));    
   }
+  /* --- CRITICAL SECTION --- */ 
 }
 
 SOB_TEMPLATE
 void SOB_CLASS::add_market_maker(MarketMaker&& mm)
-{ /* create market_maker smart_pointer, start and push */
+{/* 
+  * create market_maker smart_pointer, start and push 
+  */
+  std::lock_guard<std::recursive_mutex> lock(*(this->_mm_mtx));
+  /* --- CRITICAL SECTION --- */ 
   pMarketMaker pmm = mm._move_to_new();
   this->add_market_maker(std::move(pmm));
+  /* --- CRITICAL SECTION --- */ 
 }
 
 SOB_TEMPLATE
 void SOB_CLASS::add_market_maker(pMarketMaker&& mm)
-{ /* accept market_maker smart_pointer, start and push */
+{/* 
+  * accept market_maker smart_pointer, start and push 
+  */
+  std::lock_guard<std::recursive_mutex> lock(*(this->_mm_mtx));
+  /* --- CRITICAL SECTION --- */ 
   mm->start(this, this->_itop(this->_last), tick_size);
   this->_market_makers.push_back(std::move(mm)); 
+  /* --- CRITICAL SECTION --- */ 
 }
 
 SOB_TEMPLATE
