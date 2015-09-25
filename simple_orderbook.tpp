@@ -410,7 +410,7 @@ void SOB_CLASS::_clear_callback_queue(int rcount) /*=0*/
   order_exec_cb_type cb; 
   std::deque<dfrd_cb_elem_type> tmp; 
   {  
-    if(this->_cbs_in_progress.load() || rcount > 1) /* only 2 recurses for now */ 
+    if(this->_cbs_in_progress.load() || rcount > 1) 
       return;
     std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
     /* --- CRITICAL SECTION --- */
@@ -419,8 +419,7 @@ void SOB_CLASS::_clear_callback_queue(int rcount) /*=0*/
               this->_deferred_callback_queue.end(), back_inserter(tmp));     
     this->_deferred_callback_queue.clear(); 
     /* --- CRITICAL SECTION --- */
-  }
-  std::cout<<"tmp size: "<<std::to_string(tmp.size())<<std::endl;
+  } 
   for(auto& e : tmp){   
     cb = std::get<1>(e);  
     if(cb) cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));  
@@ -596,7 +595,6 @@ void SOB_CLASS::_insert_limit_order(bool buy,
   
   if(admin_cb)
     admin_cb(id);
-//(*pfout)<< "I-"<< std::to_string(id)<<' '<< std::to_string(size) << std::endl;
 }
 
 SOB_TEMPLATE
@@ -650,15 +648,11 @@ void SOB_CLASS::_insert_stop_order(bool buy,
   
   /* udpate cache vals */
   if(buy){
-    if(stop < this->_low_buy_stop)
-      this->_low_buy_stop = stop;
-    if(stop > this->_high_buy_stop)
-      this->_high_buy_stop = stop;
+    if(stop < this->_low_buy_stop)  this->_low_buy_stop = stop;
+    if(stop > this->_high_buy_stop) this->_high_buy_stop = stop;
   }else{ 
-    if(stop > this->_high_sell_stop)
-      this->_high_sell_stop = stop;
-    if(stop < this->_low_sell_stop)
-      this->_low_sell_stop = stop;
+    if(stop > this->_high_sell_stop) this->_high_sell_stop = stop;
+    if(stop < this->_low_sell_stop)  this->_low_sell_stop = stop;
   }
   
   if(admin_cb) 
@@ -773,8 +767,7 @@ bool SOB_CLASS::_pull_order(id_type id)
   cb = this->_get_cb_from_bndl(bndl); 
   if(!IsLimit) 
     is_buystop = std::get<0>(bndl); 
-  c->erase(id); 
-//  (*pfout)<< "E-" << std::to_string(id) <<std::endl;
+  c->erase(id);
   /* adjust cache vals as necessary */
   if(IsLimit && c->empty())
     this->_adjust_limit_cache_vals(p);
@@ -1148,10 +1141,10 @@ SOB_TEMPLATE
 bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
 {
   bool res;  
-  {
-    /* --- CRITICAL SECTION --- */
+  {   
     /* lock needs to be out here to enclose both _pull_order calls */
-    std::lock_guard<std::mutex> lock(*(this->_master_mtx));     
+    std::lock_guard<std::mutex> lock(*(this->_master_mtx));
+    /* --- CRITICAL SECTION --- */
     res = search_limits_first ? SEARCH_LIMITS_FIRST(id) : SEARCH_STOPS_FIRST(id);
     /* --- CRITICAL SECTION --- */
   }
