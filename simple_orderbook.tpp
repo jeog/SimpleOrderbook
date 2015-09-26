@@ -12,7 +12,7 @@ SOB_TEMPLATE
 SOB_CLASS::SimpleOrderbook(my_price_type price, 
                            my_price_type min, 
                            my_price_type max,
-                           int sleep)
+                           int sleep) /*=500 ms*/
   :
   _bid_size(0),
   _ask_size(0),
@@ -56,24 +56,36 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   _order_queue_mtx(new std::mutex),  
   _order_queue_cond(),
   _master_mtx(new std::mutex),
-  _mm_mtx(new std::recursive_mutex)
+  _mm_mtx(new std::recursive_mutex),
+  _igate_mtx(new std::mutex),
+  _igate_cond(),
+  _igate_flag(true),
+  _master_run_flag(true)
   {       
     if( min.to_incr() == 0 )
       throw std::invalid_argument("(TrimmedRational) min price must be > 0");
     this->_t_and_s.reserve(this->_t_and_s_max_sz); 
+    
     /* - DONT THROW AFTER THIS POINT - */
     this->_order_dispatcher_thread = 
-      std::thread( std::bind(&SOB_CLASS::_threaded_order_dispatcher,this) );
-    this->_order_dispatcher_thread.detach();
+      std::thread( std::bind(&SOB_CLASS::_threaded_order_dispatcher,this) );    
+    
     this->_waker_thread = 
-      std::thread(std::bind(&SOB_CLASS::_threaded_waker,this,sleep));
-    this->_waker_thread.detach();
+      std::thread(std::bind(&SOB_CLASS::_threaded_waker,this,sleep));    
+    
+    this->_callback_thread = 
+      std::thread(std::bind(&SOB_CLASS::_threaded_callbacks,this));      
+      
     std::cout<< "+ SimpleOrderbook Created\n";
   }
 
 SOB_TEMPLATE 
 SOB_CLASS::~SimpleOrderbook()
 {  
+  this->_order_dispatcher_thread.detach();
+  this->_waker_thread.detach();
+  this->_callback_thread.detach();
+  this->_master_run_flag = false;
   std::cout<< "- SimpleOrderbook Destroyed\n";
 }
 
@@ -304,13 +316,22 @@ size_type SOB_CLASS::_hit_bids(plevel plev,
   return size; /* what we couldn't fill */
 }
 
+#define SEARCH_LIMITS_FIRST(id) \
+this->_pull_order<limit_chain_type>(id) || this->_pull_order<stop_chain_type>(id)
+
+#define SEARCH_STOPS_FIRST(id) \
+this->_pull_order<stop_chain_type>(id) || this->_pull_order<limit_chain_type>(id)
+
 SOB_TEMPLATE
 void SOB_CLASS::_threaded_order_dispatcher()
 {  
   order_queue_elem_type e;
   std::promise<id_type> p;
+  order_type ot;
   id_type id;
-  while(true){
+  bool res;
+  
+  while(this->_master_run_flag){
     {
       std::unique_lock<std::mutex> lock(*(this->_order_queue_mtx));    
       this->_order_queue_cond.wait(lock, 
@@ -320,13 +341,15 @@ void SOB_CLASS::_threaded_order_dispatcher()
     }     
     p = std::move(std::get<8>(e));
     id = std::get<6>(e);
+    ot = std::get<0>(e);
+    
     if(id == 0) /* might want to protect this at some point */
       id = this->_generate_id();
     
     {
       std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
       /* --- CRITICAL SECTION --- */
-      switch(std::get<0>(e)){      
+      switch(ot){      
       case order_type::limit: 
       {
         this->_insert_limit_order(std::get<1>(e),std::get<2>(e),std::get<4>(e),
@@ -347,9 +370,19 @@ void SOB_CLASS::_threaded_order_dispatcher()
         this->_insert_stop_order(std::get<1>(e),std::get<3>(e),std::get<2>(e),
                                  std::get<4>(e),std::get<5>(e),id,std::get<7>(e));         
       } break;
-      default: throw std::runtime_error("invalid order type in order_queue");
+      case order_type::null:
+      {
+        res = std::get<1>(e) ? SEARCH_LIMITS_FIRST(id) : SEARCH_STOPS_FIRST(id);
+        id = (id_type)res;
+      } break;
+      default: 
+        throw std::runtime_error("invalid order type in order_queue");
       }
-      this->_look_for_triggered_stops();
+      
+      if(ot != order_type::null)
+        this->_look_for_triggered_stops();
+      
+    //  this->_clear_callback_queue();
       /* --- CRITICAL SECTION --- */
     }   
     p.set_value(id);  
@@ -377,10 +410,9 @@ id_type SOB_CLASS::_push_order_and_wait(order_type oty,
                              std::move(p)));
   }  
   this->_order_queue_cond.notify_one();
+  /* BLOCKING */
   ret_id = f.get();
-    
-  this->_clear_callback_queue();   
-  
+  /* BLOCKING */  
   return ret_id;
 }
 
@@ -403,30 +435,69 @@ void SOB_CLASS::_push_order_no_wait(order_type oty,
   this->_order_queue_cond.notify_one();
 }
 
+/* 
+ * the insert gates attempt to block all insert/pulls from threads
+ * other that _callback_thread when a baglog arises
+ * 
+ * IF CALLBACK/WAKER FUNCTIONS INSERT/PULL FROM A NEW THREAD WE'LL DEADLOCK !!
+ */
+#define WAIT_ON_INSERT_GATE() \
+do{ \
+  if(this->_callback_thread.get_id() != std::this_thread::get_id() \
+     && this->_waker_thread.get_id() != std::this_thread::get_id()) \
+  { \
+    std::unique_lock<std::mutex> lock(*(this->_igate_mtx)); \
+    this->_igate_cond.wait(lock, [this](){ return this->_igate_flag; }); \
+  } \
+}while(0)
 
+#define CLOSE_INSERT_GATE() \
+do{ \
+  std::lock_guard<std::mutex> lock(*(this->_igate_mtx)); \
+  this->_igate_flag = false; \
+}while(0)    
+
+#define OPEN_INSERT_GATE() \
+do{ \
+  { \
+    std::lock_guard<std::mutex> lock(*(this->_igate_mtx)); \
+    this->_igate_flag = true; \
+  } \
+  this->_igate_cond.notify_all(); \
+}while(0)  
+        
 SOB_TEMPLATE
-void SOB_CLASS::_clear_callback_queue(int rcount) /*=0*/
-{ /* protect a move to a temp deque, clear actual, then call back */
-  order_exec_cb_type cb; 
-  std::deque<dfrd_cb_elem_type> tmp; 
-  {  
-    if(this->_cbs_in_progress.load() || rcount > 1) 
-      return;
-    std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
-    /* --- CRITICAL SECTION --- */
-    this->_cbs_in_progress.store(true);
-    std::move(this->_deferred_callback_queue.begin(),
-              this->_deferred_callback_queue.end(), back_inserter(tmp));     
-    this->_deferred_callback_queue.clear(); 
-    /* --- CRITICAL SECTION --- */
-  } 
-  for(auto& e : tmp){   
-    cb = std::get<1>(e);  
-    if(cb) cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));  
-  } 
-  /* since we can't 'atomize' this with the last callback don't use mutex */
-  this->_cbs_in_progress.store(false);     
-  this->_clear_callback_queue(++rcount); /* take care of the interim pushs */
+void SOB_CLASS::_threaded_callbacks()
+{
+  order_exec_cb_type cb;
+  
+  while(this->_master_run_flag){  
+    std::deque<dfrd_cb_elem_type> tmp;
+    { 
+      /* this lock does 2 things:
+       *   1) protects/syncs the callback queue
+       *   2) implicitly schedules callback function as often as possible
+       *      (callbacks tend to be the bottle-neck in non-trivial situations)
+       */
+      std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
+      /* --- CRITICAL SECTION --- */
+      std::move(this->_deferred_callback_queue.begin(),
+                this->_deferred_callback_queue.end(), back_inserter(tmp));     
+      this->_deferred_callback_queue.clear(); 
+      /* --- CRITICAL SECTION --- */
+    }    
+    if(tmp.size() > MAX_CALLBACK_BACKLOG) 
+      /* if backlog close gate */
+      CLOSE_INSERT_GATE();
+   
+    for(auto& e : tmp){   
+      cb = std::get<1>(e);
+      if(cb) 
+        cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));        
+    }    
+    /* once we've cleared the backlog open it back up */
+    OPEN_INSERT_GATE();
+  }
 }
 
 SOB_TEMPLATE
@@ -447,7 +518,7 @@ void SOB_CLASS::_trade_has_occured(plevel plev,
     dfrd_cb_elem_type(callback_msg::fill, cbbuy, idbuy, p, size));
   this->_deferred_callback_queue.push_back(
     dfrd_cb_elem_type(callback_msg::fill, cbsell, idsell, p, size));
-
+  
   if(this->_t_and_s_full)
     this->_t_and_s.pop_back();
   else if(this->_t_and_s.size() >= (this->_t_and_s_max_sz - 1))
@@ -537,7 +608,7 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
       if(cb){ 
         this->_deferred_callback_queue.push_back( 
           dfrd_cb_elem_type(callback_msg::stop_to_limit, cb, e.first, 
-                            this->_itop(limit), sz) );
+                            this->_itop(limit), sz) );      
       }
       this->_push_order_no_wait(order_type::limit, std::get<0>(e.second),
                                 limit, nullptr, sz, cb, nullptr, e.first);           
@@ -777,7 +848,8 @@ bool SOB_CLASS::_pull_order(id_type id)
       this->_adjust_stop_cache_vals<false>(p,(stop_chain_type*)c);     
   /* callback with cancel msg */   
   this->_deferred_callback_queue.push_back( 
-    dfrd_cb_elem_type(callback_msg::cancel, cb, id, 0, 0) );  
+    dfrd_cb_elem_type(callback_msg::cancel, cb, id, 0, 0) ); 
+
   return true;
 }
 
@@ -999,19 +1071,17 @@ void SOB_CLASS::_threaded_waker(int sleep)
   else if(sleep < 100)
     std::cerr<< "sleep < 100ms in _threaded_waker; consider larger value\n";
   
-  while(true){ 
+  while(this->_master_run_flag)
+  { 
     std::this_thread::sleep_for(std::chrono::milliseconds(sleep));
     std::lock_guard<std::recursive_mutex> lock(*(this->_mm_mtx));
     /* --- CRITICAL SECTION --- */ 
-    if(this->_market_makers.size() == 0){      
-      this->_clear_callback_queue();
-      continue;
-    }
+    if(this->_market_makers.size() == 0)    
+      continue;  
     for(auto& mm : this->_market_makers)
     {  
       std::this_thread::sleep_for(std::chrono::milliseconds(sleep)); 
-      mm->wake(this->_itop(this->_last));
-      this->_clear_callback_queue();
+    //  mm->wake(this->_itop(this->_last)); 
     }
     /* --- CRITICAL SECTION --- */ 
   }
@@ -1073,6 +1143,7 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
     throw invalid_order("invalid limit price");
   }    
  
+  WAIT_ON_INSERT_GATE();
   return this->_push_order_and_wait(order_type::limit, buy, plev, nullptr,
                                     size, exec_cb, admin_cb);  
 }
@@ -1089,6 +1160,7 @@ id_type SOB_CLASS::insert_market_order(bool buy,
   if(this->_market_makers.empty())
     throw invalid_state("orderbook has no market makers");  
   
+  WAIT_ON_INSERT_GATE();
   return this->_push_order_and_wait(order_type::market, buy, nullptr, nullptr,
                                     size, exec_cb, admin_cb); 
 }
@@ -1128,28 +1200,17 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
   }  
 
   oty = limit ? order_type::stop_limit : order_type::stop;
+  WAIT_ON_INSERT_GATE();
   return this->_push_order_and_wait(oty,buy,plimit,pstop,size,exec_cb,admin_cb);  
 }
 
-#define SEARCH_LIMITS_FIRST(id) \
-this->_pull_order<limit_chain_type>(id) || this->_pull_order<stop_chain_type>(id)
-
-#define SEARCH_STOPS_FIRST(id) \
-this->_pull_order<stop_chain_type>(id) || this->_pull_order<limit_chain_type>(id)
 
 SOB_TEMPLATE
 bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
 {
-  bool res;  
-  {   
-    /* lock needs to be out here to enclose both _pull_order calls */
-    std::lock_guard<std::mutex> lock(*(this->_master_mtx));
-    /* --- CRITICAL SECTION --- */
-    res = search_limits_first ? SEARCH_LIMITS_FIRST(id) : SEARCH_STOPS_FIRST(id);
-    /* --- CRITICAL SECTION --- */
-  }
-  this->_clear_callback_queue();  
-  return res;
+  WAIT_ON_INSERT_GATE();
+  return this->_push_order_and_wait(order_type::null, search_limits_first, 
+                                    nullptr, nullptr, 0, nullptr, nullptr,id); 
 }
 
 

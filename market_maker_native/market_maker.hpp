@@ -291,6 +291,8 @@ void MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
      *
      * this guarantees to complete before the standard callbacks for
      * this order can be triggered
+     *
+     * !! WE CAN NOT INSERT / PULL FROM HERE !!
      */
     [=](id_type id)
     {
