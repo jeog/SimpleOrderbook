@@ -140,8 +140,6 @@ private:
   static_assert(!std::ratio_greater<TickRatio,std::ratio<1,1>>::value,
                 "Increment Ratio > ratio<1,1> " );
 
-  static const size_t MAX_CALLBACK_BACKLOG = 1000;
-
   /* how callback info is stored in the deferred callback queue */
   typedef std::tuple<callback_msg, order_exec_cb_type,
                      id_type, price_type,size_type>  dfrd_cb_elem_type;
@@ -229,16 +227,8 @@ private:
   std::thread _waker_thread;
   void _threaded_waker(int sleep);
 
-  /* process callbacks from a single thread */
-  std::thread _callback_thread;
-  void _threaded_callbacks();
-
+  /* to prevent recursion within _clear_callback_queue */
   std::atomic_bool _busy_with_callbacks;
-
-  /* primitives behind our INSERT_GATE */
-  std::unique_ptr<std::mutex> _igate_mtx;
-  std::condition_variable _igate_cond;
-  volatile bool _igate_flag;
 
   /* run secondary threads */
   volatile bool _master_run_flag;

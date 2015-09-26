@@ -106,7 +106,7 @@ class MarketMakerA{
   virtual pMarketMaker _move_to_new() = 0;
 public:
   virtual ~MarketMakerA() {}
-  virtual void wake(price_type last) {}
+  virtual order_exec_cb_type get_callback() { return nullptr; }
 };
 
 #define DEFAULT_MOVE_TO_NEW(CLS) \
@@ -256,6 +256,11 @@ public:
       if(this->_callback) this->_callback->kill();
     }
 
+  virtual order_exec_cb_type get_callback()
+  {
+    return dynamic_functor_wrap(this->_callback);
+  }
+
   static market_makers_type Factory(init_list_type il);
   static market_makers_type Factory(unsigned int n);
   inline static size_type tick_diff(price_type p1, price_type p2, price_type t)
@@ -399,7 +404,6 @@ public:
   MarketMaker_Random(MarketMaker_Random&& mm) noexcept;
   virtual ~MarketMaker_Random() noexcept {}
 
-  void wake(price_type last);
 
   static market_makers_type Factory(init_list_type il);
   static market_makers_type Factory(size_type n, size_type sz_low,

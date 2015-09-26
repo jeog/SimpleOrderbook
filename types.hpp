@@ -74,7 +74,8 @@ typedef typename clock_type::time_point     time_stamp_type;
 enum class callback_msg{
   cancel = 0,
   fill,
-  stop_to_limit // <- guaranteed before limit insert / fill callback
+  stop_to_limit, // <- guaranteed before limit insert / fill callback
+  wake
 };
 
 enum class order_type {

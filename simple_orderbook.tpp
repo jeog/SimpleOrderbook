@@ -58,9 +58,6 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   _master_mtx(new std::mutex),
   _mm_mtx(new std::recursive_mutex),
   _busy_with_callbacks(false),
-  _igate_mtx(new std::mutex),
-  _igate_cond(),
-  _igate_flag(true),
   _master_run_flag(true)
   {       
     if( min.to_incr() == 0 )
@@ -73,10 +70,7 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
     
     this->_waker_thread = 
       std::thread(std::bind(&SOB_CLASS::_threaded_waker,this,sleep));    
- /*   
-    this->_callback_thread = 
-      std::thread(std::bind(&SOB_CLASS::_threaded_callbacks,this));      
-  */    
+ 
     std::cout<< "+ SimpleOrderbook Created\n";
   }
 
@@ -85,7 +79,6 @@ SOB_CLASS::~SimpleOrderbook()
 {  
   this->_order_dispatcher_thread.detach();
   this->_waker_thread.detach();
-//  this->_callback_thread.detach();
   this->_master_run_flag = false;
   std::cout<< "- SimpleOrderbook Destroyed\n";
 }
@@ -317,6 +310,35 @@ size_type SOB_CLASS::_hit_bids(plevel plev,
   return size; /* what we couldn't fill */
 }
 
+SOB_TEMPLATE
+void SOB_CLASS::_threaded_waker(int sleep)
+{
+  if(sleep <= 0) 
+    return;
+  else if(sleep < 100)
+    std::cerr<< "sleep < 100ms in _threaded_waker; consider larger value\n";
+  
+  while(this->_master_run_flag)
+  { 
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleep));
+    std::lock_guard<std::recursive_mutex> lock(*(this->_mm_mtx));
+    /* ---(OUTER) CRITICAL SECTION --- */ 
+    if(this->_market_makers.size() == 0)    
+      continue;  
+    for(auto& mm : this->_market_makers)
+    {  
+      std::this_thread::sleep_for(std::chrono::milliseconds(sleep));
+      std::lock_guard<std::mutex> lock(*(this->_master_mtx));
+      /* ---(INNER) CRITICAL SECTION --- */        
+      this->_deferred_callback_queue.push_back( /* callback with wake msg */  
+        dfrd_cb_elem_type(callback_msg::wake, mm->get_callback(), 
+                          0, this->_itop(this->_last), 0) ); 
+      /* ---(INNER) CRITICAL SECTION --- */
+    }
+    /* ---(OUTER) CRITICAL SECTION --- */ 
+  }
+}
+
 #define SEARCH_LIMITS_FIRST(id) \
 this->_pull_order<limit_chain_type>(id) || this->_pull_order<stop_chain_type>(id)
 
@@ -332,7 +354,8 @@ void SOB_CLASS::_threaded_order_dispatcher()
   id_type id;
   bool res;
   
-  while(this->_master_run_flag){
+  while(this->_master_run_flag)
+  {
     {
       std::unique_lock<std::mutex> lock(*(this->_order_queue_mtx));    
       this->_order_queue_cond.wait(lock, 
@@ -340,11 +363,12 @@ void SOB_CLASS::_threaded_order_dispatcher()
       e = std::move(this->_order_queue.front());
       this->_order_queue.pop();
     }     
+    
     p = std::move(std::get<8>(e));
-    id = std::get<6>(e);
     ot = std::get<0>(e);
     
-    if(id == 0) /* might want to protect this at some point */
+    id = std::get<6>(e);
+    if(!id) 
       id = this->_generate_id();
     
     {
@@ -372,7 +396,7 @@ void SOB_CLASS::_threaded_order_dispatcher()
                                  std::get<4>(e),std::get<5>(e),id,std::get<7>(e));         
       } break;
       case order_type::null:
-      {
+      { /* not the cleanest but the most effective/thread-safe */
         res = std::get<1>(e) ? SEARCH_LIMITS_FIRST(id) : SEARCH_STOPS_FIRST(id);
         id = (id_type)res;
       } break;
@@ -383,7 +407,6 @@ void SOB_CLASS::_threaded_order_dispatcher()
       if(ot != order_type::null)
         this->_look_for_triggered_stops();
       
-    //  this->_clear_callback_queue();
       /* --- CRITICAL SECTION --- */
     }   
     p.set_value(id);  
@@ -411,11 +434,10 @@ id_type SOB_CLASS::_push_order_and_wait(order_type oty,
                              std::move(p)));
   }  
   this->_order_queue_cond.notify_one();
-  /* BLOCKING */
-  ret_id = f.get();
-  /* BLOCKING */  
   
-  this->_clear_callback_queue();
+  /* BLOCKING */ ret_id = f.get(); /* BLOCKING */  
+    
+  this->_clear_callback_queue();  
   return ret_id;
 }
 
@@ -438,71 +460,6 @@ void SOB_CLASS::_push_order_no_wait(order_type oty,
   this->_order_queue_cond.notify_one();
 }
 
-/* 
- * the insert gates attempt to block all insert/pulls from threads
- * other that _callback_thread when a baglog arises
- * 
- * IF CALLBACK/WAKER FUNCTIONS INSERT/PULL FROM A NEW THREAD WE'LL DEADLOCK !!
- */
-#define WAIT_ON_INSERT_GATE() \
-do{ \
-  if(this->_callback_thread.get_id() != std::this_thread::get_id() \
-     && this->_waker_thread.get_id() != std::this_thread::get_id()) \
-  { \
-    std::unique_lock<std::mutex> lock(*(this->_igate_mtx)); \
-    this->_igate_cond.wait(lock, [this](){ return this->_igate_flag; }); \
-  } \
-}while(0)
-
-#define CLOSE_INSERT_GATE() \
-do{ \
-  std::lock_guard<std::mutex> lock(*(this->_igate_mtx)); \
-  this->_igate_flag = false; \
-}while(0)    
-
-#define OPEN_INSERT_GATE() \
-do{ \
-  { \
-    std::lock_guard<std::mutex> lock(*(this->_igate_mtx)); \
-    this->_igate_flag = true; \
-  } \
-  this->_igate_cond.notify_all(); \
-}while(0)  
-    
-/*
-SOB_TEMPLATE
-void SOB_CLASS::_threaded_callbacks()
-{
-  order_exec_cb_type cb;
-  
-  while(this->_master_run_flag){  
-    std::deque<dfrd_cb_elem_type> tmp;
-    { 
-      /* this lock does 2 things:
-       *   1) protects/syncs the callback queue
-       *   2) implicitly schedules callback function as often as possible
-       *      (callbacks tend to be the bottle-neck in non-trivial situations)
-     
-      std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
-      /* --- CRITICAL SECTION ---
-      std::move(this->_deferred_callback_queue.begin(),
-                this->_deferred_callback_queue.end(), back_inserter(tmp));     
-      this->_deferred_callback_queue.clear(); 
-      /* --- CRITICAL SECTION ---
-    }    
-    if(tmp.size() > MAX_CALLBACK_BACKLOG) 
-      /* if backlog close gate 
-      CLOSE_INSERT_GATE();
-   
-    for(auto& e : tmp){   
-      cb = std::get<1>(e);
-      if(cb) 
-        cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));        
-    }    
-    /* once we've cleared the backlog open it back up 
-    OPEN_INSERT_GATE();
-  }
-}*/
 
 SOB_TEMPLATE
 void SOB_CLASS::_clear_callback_queue()
@@ -512,24 +469,21 @@ void SOB_CLASS::_clear_callback_queue()
   
   if(this->_busy_with_callbacks.load())
     return;
-  else
-    this->_busy_with_callbacks.store(true);
   {   
     std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
     /* --- CRITICAL SECTION --- */
+    this->_busy_with_callbacks.store(true); // <- can we go outside of CS ??
     std::move(this->_deferred_callback_queue.begin(),
               this->_deferred_callback_queue.end(), back_inserter(tmp));     
     this->_deferred_callback_queue.clear(); 
     /* --- CRITICAL SECTION --- */
-  }    
-  std::cout<<tmp.size()<<std::endl;
+  }  
   for(auto& e : tmp){   
     cb = std::get<1>(e);
     if(cb) 
       cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));        
   }    
   this->_busy_with_callbacks.store(false);
-  
 }
 
 SOB_TEMPLATE
@@ -634,7 +588,7 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     * 
     * we can't use the blocking version of _push_order or we'll deadlock
     * the order_queue; since we can't guarantee an exec before clearing
-    * the queue, we don't, allowing the waker thread to do this...
+    * the queue, we don't (NOT A BIG DEAL IN PRACTICE; NEED TO FIX EVENTUALLY)
     */  
     if(limit){ /* stop to limit */    
       if(cb){ 
@@ -649,7 +603,6 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
       this->_push_order_no_wait(order_type::market, std::get<0>(e.second),
                                 nullptr, nullptr, sz, cb, nullptr, e.first);
   }
-  // NEED A WAY TO CLEAR THE QUEUE AFTER THIS
 }
 
 
@@ -1094,30 +1047,6 @@ size_type SOB_CLASS::_generate_and_check_total_incr()
     throw allocation_error("tick range requested would exceed MaxMemory");
   
   return i;
-}
-
-SOB_TEMPLATE
-void SOB_CLASS::_threaded_waker(int sleep)
-{
-  if(sleep <= 0) 
-    return;
-  else if(sleep < 100)
-    std::cerr<< "sleep < 100ms in _threaded_waker; consider larger value\n";
-  
-  while(this->_master_run_flag)
-  { 
-    std::this_thread::sleep_for(std::chrono::milliseconds(sleep));
-    std::lock_guard<std::recursive_mutex> lock(*(this->_mm_mtx));
-    /* --- CRITICAL SECTION --- */ 
-    if(this->_market_makers.size() == 0)    
-      continue;  
-    for(auto& mm : this->_market_makers)
-    {  
-      std::this_thread::sleep_for(std::chrono::milliseconds(sleep)); 
-      mm->wake(this->_itop(this->_last)); 
-    }
-    /* --- CRITICAL SECTION --- */ 
-  }
 }
 
 SOB_TEMPLATE

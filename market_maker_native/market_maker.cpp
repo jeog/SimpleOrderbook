@@ -432,8 +432,26 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
                << " @ " <<std::to_string(price) <<std::endl;
       }
       break;
-    }
+    case callback_msg::wake:
+      {
+        adj = this->tick() * this->_distr2(this->_rand_engine);
+        if(price <= adj)
+          return;
+        if(this->pos() < 0){
+          cumm = this->random_remove<true>(price- adj*2,0);
+          if(cumm)
+            this->insert<true>(price - adj, cumm);
+        }
+        else
+        {
+          cumm = this->random_remove<false>(price + adj*2,0);
+          if(cumm)
+           this->insert<false>(price + adj, cumm);
+        }
 
+      }
+      break;
+    }
   }
   catch(invalid_order& e)
   {
@@ -447,27 +465,6 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
   }
 }
 
-void MarketMaker_Random::wake(price_type last)
-{
-  size_type cumm;
-  price_type adj;
-/*
-  adj = this->tick() * this->_distr2(this->_rand_engine);
-  if(last <= adj)
-    return;
-  if(this->pos() < 0){
-    cumm = this->random_remove<true>(last - adj*2,0);
-    if(cumm)
-      this->insert<true>(last - adj, cumm);
-  }
-  else
-  {
-    cumm = this->random_remove<false>(last + adj*2,0);
-    if(cumm)
-     this->insert<false>(last + adj, cumm);
-  }
-*/
-}
 
 market_makers_type MarketMaker_Random::Factory(init_list_type il)
 {
