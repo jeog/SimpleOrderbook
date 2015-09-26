@@ -57,6 +57,7 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   _order_queue_cond(),
   _master_mtx(new std::mutex),
   _mm_mtx(new std::recursive_mutex),
+  _busy_with_callbacks(false),
   _igate_mtx(new std::mutex),
   _igate_cond(),
   _igate_flag(true),
@@ -72,10 +73,10 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
     
     this->_waker_thread = 
       std::thread(std::bind(&SOB_CLASS::_threaded_waker,this,sleep));    
-    
+ /*   
     this->_callback_thread = 
       std::thread(std::bind(&SOB_CLASS::_threaded_callbacks,this));      
-      
+  */    
     std::cout<< "+ SimpleOrderbook Created\n";
   }
 
@@ -84,7 +85,7 @@ SOB_CLASS::~SimpleOrderbook()
 {  
   this->_order_dispatcher_thread.detach();
   this->_waker_thread.detach();
-  this->_callback_thread.detach();
+//  this->_callback_thread.detach();
   this->_master_run_flag = false;
   std::cout<< "- SimpleOrderbook Destroyed\n";
 }
@@ -413,6 +414,8 @@ id_type SOB_CLASS::_push_order_and_wait(order_type oty,
   /* BLOCKING */
   ret_id = f.get();
   /* BLOCKING */  
+  
+  this->_clear_callback_queue();
   return ret_id;
 }
 
@@ -465,7 +468,8 @@ do{ \
   } \
   this->_igate_cond.notify_all(); \
 }while(0)  
-        
+    
+/*
 SOB_TEMPLATE
 void SOB_CLASS::_threaded_callbacks()
 {
@@ -478,16 +482,16 @@ void SOB_CLASS::_threaded_callbacks()
        *   1) protects/syncs the callback queue
        *   2) implicitly schedules callback function as often as possible
        *      (callbacks tend to be the bottle-neck in non-trivial situations)
-       */
+     
       std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
-      /* --- CRITICAL SECTION --- */
+      /* --- CRITICAL SECTION ---
       std::move(this->_deferred_callback_queue.begin(),
                 this->_deferred_callback_queue.end(), back_inserter(tmp));     
       this->_deferred_callback_queue.clear(); 
-      /* --- CRITICAL SECTION --- */
+      /* --- CRITICAL SECTION ---
     }    
     if(tmp.size() > MAX_CALLBACK_BACKLOG) 
-      /* if backlog close gate */
+      /* if backlog close gate 
       CLOSE_INSERT_GATE();
    
     for(auto& e : tmp){   
@@ -495,9 +499,37 @@ void SOB_CLASS::_threaded_callbacks()
       if(cb) 
         cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));        
     }    
-    /* once we've cleared the backlog open it back up */
+    /* once we've cleared the backlog open it back up 
     OPEN_INSERT_GATE();
   }
+}*/
+
+SOB_TEMPLATE
+void SOB_CLASS::_clear_callback_queue()
+{
+  order_exec_cb_type cb;
+  std::deque<dfrd_cb_elem_type> tmp;
+  
+  if(this->_busy_with_callbacks.load())
+    return;
+  else
+    this->_busy_with_callbacks.store(true);
+  {   
+    std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
+    /* --- CRITICAL SECTION --- */
+    std::move(this->_deferred_callback_queue.begin(),
+              this->_deferred_callback_queue.end(), back_inserter(tmp));     
+    this->_deferred_callback_queue.clear(); 
+    /* --- CRITICAL SECTION --- */
+  }    
+  std::cout<<tmp.size()<<std::endl;
+  for(auto& e : tmp){   
+    cb = std::get<1>(e);
+    if(cb) 
+      cb(std::get<0>(e), std::get<2>(e), std::get<3>(e), std::get<4>(e));        
+  }    
+  this->_busy_with_callbacks.store(false);
+  
 }
 
 SOB_TEMPLATE
@@ -617,6 +649,7 @@ void SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
       this->_push_order_no_wait(order_type::market, std::get<0>(e.second),
                                 nullptr, nullptr, sz, cb, nullptr, e.first);
   }
+  // NEED A WAY TO CLEAR THE QUEUE AFTER THIS
 }
 
 
@@ -1081,7 +1114,7 @@ void SOB_CLASS::_threaded_waker(int sleep)
     for(auto& mm : this->_market_makers)
     {  
       std::this_thread::sleep_for(std::chrono::milliseconds(sleep)); 
-    //  mm->wake(this->_itop(this->_last)); 
+      mm->wake(this->_itop(this->_last)); 
     }
     /* --- CRITICAL SECTION --- */ 
   }
@@ -1143,7 +1176,7 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
     throw invalid_order("invalid limit price");
   }    
  
-  WAIT_ON_INSERT_GATE();
+ // WAIT_ON_INSERT_GATE();
   return this->_push_order_and_wait(order_type::limit, buy, plev, nullptr,
                                     size, exec_cb, admin_cb);  
 }
@@ -1160,7 +1193,7 @@ id_type SOB_CLASS::insert_market_order(bool buy,
   if(this->_market_makers.empty())
     throw invalid_state("orderbook has no market makers");  
   
-  WAIT_ON_INSERT_GATE();
+ // WAIT_ON_INSERT_GATE();
   return this->_push_order_and_wait(order_type::market, buy, nullptr, nullptr,
                                     size, exec_cb, admin_cb); 
 }
@@ -1200,7 +1233,7 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
   }  
 
   oty = limit ? order_type::stop_limit : order_type::stop;
-  WAIT_ON_INSERT_GATE();
+ // WAIT_ON_INSERT_GATE();
   return this->_push_order_and_wait(oty,buy,plimit,pstop,size,exec_cb,admin_cb);  
 }
 
@@ -1208,7 +1241,7 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
 SOB_TEMPLATE
 bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
 {
-  WAIT_ON_INSERT_GATE();
+ // WAIT_ON_INSERT_GATE();
   return this->_push_order_and_wait(order_type::null, search_limits_first, 
                                     nullptr, nullptr, 0, nullptr, nullptr,id); 
 }

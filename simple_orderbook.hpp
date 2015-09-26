@@ -233,6 +233,8 @@ private:
   std::thread _callback_thread;
   void _threaded_callbacks();
 
+  std::atomic_bool _busy_with_callbacks;
+
   /* primitives behind our INSERT_GATE */
   std::unique_ptr<std::mutex> _igate_mtx;
   std::condition_variable _igate_cond;
