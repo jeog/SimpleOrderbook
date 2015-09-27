@@ -234,7 +234,7 @@ void MarketMaker_Simple1::_exec_callback(callback_msg msg,
   try{
     switch(msg){
     case callback_msg::fill:
-      {
+      {/*
         if(size <3) break;
 
         if(this->this_fill_was_buy())
@@ -260,9 +260,22 @@ void MarketMaker_Simple1::_exec_callback(callback_msg msg,
           this->insert<true>(price - this->tick(), (int)(size/3));
           this->insert<true>(price - this->tick()*2, (int)(size/3));
           this->insert<true>(price - this->tick()*3, (int)(size/3));
-        }
+        }*/
       }
       break;
+    case callback_msg::wake:
+      {
+        if(price > this->last_fill_price()
+           && (this->offer_out() + this->_sz - this->pos() <= this->_max_pos))
+        {
+          this->insert<false>(price + this->tick(), this->_sz);
+        }
+        else if(price < this->last_fill_price()
+                && (this->bid_out() + this->_sz + this->pos() <= this->_max_pos))
+        {
+          this->insert<true>(price - this->tick(), this->_sz);
+        }
+      }break;
     case callback_msg::cancel:
       break;
     case callback_msg::stop_to_limit:
@@ -356,13 +369,13 @@ void MarketMaker_Random::start(sob_iface_type *book,
   amt = this->_distr(this->_rand_engine);
 
   for(price = implied + tick*mod ;
-      (this->offer_out() + amt  <= this->_max_pos/2);
+      (this->offer_out() + amt  <= this->_max_pos);
       price += mod * tick )
      {
        try{ this->insert<false>(price, amt); }catch(...){ break; }
      }
   for(price = implied - tick*mod ;
-      (this->bid_out() + amt <= this->_max_pos/2);
+      (this->bid_out() + amt <= this->_max_pos);
       price -= mod * tick)
      {
        try{ this->insert<true>(price, amt); }catch(...){ break; }
@@ -438,13 +451,13 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
         if(price <= adj)
           return;
         if(this->pos() < 0){
-          cumm = this->random_remove<true>(price- adj*2,0);
+          cumm = this->random_remove<true>(price- adj*5,0);
           if(cumm)
             this->insert<true>(price - adj, cumm);
         }
         else
         {
-          cumm = this->random_remove<false>(price + adj*2,0);
+          cumm = this->random_remove<false>(price + adj*5,0);
           if(cumm)
            this->insert<false>(price + adj, cumm);
         }

@@ -260,10 +260,18 @@ private:
   size_type _incrs_in_range(my_price_type lprice, my_price_type hprice);
   size_type _generate_and_check_total_incr();
 
+  /* split plevel into chain via chain specializations (in .tpp) */
+  template<typename ChainTy, typename Dummy = void>
+  struct _chain;
+
   /* calculate chain_size of limit orders at each price level
    * use depth increments on each side of last  */
-  template< side_of_market Side>
+  template<side_of_market Side>
   market_depth_type _market_depth(size_type depth) const;
+
+  /* total size of bid or ask limits */
+  template<side_of_market Side, typename ChainTy = limit_chain_type>
+  size_type _total_depth() const;
 
   /* set/adjust high low plevels via side_of_market specializations (in .tpp) */
   template<side_of_market Side = side_of_market::both, typename My = my_type>
@@ -415,6 +423,17 @@ public:
   inline price_type last_price() const { return this->_itop(this->_last); }
   inline size_type bid_size() const { return this->_bid_size; }
   inline size_type ask_size() const { return this->_ask_size; }
+
+  inline size_type total_bid_size() const
+  {
+    return this->_total_depth<side_of_market::bid>();
+  }
+
+  inline size_type total_ask_size() const
+  {
+    return this->_total_depth<side_of_market::ask>();
+  }
+
   inline size_type last_size() const { return this->_last_size; }
   inline large_size_type volume() const { return this->_total_volume; }
   inline large_size_type last_id() const { return this->_last_id; }

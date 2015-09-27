@@ -95,6 +95,8 @@ SOB_CLASS::~SimpleOrderbook()
  * (note: the _high_low specials inherit from non-special to access adjust())
  * 
  * _order_info::generate : generate specialized order_info_type tuples
+ * 
+ * TODO: replace some of the default beg/ends with cached extre
  */
 
 SOB_TEMPLATE
@@ -139,25 +141,73 @@ public:
 };
 SOB_TEMPLATE
 template<typename My> struct SOB_CLASS::_high_low<side_of_market::bid,My>
-  : public _high_low<side_of_market::both,My> {
+    : public _high_low<side_of_market::both,My> {
+  typedef typename SOB_CLASS::plevel plevel;
+  template<typename DummyChainTY, typename Dummy=void> struct _set_using_cached;  
+  template<typename Dummy> 
+  struct _set_using_cached<typename SOB_CLASS::limit_chain_type,Dummy>{
+  public:
+    static void call(const My* sob,plevel* ph,plevel *pl){
+      *pl = sob->_low_buy_limit;
+      *ph = sob->_bid; 
+    }
+  };
+  template<typename Dummy> 
+  struct _set_using_cached<typename SOB_CLASS::stop_chain_type,Dummy>{
+  public: /* just use the side_of_market::both version in base */
+    static void call(const My* sob,plevel* ph,plevel *pl){
+      typename SOB_CLASS::stop_chain_type* d = nullptr;
+      _high_low<side_of_market::both,My>::set_using_cached::call(sob,ph,pl,d);
+    }
+  };
 public: 
-  static void set_using_depth(const My* sob, typename SOB_CLASS::plevel* ph, 
-                              typename SOB_CLASS::plevel* pl,size_type depth){
+  static void set_using_depth(const My* sob, plevel* ph, plevel* pl,
+                              size_type depth){
     *ph = sob->_bid;
-    *pl = (typename SOB_CLASS::plevel)max(sob->_beg, sob->_bid - depth +1);
+    *pl = (plevel)max(sob->_beg, sob->_bid - depth +1);
+    _high_low<side_of_market::both,My>::adjust(sob,ph,pl);
+  }
+  template <typename ChainTy> 
+  static void set_using_cached(const My* sob, plevel* ph, plevel *pl,
+                               ChainTy* dummy_chain_ptr){
+    _set_using_cached<ChainTy>::call(sob,ph,pl);
     _high_low<side_of_market::both,My>::adjust(sob,ph,pl);
   }
 };
 SOB_TEMPLATE
 template<typename My> struct SOB_CLASS::_high_low<side_of_market::ask,My>
-  : public _high_low<side_of_market::both,My> {
+    : public _high_low<side_of_market::both,My> {
+  typedef typename SOB_CLASS::plevel plevel;
+  template<typename DummyChainTY, typename Dummy=void> struct _set_using_cached;  
+  template<typename Dummy> 
+  struct _set_using_cached<typename SOB_CLASS::limit_chain_type,Dummy>{
+  public:
+    static void call(const My* sob,plevel* ph,plevel *pl){
+      *pl = sob->_ask;
+      *ph = sob->_high_sell_limit; 
+    }
+  };
+  template<typename Dummy> 
+  struct _set_using_cached<typename SOB_CLASS::stop_chain_type,Dummy>{
+  public: /* just use the side_of_market::both version in base */
+    static void call(const My* sob,plevel* ph,plevel *pl){
+      typename SOB_CLASS::stop_chain_type* d = nullptr;
+      _high_low<side_of_market::both,My>::set_using_cached::call(sob,ph,pl,d);
+    }
+  };
 public: 
-  static void set_using_depth(const My* sob, typename SOB_CLASS::plevel* ph, 
-                              typename SOB_CLASS::plevel* pl,size_type depth){
-    *ph = (typename SOB_CLASS::plevel)min(sob->_ask + depth - 1, sob->_end - 1);
+  static void set_using_depth(const My* sob, plevel* ph, plevel* pl,
+                              size_type depth){
+    *ph = (plevel)min(sob->_ask + depth - 1, sob->_end - 1);
     *pl = sob->_ask;
     _high_low<side_of_market::both,My>::adjust(sob,ph,pl);
-  } 
+  }
+  template <typename ChainTy> 
+  static void set_using_cached(const My* sob, plevel* ph, plevel *pl,
+                               ChainTy* dummy_chain_ptr){
+    _set_using_cached<ChainTy>::call(sob,ph,pl);
+    _high_low<side_of_market::both,My>::adjust(sob,ph,pl);
+  }
 };
 
 SOB_TEMPLATE
@@ -195,6 +245,27 @@ public:
       : order_info_type(order_type::stop, std::get<0>(bndl), sob->_itop(p), 
                         0, std::get<2>(bndl));
   }
+};
+
+SOB_TEMPLATE
+template<typename ChainTy, typename Dummy> 
+struct SOB_CLASS::_chain{  
+public:
+  static ChainTy* get(typename SOB_CLASS::plevel p){ return nullptr; }
+};
+SOB_TEMPLATE
+template<typename Dummy> 
+struct SOB_CLASS::_chain<typename SOB_CLASS::limit_chain_type, Dummy>{ 
+public:  
+  static SOB_CLASS::limit_chain_type* get(typename SOB_CLASS::plevel p)
+  { return &(p->first); } 
+};
+SOB_TEMPLATE
+template<typename Dummy> 
+struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>{ 
+public:
+  static typename SOB_CLASS::stop_chain_type* get(typename SOB_CLASS::plevel p)
+  { return &(p->second); }
 };
 
 /*
@@ -717,7 +788,7 @@ void SOB_CLASS::_insert_stop_order(bool buy,
 }
 
 SOB_TEMPLATE
-template< side_of_market Side >
+template<side_of_market Side>
 typename SOB_CLASS::market_depth_type 
 SOB_CLASS::_market_depth(size_type depth) const
 {
@@ -730,9 +801,28 @@ SOB_CLASS::_market_depth(size_type depth) const
   
   for( ; h >= l; --h)
     if(!h->first.empty())
-      md.insert( market_depth_type::value_type(this->_itop(h), 
-                                               this->_chain_size(&h->first)));
+      md.insert(market_depth_type::value_type(this->_itop(h), 
+                                              this->_chain_size(&h->first)));
   return md;
+  /* --- CRITICAL SECTION --- */ 
+}
+
+SOB_TEMPLATE
+template<side_of_market Side, typename ChainTy> 
+size_type SOB_CLASS::_total_depth() const
+{
+  plevel h,l;
+  ChainTy* c;
+  size_type tot;
+  
+  std::lock_guard<std::mutex> lock(*(this->_master_mtx));
+  /* --- CRITICAL SECTION --- */ 
+  _high_low<Side>::set_using_cached(this,&h,&l,c=nullptr);  
+  
+  for( ; h >= l; --h) 
+    tot += this->_chain_size(_chain<ChainTy>::get(h));
+    
+  return tot;
   /* --- CRITICAL SECTION --- */ 
 }
 
@@ -789,9 +879,7 @@ std::pair<typename SOB_CLASS::plevel,ChainTy*>
   
   for( ; beg <= end; ++beg)
   {
-    c = SAME_(ChainTy,limit_chain_type) 
-      ? (ChainTy*)&beg->first 
-      : (ChainTy*)&beg->second;
+    c = _chain<ChainTy>::get(beg);
     for(typename ChainTy::value_type& e : *c)
       if(e.first == id)         
         return std::pair<plevel,ChainTy*>(beg,c);     
@@ -951,29 +1039,6 @@ void SOB_CLASS::_dump_stops() const
 }
 
 SOB_TEMPLATE
-void SOB_CLASS::dump_cached_plevels() const
-{ /* DEBUG */
-  std::cout<< "CACHED PLEVELS" << std::endl;
-  /* --- CRITICAL SECTION --- */
-  std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
-  std::cout<< "_high_sell_limit: "
-         << std::to_string(this->_itop(this->_high_sell_limit)) << std::endl;
-  std::cout<< "_high_buy_stop: "
-         << std::to_string(this->_itop(this->_low_buy_stop)) << std::endl;
-  std::cout<< "_low_buy_stop: "
-         << std::to_string(this->_itop(this->_low_buy_stop)) << std::endl;
-  std::cout<< "LAST: "
-         << std::to_string(this->_itop(this->_last)) << std::endl;
-  std::cout<< "_high_sell_stop: "
-           << std::to_string(this->_itop(this->_high_sell_stop)) << std::endl;
-  std::cout<< "_low_sell_stop: "
-          << std::to_string(this->_itop(this->_low_sell_stop)) << std::endl;
-  std::cout<< "_low_buy_limit: "
-           << std::to_string(this->_itop(this->_low_buy_limit)) << std::endl;
-  /* --- CRITICAL SECTION --- */
-}
-
-SOB_TEMPLATE
 typename SOB_CLASS::plevel SOB_CLASS::_ptoi(my_price_type price) const
 { /* 
    * the range checks in here are 1 position more restrictive to catch
@@ -1105,7 +1170,6 @@ id_type SOB_CLASS::insert_limit_order(bool buy,
     throw invalid_order("invalid limit price");
   }    
  
- // WAIT_ON_INSERT_GATE();
   return this->_push_order_and_wait(order_type::limit, buy, plev, nullptr,
                                     size, exec_cb, admin_cb);  
 }
@@ -1122,7 +1186,6 @@ id_type SOB_CLASS::insert_market_order(bool buy,
   if(this->_market_makers.empty())
     throw invalid_state("orderbook has no market makers");  
   
- // WAIT_ON_INSERT_GATE();
   return this->_push_order_and_wait(order_type::market, buy, nullptr, nullptr,
                                     size, exec_cb, admin_cb); 
 }
@@ -1160,9 +1223,8 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
   }catch(std::range_error){
     throw invalid_order("invalid price");
   }  
-
   oty = limit ? order_type::stop_limit : order_type::stop;
- // WAIT_ON_INSERT_GATE();
+
   return this->_push_order_and_wait(oty,buy,plimit,pstop,size,exec_cb,admin_cb);  
 }
 
@@ -1170,7 +1232,6 @@ id_type SOB_CLASS::insert_stop_order(bool buy,
 SOB_TEMPLATE
 bool SOB_CLASS::pull_order(id_type id, bool search_limits_first)
 {
- // WAIT_ON_INSERT_GATE();
   return this->_push_order_and_wait(order_type::null, search_limits_first, 
                                     nullptr, nullptr, 0, nullptr, nullptr,id); 
 }
@@ -1251,6 +1312,30 @@ id_type SOB_CLASS::replace_with_stop_order(id_type id,
     id_new = this->insert_stop_order(buy,stop,limit,size,exec_cb,admin_cb);
   
   return id_new;
+}
+
+
+SOB_TEMPLATE
+void SOB_CLASS::dump_cached_plevels() const
+{
+  std::cout<< "CACHED PLEVELS" << std::endl;  
+  std::lock_guard<std::mutex> lock(*(this->_master_mtx));
+  /* --- CRITICAL SECTION --- */
+  std::cout<< "_high_sell_limit: "
+         << std::to_string(this->_itop(this->_high_sell_limit)) << std::endl;
+  std::cout<< "_high_buy_stop: "
+         << std::to_string(this->_itop(this->_low_buy_stop)) << std::endl;
+  std::cout<< "_low_buy_stop: "
+         << std::to_string(this->_itop(this->_low_buy_stop)) << std::endl;
+  std::cout<< "LAST: "
+         << std::to_string(this->_itop(this->_last)) << std::endl;
+  std::cout<< "_high_sell_stop: "
+           << std::to_string(this->_itop(this->_high_sell_stop)) << std::endl;
+  std::cout<< "_low_sell_stop: "
+          << std::to_string(this->_itop(this->_low_sell_stop)) << std::endl;
+  std::cout<< "_low_buy_limit: "
+           << std::to_string(this->_itop(this->_low_buy_limit)) << std::endl;
+  /* --- CRITICAL SECTION --- */
 }
 
 };
