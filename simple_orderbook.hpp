@@ -277,10 +277,6 @@ private:
   template<side_of_market Side = side_of_market::both, typename My = my_type>
   struct _high_low;
 
-  /* calculate total volume in the chain */
-  template< typename ChainTy>
-  size_type _chain_size(ChainTy* chain) const;
-
   /* generate order_info_type tuple via chain specializations (in .tpp) */
   template<typename ChainTy, typename My = my_type>
   struct _order_info;
@@ -289,9 +285,9 @@ private:
   template<typename FirstChainTy, typename SecondChainTy>
   order_info_type _get_order_info(id_type id);
 
-  /* find a particular order, return the plevel and chain pointer */
+  /* find a particular order, return the plevel and chain pointer
   template<typename ChainTy>
-  std::pair<plevel,ChainTy*> _find_order_chain(id_type id) const;
+  std::pair<plevel,ChainTy*> _find_order_chain(id_type id) const;*/
 
   /* remove a particular order */
   template<typename ChainTy>
@@ -432,6 +428,11 @@ public:
   inline size_type total_ask_size() const
   {
     return this->_total_depth<side_of_market::ask>();
+  }
+
+  inline size_type total_size() const
+  {
+    return this->_total_depth<side_of_market::both>();
   }
 
   inline size_type last_size() const { return this->_last_size; }

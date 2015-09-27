@@ -249,23 +249,67 @@ public:
 
 SOB_TEMPLATE
 template<typename ChainTy, typename Dummy> 
-struct SOB_CLASS::_chain{  
+struct SOB_CLASS::_chain {  
 public:
   static ChainTy* get(typename SOB_CLASS::plevel p){ return nullptr; }
+  static size_type size(ChainTy* c){ return nullptr; }
+protected:
+  template<typename InnerChainTy, typename My>
+  static std::pair<typename SOB_CLASS::plevel,InnerChainTy*> 
+    find(const My* sob, id_type id, InnerChainTy* dummy)
+  { 
+    plevel beg, end;
+    InnerChainTy* c;
+    _high_low<>::set_using_cached(sob,&end,&beg,c=nullptr);    
+    for( ; beg <= end; ++beg){
+      c = _chain<InnerChainTy>::get(beg);
+      for(typename InnerChainTy::value_type& e : *c)
+        if(e.first == id) return std::pair<plevel,InnerChainTy*>(beg,c);     
+    }    
+    return std::pair<typename SOB_CLASS::plevel,InnerChainTy*> (nullptr,nullptr);
+  }
 };
 SOB_TEMPLATE
 template<typename Dummy> 
-struct SOB_CLASS::_chain<typename SOB_CLASS::limit_chain_type, Dummy>{ 
+struct SOB_CLASS::_chain<typename SOB_CLASS::limit_chain_type, Dummy>
+    : public _chain<void> { 
 public:  
   static SOB_CLASS::limit_chain_type* get(typename SOB_CLASS::plevel p)
   { return &(p->first); } 
+  static size_type size(typename SOB_CLASS::limit_chain_type* c){ 
+    size_type sz = 0;
+    for(typename SOB_CLASS::limit_chain_type::value_type& e : *c)
+      sz +=  e.second.first;
+    return sz;
+  }  
+  template<typename My>
+  static std::pair<typename SOB_CLASS::plevel,
+                   typename SOB_CLASS::limit_chain_type*> 
+  find(const My* sob, id_type id){ 
+    typename SOB_CLASS::limit_chain_type* d = nullptr;
+    return _chain<void>::find(sob,id,d); 
+  }
 };
 SOB_TEMPLATE
 template<typename Dummy> 
-struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>{ 
+struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>
+    : public _chain<void> { 
 public:
   static typename SOB_CLASS::stop_chain_type* get(typename SOB_CLASS::plevel p)
   { return &(p->second); }
+  static size_type size(SOB_CLASS::stop_chain_type* c){
+    size_type sz = 0;
+    for(typename SOB_CLASS::stop_chain_type::value_type& e : *c)
+      sz += std::get<2>(e.second); 
+    return sz;
+  }  
+  template<typename My>
+  static std::pair<typename SOB_CLASS::plevel,
+                   typename SOB_CLASS::stop_chain_type*> 
+  find(const My* sob, id_type id){ 
+    typename SOB_CLASS::stop_chain_type* d = nullptr;
+    return _chain<void>::find(sob,id,d); 
+  }
 };
 
 /*
@@ -321,7 +365,7 @@ size_type SOB_CLASS::_lift_offers(plevel plev,
            this->_ask_size = 0;    
            break;
          }else
-           this->_ask_size = this->_chain_size(&this->_ask->first);  
+           this->_ask_size = _chain<limit_chain_type>::size(&this->_ask->first);  
         
          /* adjust cached val */
          if(this->_ask > this->_high_sell_limit)
@@ -372,7 +416,7 @@ size_type SOB_CLASS::_hit_bids(plevel plev,
            this->_bid_size = 0;    
            break;
          }else
-           this->_bid_size = this->_chain_size(&this->_bid->first);   
+           this->_bid_size = _chain<limit_chain_type>::size(&this->_bid->first);   
           
          /* adjust cached val */
          if(this->_bid < this->_low_buy_limit)
@@ -707,14 +751,14 @@ void SOB_CLASS::_insert_limit_order(bool buy,
     if(buy){
       if(limit >= this->_bid){
         this->_bid = limit;
-        this->_bid_size = this->_chain_size(orders);
+        this->_bid_size = _chain<limit_chain_type>::size(orders);
       }
       if(limit < this->_low_buy_limit)
         this->_low_buy_limit = limit;
     }else{
       if(limit <= this->_ask){
         this->_ask = limit;
-        this->_ask_size = this->_chain_size(orders);
+        this->_ask_size = _chain<limit_chain_type>::size(orders);
       }
       if(limit > this->_high_sell_limit)
         this->_high_sell_limit = limit;
@@ -801,8 +845,8 @@ SOB_CLASS::_market_depth(size_type depth) const
   
   for( ; h >= l; --h)
     if(!h->first.empty())
-      md.insert(market_depth_type::value_type(this->_itop(h), 
-                                              this->_chain_size(&h->first)));
+      md.insert(market_depth_type::value_type(
+                  this->_itop(h), _chain<limit_chain_type>::size(&h->first)));
   return md;
   /* --- CRITICAL SECTION --- */ 
 }
@@ -815,26 +859,18 @@ size_type SOB_CLASS::_total_depth() const
   ChainTy* c;
   size_type tot;
   
+  ASSERT_VALID_CHAIN(ChainTy);
+  
   std::lock_guard<std::mutex> lock(*(this->_master_mtx));
   /* --- CRITICAL SECTION --- */ 
   _high_low<Side>::set_using_cached(this,&h,&l,c=nullptr);  
   
+  tot = 0;
   for( ; h >= l; --h) 
-    tot += this->_chain_size(_chain<ChainTy>::get(h));
+    tot += _chain<ChainTy>::size(_chain<ChainTy>::get(h));
     
   return tot;
   /* --- CRITICAL SECTION --- */ 
-}
-
-SOB_TEMPLATE
-template< typename ChainTy>
-size_type SOB_CLASS::_chain_size(ChainTy* chain) const
-{ 
-  ASSERT_VALID_CHAIN(ChainTy);
-  size_type sz = 0;
-  for(typename ChainTy::value_type& e : *chain)
-    sz += e.second.first;
-  return sz;
 }
 
 SOB_TEMPLATE
@@ -850,11 +886,11 @@ order_info_type SOB_CLASS::_get_order_info(id_type id)
   
   std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
   /* --- CRITICAL SECTION --- */  
-  std::pair<plevel,FirstChainTy*> pc = _find_order_chain<FirstChainTy>(id);
+  std::pair<plevel,FirstChainTy*> pc = _chain<FirstChainTy>::find(this,id);
   p = std::get<0>(pc);
   fc = std::get<1>(pc);
   if(!p || !fc){
-    std::pair<plevel,SecondChainTy*> pc = _find_order_chain<SecondChainTy>(id);
+    std::pair<plevel,SecondChainTy*> pc = _chain<SecondChainTy>::find(this,id);
     p = std::get<0>(pc);
     sc = std::get<1>(pc);
     return (!p || !sc)
@@ -865,6 +901,7 @@ order_info_type SOB_CLASS::_get_order_info(id_type id)
   /* --- CRITICAL SECTION --- */ 
 }
 
+/*
 SOB_TEMPLATE
 template<typename ChainTy>
 std::pair<typename SOB_CLASS::plevel,ChainTy*> 
@@ -885,7 +922,7 @@ std::pair<typename SOB_CLASS::plevel,ChainTy*>
         return std::pair<plevel,ChainTy*>(beg,c);     
   }    
   return std::pair<typename SOB_CLASS::plevel,ChainTy*> (nullptr,nullptr);
-}
+}*/
 
 
 SOB_TEMPLATE
@@ -900,7 +937,7 @@ bool SOB_CLASS::_pull_order(id_type id)
   ASSERT_VALID_CHAIN(ChainTy); 
   constexpr bool IsLimit = SAME_(ChainTy,limit_chain_type);
 
-  std::pair<plevel,ChainTy*> cp = this->_find_order_chain<ChainTy>(id);
+  std::pair<plevel,ChainTy*> cp = _chain<ChainTy>::find(this,id);
   p = std::get<0>(cp);
   c = std::get<1>(cp);
 
