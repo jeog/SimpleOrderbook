@@ -51,6 +51,7 @@ public:
   virtual size_type ask_size() const = 0;
   virtual size_type total_bid_size() const = 0;
   virtual size_type total_ask_size() const = 0;
+  virtual size_type total_size() const = 0;
   virtual size_type last_size() const = 0;
   virtual large_size_type volume() const = 0;
   virtual large_size_type last_id() const = 0;

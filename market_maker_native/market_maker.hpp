@@ -222,20 +222,6 @@ private:
 
 protected:
   inline const orders_map_type& my_orders() const { return this->_my_orders; }
-  inline bool this_fill_was_buy() const { return this->_this_fill.is_buy; }
-  inline bool last_fill_was_buy() const { return this->_last_fill.is_buy; }
-  inline price_type this_fill_price() const { return this->_this_fill.price; }
-  inline price_type last_fill_price() const { return this->_last_fill.price; }
-  inline size_type this_fill_size() const { return this->_this_fill.size; }
-  inline size_type last_fill_size() const { return this->_last_fill.size; }
-  inline size_type tick_chng() const
-  {
-    return tick_diff(this->_this_fill.price,this->_last_fill.price,this->tick());
-  }
-  inline price_type tick() const { return this->_tick; }
-  inline size_type bid_out() const { return this->_bid_out; }
-  inline size_type offer_out() const { return this->_offer_out; }
-  inline size_type pos() const { return this->_pos; }
 
   template<bool BuyNotSell>
   size_type random_remove(price_type minp, id_type this_id);
@@ -255,6 +241,23 @@ public:
     { /* if alive change state of callback so we don't used freed memory */
       if(this->_callback) this->_callback->kill();
     }
+
+  inline bool this_fill_was_buy() const { return this->_this_fill.is_buy; }
+  inline bool last_fill_was_buy() const { return this->_last_fill.is_buy; }
+  inline price_type this_fill_price() const { return this->_this_fill.price; }
+  inline price_type last_fill_price() const { return this->_last_fill.price; }
+  inline size_type this_fill_size() const { return this->_this_fill.size; }
+  inline size_type last_fill_size() const { return this->_last_fill.size; }
+
+  inline size_type tick_chng() const
+  {
+    return tick_diff(this->_this_fill.price,this->_last_fill.price,this->tick());
+  }
+
+  inline price_type tick() const { return this->_tick; }
+  inline size_type bid_out() const { return this->_bid_out; }
+  inline size_type offer_out() const { return this->_offer_out; }
+  inline size_type pos() const { return this->_pos; }
 
   virtual order_exec_cb_type get_callback()
   {

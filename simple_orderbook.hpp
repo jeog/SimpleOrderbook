@@ -161,7 +161,6 @@ private:
 
 #define SAME_(Ty1,Ty2) std::is_same<Ty1,Ty2>::value
 
-
   /* chain pair is the limit and stop chain at a particular price
    * use a (less safe) pointer for plevel because iterator
    * is implemented as a class and creates a number of problems internally */
@@ -196,9 +195,6 @@ private:
   /* autonomous market makers */
   market_makers_type _market_makers;
 
-  /* is_dirty: trade/pull has occurred but we've deferred 'handling' it */
-  //bool _is_dirty;
-
   /* store deferred callbacks info until we are clear to execute */
   std::deque<dfrd_cb_elem_type> _deferred_callback_queue;
   /* flag used for restricting async attempts to clear queue until done*/
@@ -223,7 +219,7 @@ private:
   /* sync mm access */
   std::unique_ptr<std::recursive_mutex> _mm_mtx;
 
-  /* periodic async calls to _clear_callback_cache() and MarketMaker::wake() */
+  /* periodic async calls to callback with callback_msg::wake */
   std::thread _waker_thread;
   void _threaded_waker(int sleep);
 
@@ -233,16 +229,30 @@ private:
   /* run secondary threads */
   volatile bool _master_run_flag;
 
+  /* chain utilities via specializations (in .tpp) */
+  template<typename ChainTy, typename Dummy = void>
+  struct _chain;
+
+  /* set/adjust high low plevels via specializations (in .tpp) */
+  template<side_of_market Side = side_of_market::both, typename My = my_type>
+  struct _high_low;
+
+  /* generate order_info_type tuple via specializations (in .tpp) */
+  template<typename ChainTy, typename My = my_type>
+  struct _order_info;
+
   /* push order onto the order queue and block until execution */
   id_type _push_order_and_wait(order_type oty, bool buy, plevel limit,
-                               plevel stop, size_type size, order_exec_cb_type cb,
+                               plevel stop, size_type size,
+                               order_exec_cb_type cb,
                                order_admin_cb_type admin_cb= nullptr,
                                id_type id = 0);
 
   /* push order onto the order queue, DONT block */
   void _push_order_no_wait(order_type oty, bool buy, plevel limit, plevel stop,
                            size_type size, order_exec_cb_type cb,
-                           order_admin_cb_type admin_cb= nullptr,id_type id = 0);
+                           order_admin_cb_type admin_cb = nullptr,
+                           id_type id = 0);
 
   /* generate order ids; don't worry about overflow */
   inline large_size_type _generate_id(){ return ++(this->_last_id); }
@@ -260,10 +270,6 @@ private:
   size_type _incrs_in_range(my_price_type lprice, my_price_type hprice);
   size_type _generate_and_check_total_incr();
 
-  /* split plevel into chain via chain specializations (in .tpp) */
-  template<typename ChainTy, typename Dummy = void>
-  struct _chain;
-
   /* calculate chain_size of limit orders at each price level
    * use depth increments on each side of last  */
   template<side_of_market Side>
@@ -273,21 +279,9 @@ private:
   template<side_of_market Side, typename ChainTy = limit_chain_type>
   size_type _total_depth() const;
 
-  /* set/adjust high low plevels via side_of_market specializations (in .tpp) */
-  template<side_of_market Side = side_of_market::both, typename My = my_type>
-  struct _high_low;
-
-  /* generate order_info_type tuple via chain specializations (in .tpp) */
-  template<typename ChainTy, typename My = my_type>
-  struct _order_info;
-
   /* return an order_info_type tuple for that order id */
   template<typename FirstChainTy, typename SecondChainTy>
   order_info_type _get_order_info(id_type id);
-
-  /* find a particular order, return the plevel and chain pointer
-  template<typename ChainTy>
-  std::pair<plevel,ChainTy*> _find_order_chain(id_type id) const;*/
 
   /* remove a particular order */
   template<typename ChainTy>

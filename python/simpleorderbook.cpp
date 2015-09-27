@@ -40,6 +40,9 @@ CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, ask_price )
 CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, last_price )
 CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, ask_size )
 CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, bid_size )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, total_ask_size )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, total_bid_size )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, total_size )
 CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, last_size )
 CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLongLong, volume )
 
@@ -536,6 +539,9 @@ static PyMethodDef pySOB_methods[] =
   {"last_price",(PyCFunction)SOB_last_price, METH_NOARGS, "() -> float"},
   {"bid_size",(PyCFunction)SOB_bid_size, METH_NOARGS, "() -> int"},
   {"ask_size",(PyCFunction)SOB_ask_size, METH_NOARGS, "() -> int"},
+  {"total_bid_size",(PyCFunction)SOB_total_bid_size, METH_NOARGS, "() -> int"},
+  {"total_ask_size",(PyCFunction)SOB_total_ask_size, METH_NOARGS, "() -> int"},
+  {"total_size",(PyCFunction)SOB_total_size, METH_NOARGS, "() -> int"},
   {"last_size",(PyCFunction)SOB_last_size, METH_NOARGS, "() -> int"},
   {"volume",(PyCFunction)SOB_volume, METH_NOARGS, "() -> int"},
   {"bid_depth",(PyCFunction)SOB_market_depth<NativeLayer::side_of_market::bid>,

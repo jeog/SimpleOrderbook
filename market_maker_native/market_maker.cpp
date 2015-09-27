@@ -388,16 +388,13 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
                                         size_type size)
 {
   price_type adj;
-  size_type amt, rret, cumm; //, part;
+  size_type amt, rret, cumm;
   bool skip;
 
   try{
     switch(msg){
     case callback_msg::fill:
       {
-    //    if(size < 5)
-     //     break;
-
         adj = this->tick() * this->_distr2(this->_rand_engine);
         amt = this->_distr(this->_rand_engine);
         skip = false;
@@ -416,7 +413,7 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
           }
           if(!skip)
             this->insert<true>(price - adj, amt);
-          if(amt > this->_midsz)
+          if(this->offer_out() + amt - this->pos() < this->_max_pos)
             this->insert<false>(price + adj, size);
         }else{
           if(this->offer_out() + amt - this->pos() > this->_max_pos){
@@ -432,7 +429,7 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
           }
           if(!skip)
             this->insert<false>(price + adj, amt);
-          if(amt > this->_midsz)
+          if(this->bid_out() + amt + this->pos() < this->_max_pos)
             this->insert<true>(price - adj, size);
         }
       }
@@ -451,13 +448,13 @@ void MarketMaker_Random::_exec_callback(callback_msg msg,
         if(price <= adj)
           return;
         if(this->pos() < 0){
-          cumm = this->random_remove<true>(price- adj*5,0);
+          cumm = this->random_remove<true>(price- adj*2,0);
           if(cumm)
             this->insert<true>(price - adj, cumm);
         }
         else
         {
-          cumm = this->random_remove<false>(price + adj*5,0);
+          cumm = this->random_remove<false>(price + adj*2,0);
           if(cumm)
            this->insert<false>(price + adj, cumm);
         }

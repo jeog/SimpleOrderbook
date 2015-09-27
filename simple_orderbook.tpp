@@ -96,6 +96,12 @@ SOB_CLASS::~SimpleOrderbook()
  * 
  * _order_info::generate : generate specialized order_info_type tuples
  * 
+ * _chain::get : get appropriate chain from plevel
+ * _chain::size : get size of chain
+ * _chain::find : find chain containing a particular order id
+ * 
+ * (note: the _chain specials inherit from non-special to access base find
+ * 
  * TODO: replace some of the default beg/ends with cached extre
  */
 
@@ -900,30 +906,6 @@ order_info_type SOB_CLASS::_get_order_info(id_type id)
     return _order_info<FirstChainTy>::generate(this, id, p, fc);   
   /* --- CRITICAL SECTION --- */ 
 }
-
-/*
-SOB_TEMPLATE
-template<typename ChainTy>
-std::pair<typename SOB_CLASS::plevel,ChainTy*> 
-  SOB_CLASS::_find_order_chain(id_type id) const
-{ 
-  plevel beg, end, hstop, lstop;
-  ChainTy* c;  
-  
-  ASSERT_VALID_CHAIN(ChainTy); 
-
-  _high_low<>::set_using_cached(this,&end,&beg,c=nullptr);
-  
-  for( ; beg <= end; ++beg)
-  {
-    c = _chain<ChainTy>::get(beg);
-    for(typename ChainTy::value_type& e : *c)
-      if(e.first == id)         
-        return std::pair<plevel,ChainTy*>(beg,c);     
-  }    
-  return std::pair<typename SOB_CLASS::plevel,ChainTy*> (nullptr,nullptr);
-}*/
-
 
 SOB_TEMPLATE
 template<typename ChainTy>
