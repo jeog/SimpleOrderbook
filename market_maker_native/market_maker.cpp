@@ -165,6 +165,10 @@ void MarketMaker::_base_callback(callback_msg msg,
       this->_my_orders.erase(id);
     }
     break;
+  case callback_msg::wake:
+    {
+    }
+    break;
   case callback_msg::stop_to_limit:
     throw not_implemented("stop orders should not be used by market makers!");
  }
@@ -231,40 +235,32 @@ void MarketMaker_Simple1::_exec_callback(callback_msg msg,
                                          price_type price,
                                          size_type size)
 {
+  price_type adj = this->tick();
+
   try{
     switch(msg){
     case callback_msg::fill:
-      {/*
-        if(size <3) break;
-
-        if(this->this_fill_was_buy())
-        {
-          if(this->bid_out() + this->_sz + this->pos() > this->_max_pos)
-            if(this->random_remove<true>(price - this->tick()*3,id) > 0){
-              this->insert<true>(price - this->tick(), (int)(this->_sz/3));
-              this->insert<true>(price - this->tick()*2, (int)(this->_sz/3));
-              this->insert<true>(price - this->tick()*3, (int)(this->_sz/3));
-            }
-          this->insert<false>(price + this->tick(), (int)(size/3));
-          this->insert<false>(price + this->tick()*2, (int)(size/3));
-          this->insert<false>(price + this->tick()*3, (int)(size/3));
-        }
-        else
-        {
-          if(this->offer_out() + this->_sz - this->pos() > this->_max_pos)
-            if(this->random_remove<false>(price + this->tick()*3,id) > 0){
-              this->insert<false>(price + this->tick(), (int)(this->_sz/3));
-              this->insert<false>(price + this->tick()*2, (int)(this->_sz/3));
-              this->insert<false>(price + this->tick()*3, (int)(this->_sz/3));
-            }
-          this->insert<true>(price - this->tick(), (int)(size/3));
-          this->insert<true>(price - this->tick()*2, (int)(size/3));
-          this->insert<true>(price - this->tick()*3, (int)(size/3));
-        }*/
+    {
+      if(this->last_fill_was_buy())
+      {
+        this->insert<false>(price + this->tick(), size);
+        this->random_remove<false>(price + this->tick(),0);
       }
-      break;
+      else
+      {
+        this->insert<true>(price - this->tick(), size);
+        this->random_remove<true>(price - this->tick(),0);
+      }
+    }break;
     case callback_msg::wake:
       {
+        if(price <= adj)
+          return;
+        if(this->pos() < 0)
+          this->random_remove<true>(price- adj*3,0);
+        else
+          this->random_remove<false>(price + adj*3,0);
+
         if(price > this->last_fill_price()
            && (this->offer_out() + this->_sz - this->pos() <= this->_max_pos))
         {

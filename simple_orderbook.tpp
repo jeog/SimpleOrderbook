@@ -77,9 +77,18 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
 SOB_TEMPLATE 
 SOB_CLASS::~SimpleOrderbook()
 {  
-  this->_order_dispatcher_thread.detach();
-  this->_waker_thread.detach();
   this->_master_run_flag = false;
+  try{ 
+    {
+       std::lock_guard<std::mutex> lock(*(this->_order_queue_mtx));
+       this->_order_queue.push(order_queue_elem_type()); 
+    }  
+    this->_order_queue_cond.notify_one();
+    this->_order_dispatcher_thread.join(); 
+  }catch(...){}
+  try{ 
+    this->_waker_thread.join(); 
+  }catch(...){}  
   std::cout<< "- SimpleOrderbook Destroyed\n";
 }
 
@@ -475,12 +484,14 @@ void SOB_CLASS::_threaded_order_dispatcher()
   id_type id;
   bool res;
   
-  while(this->_master_run_flag)
+  for( ; ; )
   {
     {
       std::unique_lock<std::mutex> lock(*(this->_order_queue_mtx));    
       this->_order_queue_cond.wait(lock, 
                                    [this]{return !this->_order_queue.empty();}); 
+   //   if(!this->_master_run_flag)
+   //     break;
       e = std::move(this->_order_queue.front());
       this->_order_queue.pop();
     }     
