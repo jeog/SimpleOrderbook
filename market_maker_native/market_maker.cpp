@@ -28,26 +28,21 @@ using namespace std::placeholders;
 market_makers_type operator+(market_makers_type&& l, market_makers_type&& r)
 { /* see notes in header */
   market_makers_type mms;
+  mms.reserve(l.size() + r.size());
 
-  for(auto& m : l)
-    mms.push_back(std::move(m));
-  for(auto& m: r)
-    mms.push_back(std::move(m));
+  std::move(l.begin(),l.end(),back_inserter(mms));
+  std::move(r.begin(),r.end(),back_inserter(mms));
 
-  /* make it explicit we stole them */
-  l.clear();
-  r.clear();
   return mms;
 }
 market_makers_type operator+(market_makers_type&& l, MarketMaker&& r)
 { /* see notes in header */
   market_makers_type mms;
+  mms.reserve(l.size() + 1);
 
-  for(auto& m : l)
-    mms.push_back(std::move(m));
+  std::move(l.begin(),l.end(),back_inserter(mms));
   mms.push_back(r._move_to_new());
 
-  l.clear();
   return mms;
 }
 
@@ -328,7 +323,6 @@ MarketMaker_Random::MarketMaker_Random(size_type sz_low,
     _distr2(1, (int)d),
     _disp(d)
   {
-    // add a thread that checks/updates/removes orders to avoid staleness
   }
 
 MarketMaker_Random::MarketMaker_Random(MarketMaker_Random&& mm) noexcept

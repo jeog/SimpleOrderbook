@@ -217,8 +217,9 @@ private:
     return pMarketMaker( new MarketMaker(std::move(*this)) );
   }
 
-  /* disable copy construction */
   MarketMaker(const MarketMaker& mm);
+  MarketMaker& operator=(const MarketMaker& mm);
+  MarketMaker& operator=(MarketMaker&& mm);
 
 protected:
   inline const orders_map_type& my_orders() const { return this->_my_orders; }

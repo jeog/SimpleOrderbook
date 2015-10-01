@@ -31,11 +31,11 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
    :: our ersatz iterator approach ::
      
      i = [ 0, _total_incr ) 
-  
-   vector iterator:  [begin()]                                    [ end() ]
-   internal pointer: [ _base ][ _beg ]                            [ _end  ]
-   internal index:   [ NULL  ][  i   ][ i+1 ][ i+2 ]...   [ i-1  ][ NULL  ]
-   external price:   [ THROW ][ min  ]                    [ max  ][ THROW ]    
+   
+   vector iterator:  [begin()]                                       [ end() ]
+   internal pointer: [ _base ][ _beg ]                               [ _end  ]
+   internal index:   [ NULL  ][  i   ][ i+1 ]...    [ _total_incr-1 ][ NULL  ]
+   external price:   [ THROW ][ min  ]                       [ max  ][ THROW ]    
   
    ***************************************************************************/
   _low_buy_limit( &(*this->_last) ),
@@ -942,9 +942,9 @@ bool SOB_CLASS::_pull_order(id_type id)
   if(IsLimit && c->empty())
     this->_adjust_limit_cache_vals(p);
   else if(!IsLimit && is_buystop)     
-      this->_adjust_stop_cache_vals<true>(p,(stop_chain_type*)c);
+    this->_adjust_stop_cache_vals<true>(p,(stop_chain_type*)c);
   else if(!IsLimit && !is_buystop)
-      this->_adjust_stop_cache_vals<false>(p,(stop_chain_type*)c);     
+    this->_adjust_stop_cache_vals<false>(p,(stop_chain_type*)c);     
   /* callback with cancel msg */   
   this->_deferred_callback_queue.push_back( 
     dfrd_cb_elem_type(callback_msg::cancel, cb, id, 0, 0) ); 
@@ -978,32 +978,33 @@ void SOB_CLASS::_adjust_stop_cache_vals(plevel plev,stop_chain_type* c)
   riter = find_if(biter, eiter, [](const stop_chain_type::value_type& v){
                                   return std::get<0>(v.second) == BuyStop;
                                 } );
-  if(riter == eiter){
-    if(BuyStop)
-    {
-      if(plev > this->_high_buy_stop)
-        throw cache_value_error("can't remove stop higher than cached val");
-      else if(plev == this->_high_buy_stop)
-        --(this->_high_buy_stop); /*dont look for next valid plevel*/ 
-      
-      if(plev < this->_low_buy_stop)
-        throw cache_value_error("can't remove stop lower than cached val");
-      else if(plev == this->_low_buy_stop)
-        ++(this->_low_buy_stop); /*dont look for next valid plevel*/   
-    }
-    else
-    {
-      if(plev > this->_high_sell_stop)
-        throw cache_value_error("can't remove stop higher than cached val");
-      else if(plev == this->_high_sell_stop)
-        --(this->_high_sell_stop); /*dont look for next valid plevel */   
-      
-      if(plev < this->_low_sell_stop)
-        throw cache_value_error("can't remove stop lower than cached val");
-      else if(plev == this->_low_sell_stop)
-        ++(this->_low_sell_stop); /*dont look for next valid plevel*/       
-    }    
-  }    
+  if(riter != eiter)
+    return;
+  
+  if(BuyStop)
+  {
+    if(plev > this->_high_buy_stop)
+      throw cache_value_error("can't remove stop higher than cached val");
+    else if(plev == this->_high_buy_stop)
+      --(this->_high_buy_stop); /*dont look for next valid plevel*/ 
+    
+    if(plev < this->_low_buy_stop)
+      throw cache_value_error("can't remove stop lower than cached val");
+    else if(plev == this->_low_buy_stop)
+      ++(this->_low_buy_stop); /*dont look for next valid plevel*/   
+  }
+  else
+  {
+    if(plev > this->_high_sell_stop)
+      throw cache_value_error("can't remove stop higher than cached val");
+    else if(plev == this->_high_sell_stop)
+      --(this->_high_sell_stop); /*dont look for next valid plevel */   
+    
+    if(plev < this->_low_sell_stop)
+      throw cache_value_error("can't remove stop lower than cached val");
+    else if(plev == this->_low_sell_stop)
+      ++(this->_low_sell_stop); /*dont look for next valid plevel*/       
+  }        
 }
 
 SOB_TEMPLATE
