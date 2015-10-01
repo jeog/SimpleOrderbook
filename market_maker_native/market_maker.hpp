@@ -44,8 +44,13 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r);
  * MarketMaker objects are intended to be 'autonomous' objects that
  * provide liquidity, receive execution callbacks, and respond with new orders.
  *
- * MarketMakers are moved into an orderbook via add_market_maker(&&)
- * or by calling add_market_makers(&&) with a market_makers_type(see below)
+ * We've restricted copy/assignment - implementing move semantics - to limit
+ * shared access, protecting the market makers once inside the orderbook.
+ * MarketMaker(s) are moved into an orderbook via add_market_maker(&&)
+ * or add_market_makers(&&). For multiple MarketMakers it's recommended to use
+ * the Factories and/or the + overloads to build a market_makers_type. The
+ * operator+ overloads and the relevant 'add_...' calls explicitly require
+ * rvalue references.
  *
  * The virtual start function is called by the orderbook when it is ready
  * to begin; define this (as protected, orderbook is a friend class) to control
@@ -74,22 +79,11 @@ market_makers_type operator+(market_makers_type&& l, MarketMaker&& r);
  *   MarketMaker::_callback_ext   <- (optionally) passed in at construction
  *   MarketMaker::_exec_callback  <- virtual, defined in subclass
  *
- *                            *   *   *
+ *                            *   *   * **
  *
- * We've restricted copy/assign and implemented move semantics to somewhat
- * protect the market makers once inside the Orderbook
- *
- * It's recommended to use the Factories and/or the + overloads to build a
- * market_makers_type that will be moved (i.e have its contents stolen) into
- * the orderbook's add_market_makers() function.
- *
- * The operator+ overloads explicity require rvalues so use std::move() if
- * necessary. They also call clear() on the market_makers_type object to make
- * it clear it's contents have been moved.
- *
- * Sub-classes of MarketMaker have to define the _move_to_new(&&) private virtual
- * function (DEFAULT_MOVE_TO_NEW macro provides a default definition) which
- * steals its own contents, passing them to a new derived object inside a
+ * Sub-classes of MarketMaker have to define the _move_to_new() private
+ * virtual function (DEFAULT_MOVE_TO_NEW macro provides a default definition)
+ * which steals its own contents, passing them to a new derived object inside a
  * unique_ptr(pMarketMaker). This is intended to be used internally BUT
  * (and this not recommended) you can grab a reference - to this or any object
  * after its been moved but before it gets added to the orderbook - and access

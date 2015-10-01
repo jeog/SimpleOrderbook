@@ -80,6 +80,8 @@ MarketMaker::MarketMaker(MarketMaker&& mm) noexcept
     _recurse_count(mm._recurse_count),
     _tot_recurse_count(mm._tot_recurse_count)
   {
+    std::cout<< "MOVE" << std::endl;
+
     if(&mm == this)
       throw move_error("can't move to ourself");
 

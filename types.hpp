@@ -32,11 +32,6 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 
 #define SOB_MAX_MEM (1024 * 1024 * 1024)
 
-/*DEBUG*/
-#include <fstream>
-extern std::ofstream fout;
-/*DEBUG*/
-
 namespace NativeLayer{
 
 typedef float               price_type;
@@ -48,21 +43,22 @@ typedef unsigned long long  large_size_type;
 typedef std::ratio<1,100>   default_tick;
 
 namespace SimpleOrderbook{
+
 class QueryInterface;
 class LimitInterface;
 class FullInterface;
 template<typename TickRatio = default_tick, size_type MaxMemory = SOB_MAX_MEM>
 class SimpleOrderbook;
-/*
- * make sure to add new types as friends to MarketMaker
- */
+
+/* make sure to add new types as friends to MarketMaker */
 typedef SimpleOrderbook<std::ratio<1,4>>     QuarterTick;
 typedef SimpleOrderbook<std::ratio<1,10>>    TenthTick;
 typedef SimpleOrderbook<std::ratio<1,32>>    ThirtySecondthTick;
 typedef SimpleOrderbook<>                    HundredthTick, PennyTick, Default;
 typedef SimpleOrderbook<std::ratio<1,1000>>  ThousandthTick;
 typedef SimpleOrderbook<std::ratio<1,10000>> TenThousandthTick;
-}
+
+} /* SimpleOrderbook */
 
 class MarketMaker;
 typedef std::unique_ptr<MarketMaker> pMarketMaker;

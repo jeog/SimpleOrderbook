@@ -17,11 +17,13 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   _bid_size(0),
   _ask_size(0),
   _last_size(0), 
+  /*** range checks ***/
   _lower_incr(this->_incrs_in_range(min,price)),
   _upper_incr(this->_incrs_in_range(price,max)),
   _total_incr(this->_generate_and_check_total_incr()),
+  /*** range checks ***/
   _base( min ),
-  _book( _total_incr + 1), /*pad the beg side so we can go past w/o seg fault*/
+  _book( _total_incr + 1), /*pad the beg side */
   _beg( &(*_book.begin()) + 1 ), /**/
   _end( &(*_book.end())), 
   _last( this->_beg + _lower_incr ), 
@@ -1142,9 +1144,7 @@ size_type SOB_CLASS::_generate_and_check_total_incr()
 
 SOB_TEMPLATE
 void SOB_CLASS::add_market_makers(market_makers_type&& mms)
-{/* 
-  * start and steal the market_maker smart_pointers 
-  */
+{
   std::lock_guard<std::recursive_mutex> lock(*(this->_mm_mtx));
   /* --- CRITICAL SECTION --- */        
   for(pMarketMaker& mm : mms){   
@@ -1156,9 +1156,7 @@ void SOB_CLASS::add_market_makers(market_makers_type&& mms)
 
 SOB_TEMPLATE
 void SOB_CLASS::add_market_maker(MarketMaker&& mm)
-{/* 
-  * create market_maker smart_pointer, start and push 
-  */
+{
   std::lock_guard<std::recursive_mutex> lock(*(this->_mm_mtx));
   /* --- CRITICAL SECTION --- */ 
   pMarketMaker pmm = mm._move_to_new();
@@ -1168,9 +1166,7 @@ void SOB_CLASS::add_market_maker(MarketMaker&& mm)
 
 SOB_TEMPLATE
 void SOB_CLASS::add_market_maker(pMarketMaker&& mm)
-{/* 
-  * accept market_maker smart_pointer, start and push 
-  */
+{
   std::lock_guard<std::recursive_mutex> lock(*(this->_mm_mtx));
   /* --- CRITICAL SECTION --- */ 
   mm->start(this, this->_itop(this->_last), tick_size);

@@ -96,16 +96,27 @@ namespace SimpleOrderbook{
  *
  *   bid_price / ask_price: current 'inside' bid / ask price
  *   bid_size / ask_size: current 'inside' bid / ask size
+ *
  *   last_price: price of the last trade
  *   volume: total volume traded
  *   last_id: last order id to be assigned
- *   bid_depth: cummulative size of the orderbook between inside bid and
+ *
+ *   bid_depth: cumulative size of the (limit) orderbook between inside bid and
  *              'depth' price/tick levels away from the inside bid
  *   ask_depth: (same as bid_depth but on ask side)
+ *   market_depth: like a call to bid_depth AND ask_depth
+ *
+ *   total_bid_size: cumulative size of all bid limits
+ *   total_ask_size: (same as total_bid_size but on ask side)
+ *   total_size: total_bid_size + total_ask_size *
+ *
  *   time_and_sales: a custom vector defined in QuertyInterface that returns
  *                   a pre-defined number of the most recent trades
  *   ::timestamp_to_str: covert a time_stamp_type from time_and_sales to a
  *                       readable string
+ *
+ *   get_order_info: return a tuple of order type, side, price(s) and size for
+ *                   an outstanding order
  *
  * The dump calls(via SimpleOrderbook::FullInterface) will dump ALL the
  * orders - of the type named in the call - in a readable form to stdout.
@@ -342,6 +353,7 @@ private:
   SimpleOrderbook(const SimpleOrderbook& sob);
   SimpleOrderbook(SimpleOrderbook&& sob);
   SimpleOrderbook& operator==(const SimpleOrderbook& sob);
+  SimpleOrderbook& operator==(SimpleOrderbook&& sob);
   /***************************************************
    *** RESTRICT COPY / MOVE / ASSIGN ... (for now) ***
    **************************************************/
