@@ -86,10 +86,12 @@ SOB_CLASS::~SimpleOrderbook()
        this->_order_queue.push(order_queue_elem_type()); 
     }  
     this->_order_queue_cond.notify_one();
-    this->_order_dispatcher_thread.join(); 
+    if(this->_order_dispatcher_thread.joinable())
+      this->_order_dispatcher_thread.join(); 
   }catch(...){}
   try{ 
-    this->_waker_thread.join(); 
+    if(this->_order_dispatcher_thread.joinable())
+      this->_waker_thread.join(); 
   }catch(...){}  
   std::cout<< "- SimpleOrderbook Destroyed\n";
 }

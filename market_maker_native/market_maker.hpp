@@ -134,15 +134,15 @@ private:
     order_exec_cb_type _base_f, _deriv_f;
   public:
     dynamic_functor(MarketMaker* mm)
-        : _mm(mm), _mm_alive(true) {this->rebind(mm);}
-    void rebind(MarketMaker* mm)
-    {
+        : _mm(mm), _mm_alive(true)
+      { this->rebind(mm); }
+    void rebind(MarketMaker* mm){
       this->_mm = mm;
       this->_base_f = std::bind(&MarketMaker::_base_callback,_mm,_1,_2,_3,_4);
       this->_deriv_f = std::bind(&MarketMaker::_exec_callback,_mm,_1,_2,_3,_4);
     }
-    void operator()(callback_msg msg,id_type id,price_type price,size_type size)
-    {
+    void operator()(callback_msg msg, id_type id,
+                    price_type price, size_type size){
       if(!this->_mm_alive)
         return;
       ++_mm->_recurse_count;
@@ -161,20 +161,21 @@ private:
   };
 
   typedef std::shared_ptr<dynamic_functor> df_sptr_type;
+
 public:
   struct dynamic_functor_wrap{
     df_sptr_type _df;
   public:
     dynamic_functor_wrap(df_sptr_type df = nullptr) : _df(df) {}
-    void operator()(callback_msg msg,id_type id,price_type price,size_type size)
-    {
+    inline void operator()(callback_msg msg, id_type id,
+                           price_type price, size_type size){
       if(_df) _df->operator()(msg,id,price,size);
     }
-    operator bool(){ return (bool)_df; }
+    inline operator bool(){ return (bool)_df; }
     inline void kill() { if(_df) _df->kill(); }
   };
-private:
 
+private:
   typedef std::tuple<bool,price_type,size_type> order_bndl_type;
   typedef std::map<id_type,order_bndl_type> orders_map_type;
   typedef orders_map_type::value_type orders_value_type;
