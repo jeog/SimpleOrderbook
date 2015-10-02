@@ -602,12 +602,13 @@ void SOB_CLASS::_clear_callback_queue()
   order_exec_cb_type cb;
   std::deque<dfrd_cb_elem_type> tmp;
   
-  if(this->_busy_with_callbacks.load())
-    return;
+  bool busy = false;  
+  this->_busy_with_callbacks.compare_exchange_strong(busy,true);
+  if(busy) /* if false set to true(atomically); if true return */
+    return;  
   {   
     std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
-    /* --- CRITICAL SECTION --- */
-    this->_busy_with_callbacks.store(true); // <- can we go outside of CS ??
+    /* --- CRITICAL SECTION --- */  
     std::move(this->_deferred_callback_queue.begin(),
               this->_deferred_callback_queue.end(), back_inserter(tmp));     
     this->_deferred_callback_queue.clear(); 
