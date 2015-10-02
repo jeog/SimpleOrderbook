@@ -90,7 +90,7 @@ SOB_CLASS::~SimpleOrderbook()
       this->_order_dispatcher_thread.join(); 
   }catch(...){}
   try{ 
-    if(this->_order_dispatcher_thread.joinable())
+    if(this->_waker_thread.joinable())
       this->_waker_thread.join(); 
   }catch(...){}  
   std::cout<< "- SimpleOrderbook Destroyed\n";
