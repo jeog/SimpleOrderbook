@@ -64,9 +64,14 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
   {       
     if( min.to_incr() == 0 )
       throw std::invalid_argument("(TrimmedRational) min price must be > 0");
-    this->_t_and_s.reserve(this->_t_and_s_max_sz); 
-    
-    /* - DONT THROW AFTER THIS POINT - */
+    this->_t_and_s.reserve(this->_t_and_s_max_sz);     
+    /* 
+     * --- DONT THROW AFTER THIS POINT --- 
+     * 
+     *  1) _master_run_flag = true
+     *  2) launch new _order_dispatcher 
+     *  3) launch new _waker 
+     */
     this->_order_dispatcher_thread = 
       std::thread( std::bind(&SOB_CLASS::_threaded_order_dispatcher,this) );    
     
@@ -78,8 +83,17 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
 
 SOB_TEMPLATE 
 SOB_CLASS::~SimpleOrderbook()
-{  
+{/*
+  *  1) _master_run_flag = false
+  *  2) join killed _waker 
+  *  3) join killed _order_dispatcher 
+  */
   this->_master_run_flag = false;
+  try{ 
+    if(this->_waker_thread.joinable())
+      this->_waker_thread.join(); 
+  }
+  catch(...){}  
   try{ 
     {
        std::lock_guard<std::mutex> lock(*(this->_order_queue_mtx));
@@ -88,11 +102,8 @@ SOB_CLASS::~SimpleOrderbook()
     this->_order_queue_cond.notify_one();
     if(this->_order_dispatcher_thread.joinable())
       this->_order_dispatcher_thread.join(); 
-  }catch(...){}
-  try{ 
-    if(this->_waker_thread.joinable())
-      this->_waker_thread.join(); 
-  }catch(...){}  
+  }
+  catch(...){}
   std::cout<< "- SimpleOrderbook Destroyed\n";
 }
 
