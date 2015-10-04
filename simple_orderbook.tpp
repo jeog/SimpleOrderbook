@@ -112,12 +112,12 @@ SOB_CLASS::~SimpleOrderbook()
 /*
  * nested static calls used to get around member specialization restrictions
  * 
- * _high_low::adjust : bounds check and reset plevels if necessary
+ * _high_low::range_check : bounds check and reset plevels if necessary
  * _high_low::set_using_depth : populate plevels using passed depth 
  *   from 'inside' bid/ask and internal bounds
  * _high_low::set_using_cached : populate plevels using cached extremes
  * 
- * (note: the _high_low specials inherit from non-special to access adjust())
+ * (note: _high_low specials inherit from non-special to access range_check())
  * 
  * _order_info::generate : generate specialized order_info_type tuples
  * 
@@ -154,24 +154,25 @@ private:
     }
   };
 public:   
-  static void adjust(const My* sob, plevel* ph, plevel* pl){
+  static void range_check(const My* sob, plevel* ph, plevel* pl){
     *ph = (*ph >= sob->_end) ? sob->_end - 1 : *ph;
     *pl = (*pl < sob->_beg) ? sob->_beg : *pl;
   }
   template<typename ChainTy> 
   static void set_using_depth(const My* sob, plevel* ph, plevel* pl,
-                              size_type depth, ChainTy* dummy_chain_ptr ){
+                              size_type depth ){
     _set_using_cached<ChainTy>::call(sob,ph,pl); 
     *ph = (plevel)min(sob->_ask + depth - 1, *ph);
     *pl = (plevel)max(sob->_bid - depth +1, *pl);  
-    _high_low<Side,My>::adjust(sob,ph,pl);
+    _high_low<Side,My>::range_check(sob,ph,pl);
   }
   template<typename ChainTy> 
-  static void set_using_cached(const My* sob, plevel* ph, plevel *pl,
-                               ChainTy* dummy_chain_ptr){
+  static void set_using_cached(const My* sob, plevel* ph, plevel *pl){
     _set_using_cached<ChainTy>::call(sob,ph,pl);
-    _high_low<Side,My>::adjust(sob,ph,pl);
+    _high_low<Side,My>::range_check(sob,ph,pl);
   }
+  template<typename TTT>
+  static void test(){}
 };
 SOB_TEMPLATE
 template<typename My> struct SOB_CLASS::_high_low<side_of_market::bid,My>
@@ -191,24 +192,23 @@ private:
   struct _set_using_cached<typename SOB_CLASS::stop_chain_type,Dummy>{
   public: /* use the side_of_market::both version in base */
     static void call(const My* sob,plevel* ph,plevel *pl){      
-      _high_low<side_of_market::both,My>
-      ::set_using_cached::call(sob,ph,pl,(typename SOB_CLASS::stop_chain_type*)0);
+      _high_low<side_of_market::both,My>::template
+         set_using_cached<typename SOB_CLASS::stop_chain_type>::call(sob,ph,pl);
     }
   };
 public: 
   template<typename ChainTy> 
   static void set_using_depth(const My* sob, plevel* ph, plevel* pl,
-                              size_type depth, ChainTy* dummy_chain_ptr){
+                              size_type depth){
     _set_using_cached<ChainTy>::call(sob,ph,pl);   
     *ph = sob->_bid;   
     *pl = (plevel)max(sob->_bid - depth +1, *pl);
-    _high_low<side_of_market::both,My>::adjust(sob,ph,pl);
+    _high_low<side_of_market::both,My>::range_check(sob,ph,pl);
   }
   template<typename ChainTy> 
-  static void set_using_cached(const My* sob, plevel* ph, plevel *pl,
-                               ChainTy* dummy_chain_ptr){
+  static void set_using_cached(const My* sob, plevel* ph, plevel *pl){
     _set_using_cached<ChainTy>::call(sob,ph,pl);
-    _high_low<side_of_market::both,My>::adjust(sob,ph,pl);
+    _high_low<side_of_market::both,My>::range_check(sob,ph,pl);
   }
 };
 SOB_TEMPLATE
@@ -229,24 +229,23 @@ private:
   struct _set_using_cached<typename SOB_CLASS::stop_chain_type,Dummy>{
   public: /* use the side_of_market::both version in base */
     static void call(const My* sob,plevel* ph,plevel *pl){      
-      _high_low<side_of_market::both,My>
-      ::set_using_cached::call(sob,ph,pl,(typename SOB_CLASS::stop_chain_type*)0);
+      _high_low<side_of_market::both,My>::template 
+        set_using_cached<typename SOB_CLASS::stop_chain_type>::call(sob,ph,pl);
     }
   };
 public: 
   template<typename ChainTy> 
   static void set_using_depth(const My* sob, plevel* ph, plevel* pl,
-                              size_type depth, ChainTy* dummy_chain_ptr){
+                              size_type depth){
     _set_using_cached<ChainTy>::call(sob,ph,pl);  
     *pl = sob->_ask;
     *ph = (plevel)min(sob->_ask + depth - 1, *ph);
-    _high_low<side_of_market::both,My>::adjust(sob,ph,pl);
+    _high_low<side_of_market::both,My>::range_check(sob,ph,pl);
   }
   template<typename ChainTy> 
-  static void set_using_cached(const My* sob, plevel* ph, plevel *pl,
-                               ChainTy* dummy_chain_ptr){
+  static void set_using_cached(const My* sob, plevel* ph, plevel *pl){
     _set_using_cached<ChainTy>::call(sob,ph,pl);
-    _high_low<side_of_market::both,My>::adjust(sob,ph,pl);
+    _high_low<side_of_market::both,My>::range_check(sob,ph,pl);
   }
 };
 
@@ -292,10 +291,10 @@ struct SOB_CLASS::_chain {
 protected:
   template<typename InnerChainTy, typename My>
   static std::pair<typename SOB_CLASS::plevel,InnerChainTy*> 
-  find(const My* sob, id_type id, InnerChainTy* dummy){ 
+  find(const My* sob, id_type id){ 
     plevel beg, end;
     InnerChainTy* c;
-    _high_low<>::set_using_cached(sob,&end,&beg,c=nullptr);    
+    _high_low<>::template set_using_cached<InnerChainTy>(sob,&end,&beg);    
     for( ; beg <= end; ++beg){
       c = _chain<InnerChainTy>::get(beg);
       for(typename InnerChainTy::value_type& e : *c)
@@ -308,40 +307,36 @@ SOB_TEMPLATE
 template<typename Dummy> 
 struct SOB_CLASS::_chain<typename SOB_CLASS::limit_chain_type, Dummy>
     : public _chain<void> { 
-  static SOB_CLASS::limit_chain_type* get(typename SOB_CLASS::plevel p){
-    return &(p->first); 
-  } 
-  static size_type size(typename SOB_CLASS::limit_chain_type* c){ 
+  typedef typename SOB_CLASS::limit_chain_type chain_type;
+  static chain_type* get(typename SOB_CLASS::plevel p){ return &(p->first); } 
+  static size_type size(chain_type* c){ 
     size_type sz = 0;
-    for(typename SOB_CLASS::limit_chain_type::value_type& e : *c)
+    for(chain_type::value_type& e : *c)
       sz +=  e.second.first;
     return sz;
   }  
   template<typename My>
-  static std::pair<typename SOB_CLASS::plevel,
-                   typename SOB_CLASS::limit_chain_type*> 
+  static std::pair<typename SOB_CLASS::plevel,chain_type*>  
   find(const My* sob, id_type id){    
-    return _chain<void>::find(sob,id,(typename SOB_CLASS::limit_chain_type*)0); 
+    return _chain<void>::template find<chain_type>(sob,id); 
   }
 };
 SOB_TEMPLATE
 template<typename Dummy> 
 struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>
     : public _chain<void> { 
-  static typename SOB_CLASS::stop_chain_type* get(typename SOB_CLASS::plevel p){ 
-    return &(p->second); 
-  }
-  static size_type size(SOB_CLASS::stop_chain_type* c){
+  typedef typename SOB_CLASS::stop_chain_type chain_type;
+  static chain_type* get(typename SOB_CLASS::plevel p){ return &(p->second); }
+  static size_type size(chain_type* c){
     size_type sz = 0;
-    for(typename SOB_CLASS::stop_chain_type::value_type& e : *c)
+    for(chain_type::value_type& e : *c)
       sz += std::get<2>(e.second); 
     return sz;
   }  
   template<typename My>
-  static std::pair<typename SOB_CLASS::plevel,
-                   typename SOB_CLASS::stop_chain_type*> 
+  static std::pair<typename SOB_CLASS::plevel,chain_type*> 
   find(const My* sob, id_type id){    
-    return _chain<void>::find(sob,id,(typename SOB_CLASS::stop_chain_type*)0); 
+    return _chain<void>::template find<chain_type>(sob,id); 
   }
 };
 
@@ -868,21 +863,23 @@ void SOB_CLASS::_insert_stop_order(bool buy,
 }
 
 SOB_TEMPLATE
-template<side_of_market Side>
+template<side_of_market Side, typename ChainTy> 
 typename SOB_CLASS::market_depth_type 
 SOB_CLASS::_market_depth(size_type depth) const
 {
   plevel h,l;
   market_depth_type md;
+  size_type d;
   
   std::lock_guard<std::mutex> lock(*(this->_master_mtx));
   /* --- CRITICAL SECTION --- */ 
-  _high_low<Side>::set_using_depth(this,&h,&l,depth,(limit_chain_type*)0);
+  _high_low<Side>::template set_using_depth<ChainTy>(this,&h,&l,depth);
   
   for( ; h >= l; --h)
-    if(!h->first.empty())
-      md.insert(market_depth_type::value_type(
-                  this->_itop(h), _chain<limit_chain_type>::size(&h->first)));
+    if(!h->first.empty()){
+      d = _chain<limit_chain_type>::size(&h->first);
+      md.insert(market_depth_type::value_type(this->_itop(h),d));
+    }
   return md;
   /* --- CRITICAL SECTION --- */ 
 }
@@ -895,9 +892,8 @@ size_type SOB_CLASS::_total_depth() const
   size_type tot;
   
   std::lock_guard<std::mutex> lock(*(this->_master_mtx));
-  /* --- CRITICAL SECTION --- */ 
-  _high_low<Side>::set_using_cached(this,&h,&l,(ChainTy*)0);  
-  //_high_low<Side>::set_using_cached<limit_chain_type>(this,&h,&l,nullptr);
+  /* --- CRITICAL SECTION --- */  
+  _high_low<Side>::template set_using_cached<ChainTy>(this,&h,&l);
   
   tot = 0;
   for( ; h >= l; --h) 
@@ -1041,7 +1037,7 @@ void SOB_CLASS::_dump_limits() const
   h = BuyNotSell ? this->_bid : this->_high_sell_limit;
   l = BuyNotSell ? this->_low_buy_limit : this->_ask;
 
-  _high_low<>::adjust(this,&h,&l);
+  _high_low<>::range_check(this,&h,&l);
 
   for( ; h >= l; --h)  
     if(!h->first.empty())
@@ -1067,7 +1063,7 @@ void SOB_CLASS::_dump_stops() const
   h = BuyNotSell ? this->_high_buy_stop : this->_high_sell_stop;
   l = BuyNotSell ? this->_low_buy_stop : this->_low_sell_stop;
 
-  _high_low<>::adjust(this,&h,&l);
+  _high_low<>::range_check(this,&h,&l);
   
   for( ; h >= l; --h) 
     if(!h->second.empty())

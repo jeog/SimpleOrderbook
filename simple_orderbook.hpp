@@ -281,9 +281,9 @@ private:
   size_type _incrs_in_range(my_price_type lprice, my_price_type hprice);
   size_type _generate_and_check_total_incr();
 
-  /* calculate chain_size of limit orders at each price level
+  /* calculate chain_size of orders at each price level
    * use depth increments on each side of last  */
-  template<side_of_market Side>
+  template<side_of_market Side, typename ChainTy = limit_chain_type>
   market_depth_type _market_depth(size_type depth) const;
 
   /* total size of bid or ask limits */
