@@ -171,8 +171,6 @@ public:
     _set_using_cached<ChainTy>::call(sob,ph,pl);
     _high_low<Side,My>::range_check(sob,ph,pl);
   }
-  template<typename TTT>
-  static void test(){}
 };
 SOB_TEMPLATE
 template<typename My> struct SOB_CLASS::_high_low<side_of_market::bid,My>
