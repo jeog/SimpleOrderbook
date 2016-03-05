@@ -464,8 +464,6 @@ void SOB_CLASS::_threaded_waker(int sleep)
     std::this_thread::sleep_for(std::chrono::milliseconds(sleep));
     std::lock_guard<std::recursive_mutex> lock(*(this->_mm_mtx));
     /* ---(OUTER) CRITICAL SECTION --- */ 
-    if(this->_market_makers.size() == 0)    
-      continue;  
     for(auto& mm : this->_market_makers)
     {  
       std::this_thread::sleep_for(std::chrono::milliseconds(sleep));
