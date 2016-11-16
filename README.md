@@ -1,6 +1,19 @@
-SimpleOrderbook is an interactive back-end for handling real-time financial market order flow. It's in early development, has undergone almost no testing, and is currently only intended for animating market models and simulations.
+SimpleOrderbook is a collection of C++ objects, and a python interface, for matching real-time financial market order flow. The core module is implemented as a C++ class template, providing virtual interfaces. The Python-C API extension module sits on top - wrapping the core implementation objects - providing its own object-oriented interface.
 
-The core module is implemented as a C++ class template, providing low-level (pure virtual) interfaces. The Python-C API extension module sits on top - wrapping the core implementation objects - providing its own object-oriented interface.
+To build/run without the python extension you'll need to write your own C/C++ that defines an entry(main); include simpleorderbook.hpp and marketmakers.hpp; compile with simpleorderbook.cpp and marketmaker.cpp; and link:
+
+```g++ --std=c++11 -lpthread simpleorderbook.cpp marketmaker.cpp YOUR_OWN_CODE.cpp -o YOUR_OWN_CODE.out```
+
+####++ Contents
+
+- simpleorderbook.hpp / simpleorderbook.tpp :: the core code for the orderbook
+- interfaces.hpp :: virtual interfaces to access the orderbook
+- marketmaker.hpp / marketmaker.cpp :: 'autonomous' agents the provide liquidity to the orderbook
+- python/ :: all the C/C++ code (and the setup.py script) for the python extension module
+
+#####++ Requirements 
+- c++11(c++0x) compiler support (or a willingness to backport)
+- knowledge of basic market order types, terminology, concepts etc.
 
 #####++ Features 
 - market, limit, stop-market, and stop-limit orders that trigger callbacks when executed
@@ -11,11 +24,6 @@ The core module is implemented as a C++ class template, providing low-level (pur
 - Market Maker objects that operate as autonomous agents 'inside' the Orderbook
 - customizable market parameters( price range, # of market makers etc.)
 - (possibly) more advanced order types
-
-#####++ Requirements
-- C++ or Python  
-- c++11(c++0x) compiler support (or a willingness to backport)
-- knowledge of basic market order types, terminology, concepts etc.
 
 #####++ Licensing & Warranty
 

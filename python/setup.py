@@ -15,28 +15,29 @@
 
 from distutils.core import setup,Extension
 
-py_include_dir = "/usr/local/include/python3.4m"
-py_library_dir = "/usr/lib/python3.2/config-3.2mu"
-py_library_name = "python3.2mu"
+py_include_dir = "/usr/include/python3.4m"
+py_library_dir = "/usr/lib/python3.4/config-3.4m-x86_64-linux-gnu"
+py_library_name = "python3.4m"
+
+cpp_sources = ["simpleorderbook_py.cpp","marketmaker_py.cpp", # py wrapper 
+               "../simpleorderbook.cpp", "../marketmaker.cpp"] # native
 
 _setup_dict = {
-  "name":'simpleorderbook',
-  "version":'0.1',
-  "description": "Interface to an interactive back-end"
-                 " for handling financial market order flow.",
-  "author":"Jonathon Ogden",
-  "author_email":"jeog.dev@gmail.com"
+    "name":'simpleorderbook',
+    "version":'0.2',
+    "description": "financial-market (vanilla) order matching simulator",
+    "author":"Jonathon Ogden",
+    "author_email":"jeog.dev@gmail.com"
 }   
 
 _cpp_ext = Extension(
-  "simpleorderbook",
-  sources=["simpleorderbook.cpp","marketmaker.cpp", "../utility.cpp",
-           "../market_maker_native/market_maker.cpp"],
-  include_dirs=[py_include_dir,"../"],
-  library_dirs=[py_library_dir],
-  libraries=[py_library_name],
-  extra_compile_args=["-fPIC","-std=c++0x"] 
-  )
+    "simpleorderbook",
+    sources = cpp_sources,
+    include_dirs = [py_include_dir,"../"],
+    library_dirs = [py_library_dir],
+    libraries = [py_library_name],
+    extra_compile_args=["-fPIC","-std=c++11"]
+ )
 
 setup( ext_modules=[_cpp_ext], **_setup_dict )    
 
