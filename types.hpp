@@ -104,7 +104,8 @@ class liquidity_exception
     : public std::logic_error{
 public:
     liquidity_exception(const char* what)
-        : std::logic_error(what) 
+        : 
+            std::logic_error(what) 
         { 
         }
 };
@@ -114,7 +115,8 @@ class invalid_order
     : public std::invalid_argument{
 public:
     invalid_order(const char* what)
-        : std::invalid_argument(what) 
+        : 
+            std::invalid_argument(what) 
         { 
         }
 };
@@ -124,7 +126,8 @@ class invalid_parameters
     : public std::invalid_argument{
 public:
     invalid_parameters(const char* what)
-        : std::invalid_argument(what) 
+        : 
+            std::invalid_argument(what) 
         { 
         }
 };
@@ -134,7 +137,8 @@ class cache_value_error
     : public std::runtime_error{
 public:
     cache_value_error(const char* what)
-        : std::runtime_error(what) 
+        : 
+            std::runtime_error(what) 
         { 
         }
 };
@@ -144,7 +148,8 @@ class invalid_state
     : public std::runtime_error{ /* logic_error? */
 public:
     invalid_state(const char* what)
-        : std::runtime_error(what) 
+        : 
+            std::runtime_error(what) 
         { 
         }
 };
@@ -154,7 +159,8 @@ class callback_overflow
     : public std::runtime_error{
 public:
     callback_overflow(const char* what)
-        : std::runtime_error(what) 
+        : 
+            std::runtime_error(what) 
         { 
         }
 };
@@ -164,7 +170,8 @@ class move_error
     : public std::runtime_error{
 public:
     move_error(const char* what)
-        : std::runtime_error(what) 
+        : 
+            std::runtime_error(what) 
         { 
         }
 };
@@ -174,7 +181,8 @@ class allocation_error
     : public std::runtime_error{ /* not really a bad_alloc */
 public:
     allocation_error(const char* what)
-        : std::runtime_error(what) 
+        : 
+            std::runtime_error(what) 
         { 
         }
 };
@@ -184,7 +192,8 @@ class not_implemented
     : public std::logic_error{
 public:
     not_implemented(const char* what) 
-        : std::logic_error(what) 
+        : 
+            std::logic_error(what) 
         { 
         }
 };

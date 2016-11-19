@@ -48,11 +48,10 @@ namespace SimpleOrderbook{
  *   that serves as the core implementation.
  *
  *   The ratio-type first parameter defines the tick size; the second parameter 
- *   provides a memory limit. Upon construction a large vector is reserved using 
- *   the min/max price args and the template parameters to check if the passed 
- *   memory limit will be exceeded: if so it throws NativeLayer::allocation_error. 
-
- *   A number of relevant static/constexpr fields and tyedefs are defined.
+ *   provides a memory limit. Upon construction, if the memory required to build
+ *   the internal 'chains' of the book exceeds this memory limit it throws 
+ *   NativeLayer::allocation_error. (NOTE: MaxMemory is not the maximum total
+ *   memory the book can use, as number and types of orders are run-time dependent)
  *
  *   types.hpp contains a number of important global objects and typedefs,
  *   including instantiations of SimpleOrderbook with the most popular tick
@@ -67,9 +66,8 @@ namespace SimpleOrderbook{
  *       SimpleOrderbook::FullInterface <-- insert/remove all orders, dump orders
  *
  *
- *   Before inserting market, stop, or stop-limit orders market makers must be
- *   added (see market_maker.hpp for details). If market orders exceed market 
- *   liquidity NativeLayer::liquidity_exception will be thrown.
+ *   MarketMakers can be added for liquidity (see market_maker.hpp for details). If 
+ *   market orders exceed liquidity NativeLayer::liquidity_exception will be thrown.
  *
  *   The insert calls are relatively self explanatory except for the two callbacks:
  *
@@ -268,6 +266,9 @@ private:
 
     /* to prevent recursion within _clear_callback_queue */
     std::atomic_bool _busy_with_callbacks;
+
+    /* indicate we should check for stops hit */
+    bool _need_check_for_stops;
 
     /* run secondary threads */
     volatile bool _master_run_flag;
@@ -518,7 +519,8 @@ public:
     insert_stop_order(bool buy, 
                       price_type stop, 
                       price_type limit,
-                      size_type size, order_exec_cb_type exec_cb,
+                      size_type size, 
+                      order_exec_cb_type exec_cb,
                       order_admin_cb_type admin_cb = nullptr);
 
     bool 

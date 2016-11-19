@@ -24,14 +24,22 @@ along with this program. If not, see http://www.gnu.org/licenses.
 /* try to make the nested types somewhat readable */
 #define NL_SO NativeLayer::SimpleOrderbook
 
+/* type string + what() from native exception */
+#define THROW_PY_EXCEPTION_FROM_NATIVE(e) \
+do{ \
+    std::string msg; \
+    msg.append(typeid(e).name()).append(": ").append(e.what()); \
+    PyErr_SetString(PyExc_Exception, msg.c_str()); \
+    return NULL; \
+}while(0) 
+
 #define CALLDOWN_FOR_STATE_WITH_TRY_BLOCK(apicall,sobcall) \
     static PyObject* SOB_ ## sobcall(pySOB* self){ \
         try{ \
             NL_SO::FullInterface* sob = (NL_SO::FullInterface*)self->_sob; \
             return apicall(sob->sobcall()); \
         }catch(std::exception& e){ \
-            PyErr_SetString(PyExc_Exception, e.what()); \
-            return NULL; \
+            THROW_PY_EXCEPTION_FROM_NATIVE(e); \
         } \
     }
 
@@ -52,8 +60,7 @@ CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLongLong, volume )
             NL_SO::FullInterface* sob = (NL_SO::FullInterface*)self->_sob; \
             sob->sobcall(); \
         }catch(std::exception& e){ \
-            PyErr_SetString(PyExc_Exception, e.what()); \
-            return NULL; \
+            THROW_PY_EXCEPTION_FROM_NATIVE(e); \
         } \
         Py_RETURN_NONE; \
     }
@@ -110,7 +117,7 @@ SOB_trade_limit(pySOB* self, PyObject* args, PyObject* kwds)
     using namespace NativeLayer;
 
     price_type limit;
-    size_type size;
+    long size;
     PyObject* callback;
     bool ares;
 
@@ -120,17 +127,22 @@ SOB_trade_limit(pySOB* self, PyObject* args, PyObject* kwds)
     if(Replace){
         static char* kwlist[] = {okws[0],okws[2],okws[3],okws[4],NULL};
         /* arg order to interface :::  id, limit, size, callback */
-        ares = get_order_args(args, kwds, "kfkO:callback", kwlist, 
+        ares = get_order_args(args, kwds, "kflO:callback", kwlist, 
                               &callback, &id, &limit, &size);
     }else{
         static char* kwlist[] = {okws[2],okws[3],okws[4],NULL};
         /* arg order to interface :::  limit, size, callback */
-        ares = get_order_args(args, kwds, "fkO:callback", kwlist, 
+        ares = get_order_args(args, kwds, "flO:callback", kwlist, 
                               &callback, &limit, &size);
     }
 
     if(!ares)
         return NULL;
+
+    if(size <= 0){
+        PyErr_SetString(PyExc_ValueError, "size must be > 0");
+        return NULL;
+    }
 
     try{
         SimpleOrderbook::FullInterface* sob = (SimpleOrderbook::FullInterface*)self->_sob;
@@ -143,12 +155,12 @@ SOB_trade_limit(pySOB* self, PyObject* args, PyObject* kwds)
         id = Replace ? sob->replace_with_limit_order(id, BuyNotSell, limit, size, cb)
                      : sob->insert_limit_order(BuyNotSell, limit, size, cb);
     }catch(std::exception& e){
-        PyErr_SetString(PyExc_Exception, e.what());
-        return NULL;
+        THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
 
     return PyLong_FromUnsignedLong(id);
 }
+
 
 
 template< bool BuyNotSell, bool Replace >
@@ -157,7 +169,7 @@ SOB_trade_market(pySOB* self, PyObject* args, PyObject* kwds)
 {
     using namespace NativeLayer;
 
-    size_type size;
+    long size;
     PyObject* callback;
     bool ares;
 
@@ -167,17 +179,22 @@ SOB_trade_market(pySOB* self, PyObject* args, PyObject* kwds)
     if(Replace){
         static char* kwlist[] = {okws[0],okws[3],okws[4],NULL};
         /* arg order to interface :::  id, size, callback */
-        ares = get_order_args(args, kwds, "kkO:callback", kwlist, 
+        ares = get_order_args(args, kwds, "klO:callback", kwlist, 
                               &callback, &id, &size);
     }else{
         static char* kwlist[] = {okws[3],okws[4],NULL};
         /* arg order to interface :::  size, callback */
-        ares = get_order_args(args, kwds, "kO:callback", kwlist, 
+        ares = get_order_args(args, kwds, "lO:callback", kwlist, 
                               &callback, &size);
     }
 
     if(!ares)
         return NULL;
+
+    if(size <= 0){
+        PyErr_SetString(PyExc_ValueError, "size must be > 0");
+        return NULL;
+    }
 
     try{
         SimpleOrderbook::FullInterface* sob = (SimpleOrderbook::FullInterface*)self->_sob;
@@ -190,9 +207,9 @@ SOB_trade_market(pySOB* self, PyObject* args, PyObject* kwds)
         id = Replace ? sob->replace_with_market_order(id, BuyNotSell, size, cb)
                      : sob->insert_market_order(BuyNotSell, size, cb);
     }catch(std::exception& e){
-        PyErr_SetString(PyExc_Exception, e.what());
-        return NULL;
+        THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
+
     return PyLong_FromUnsignedLong(id);
 }
 
@@ -204,7 +221,7 @@ SOB_trade_stop(pySOB* self,PyObject* args,PyObject* kwds)
     using namespace NativeLayer;
 
     price_type stop;
-    size_type size;
+    long size;
     PyObject* callback;
     bool ares;
 
@@ -214,17 +231,22 @@ SOB_trade_stop(pySOB* self,PyObject* args,PyObject* kwds)
     if(Replace){
         static char* kwlist[] = {okws[0],okws[1],okws[3],okws[4],NULL};
         /* arg order to interface :::  id, stop, size, callback */
-        ares = get_order_args(args, kwds, "kfkO:callback", kwlist, 
+        ares = get_order_args(args, kwds, "kflO:callback", kwlist, 
                               &callback, &id, &stop, &size);
     }else{
         static char* kwlist[] = {okws[1],okws[3],okws[4],NULL};
         /* arg order to interface :::  stop, size, callback */
-        ares = get_order_args(args, kwds, "fkO:callback", kwlist, 
+        ares = get_order_args(args, kwds, "flO:callback", kwlist, 
                               &callback, &stop, &size);
     }
 
     if(!ares)
         return NULL;
+
+    if(size <= 0){
+        PyErr_SetString(PyExc_ValueError, "size must be > 0");
+        return NULL;
+    }
 
     try{
         SimpleOrderbook::FullInterface* sob = (SimpleOrderbook::FullInterface*)self->_sob;
@@ -237,8 +259,7 @@ SOB_trade_stop(pySOB* self,PyObject* args,PyObject* kwds)
         id = Replace ? sob->replace_with_stop_order(id, BuyNotSell, stop, size, cb)
                      : sob->insert_stop_order(BuyNotSell, stop, size, cb);
     }catch(std::exception& e){
-        PyErr_SetString(PyExc_Exception, e.what());
-        return NULL;
+        THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
 
     return PyLong_FromUnsignedLong(id);
@@ -253,7 +274,7 @@ SOB_trade_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
 
     price_type stop;
     price_type limit;
-    size_type size;
+    long size;
     PyObject* callback;
     bool ares;
 
@@ -263,17 +284,22 @@ SOB_trade_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
     if(Replace){
         static char* kwlist[] = {okws[0],okws[1],okws[2],okws[3],okws[4],NULL};
         /* arg order to interface :::  id, stop, limit, size, callback */
-        ares = get_order_args(args, kwds, "kffkO:callback", kwlist, 
+        ares = get_order_args(args, kwds, "kfflO:callback", kwlist, 
                               &callback, &id, &stop, &limit, &size);
     }else{
         static char* kwlist[] = {okws[1],okws[2],okws[3],okws[4],NULL};
         /* arg order to interface :::  stop, limit, size, callback */
-        ares = get_order_args(args, kwds, "ffkO:callback", kwlist, 
+        ares = get_order_args(args, kwds, "fflO:callback", kwlist, 
                               &callback, &stop, &limit, &size);
     }
 
     if(!ares)
         return NULL;
+
+    if(size <= 0){
+        PyErr_SetString(PyExc_ValueError, "size must be > 0");
+        return NULL;
+    }
 
     try{
         SimpleOrderbook::FullInterface* sob =
@@ -288,8 +314,7 @@ SOB_trade_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
                      : sob->insert_stop_order(BuyNotSell, stop, limit, size, cb);
 
     }catch(std::exception& e){
-        PyErr_SetString(PyExc_Exception, e.what());
-        return NULL;
+        THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
     return PyLong_FromUnsignedLong(id);
 }
@@ -311,8 +336,7 @@ SOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
     try{
         rval = ((SimpleOrderbook::FullInterface*)self->_sob)->pull_order(id);
     }catch(std::exception& e){
-        PyErr_SetString(PyExc_Exception, e.what());
-        return NULL;
+        THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
 
     return PyBool_FromLong((unsigned long)rval);
@@ -356,13 +380,11 @@ SOB_time_and_sales(pySOB* self, PyObject* args)
 
             tup = Py_BuildValue("(s,f,k)", s.c_str(), 
                                 std::get<1>(*biter), std::get<2>(*biter));
-
             PyList_SET_ITEM(list, i, tup);
         }
 
     }catch(std::exception& e){
-        PyErr_SetString(PyExc_Exception, e.what());
-        return NULL;
+        THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
 
     return list;
@@ -377,7 +399,7 @@ SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
 
     SimpleOrderbook::FullInterface* sob;
     SimpleOrderbook::QueryInterface::market_depth_type md;
-    size_type depth;
+    long depth;
     size_t indx;
     bool size_error;
     PyObject *list, *tup;
@@ -385,9 +407,14 @@ SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
     static char keyword[][8] = { "depth" };
     static char* kwlist[] = {keyword[0],NULL};
 
-    if(!PyArg_ParseTupleAndKeywords(args, kwds, "k", kwlist, &depth))
+    if(!PyArg_ParseTupleAndKeywords(args, kwds, "l", kwlist, &depth))
     {
         PyErr_SetString(PyExc_ValueError, "error parsing args");
+        return NULL;
+    }
+
+    if(depth <= 0){
+        PyErr_SetString(PyExc_ValueError, "depth must be > 0");
         return NULL;
     }
 
@@ -412,10 +439,10 @@ SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
             case(side_of_market::bid): 
                 /*no break*/
             case(side_of_market::ask): 
-                size_error=(indx > depth); 
+                size_error=(indx > (size_t)depth); 
                 break;
             case(side_of_market::both): 
-                size_error=(indx > depth * 2); 
+                size_error=(indx > ((size_t)depth * 2)); 
                 break;
         }
 
@@ -430,8 +457,7 @@ SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
         }
 
     }catch(std::exception& e){
-        PyErr_SetString(PyExc_Exception, e.what());
-        return NULL;
+        THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
     return list;
 }
@@ -500,8 +526,7 @@ SOB_add_market_makers_local(pySOB* self, PyObject* args)
             throw std::runtime_error("no market makers to add");
 
     }catch(std::exception& e){
-        PyErr_SetString(PyExc_Exception, e.what());
-        return NULL;
+        THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
     Py_RETURN_NONE;
 }
@@ -584,9 +609,9 @@ SOB_add_market_makers_native(pySOB* self, PyObject* args)
         sob->add_market_makers(std::move(pmms));
 
     }catch(std::exception& e){
-        PyErr_SetString(PyExc_Exception, e.what());
-        return NULL;
+        THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
+
     Py_RETURN_NONE;
 }
 
@@ -615,15 +640,15 @@ static PyMethodDef pySOB_methods[] = {
 
     {"bid_depth",(PyCFunction)SOB_market_depth<NativeLayer::side_of_market::bid>,
      METH_VARARGS | METH_KEYWORDS,
-     "(depth) -> list of 2-tuples [(float,int),(float,int),..]"},
+     "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
 
     {"ask_depth",(PyCFunction)SOB_market_depth<NativeLayer::side_of_market::ask>,
      METH_VARARGS | METH_KEYWORDS,
-     "(depth) -> list of 2-tuples [(float,int),(float,int),..]"},
+     "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
 
     {"market_depth",(PyCFunction)SOB_market_depth<NativeLayer::side_of_market::both>,
      METH_VARARGS | METH_KEYWORDS,
-     "(depth) -> list of 2-tuples [(float,int),(float,int),..]"},
+     "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
 
     /* DUMP */
     {"dump_buy_limits",(PyCFunction)SOB_dump_buy_limits, METH_NOARGS,

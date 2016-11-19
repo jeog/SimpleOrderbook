@@ -76,6 +76,7 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
         _master_mtx(new std::mutex),
         _mm_mtx(new std::recursive_mutex),
         _busy_with_callbacks(false),
+        _need_check_for_stops(false),
         _master_run_flag(true)
     {             
         if( min.to_incr() == 0 )
@@ -482,18 +483,16 @@ SOB_CLASS::_lift_offers( plevel plev,
                          size_type size,
                          order_exec_cb_type& exec_cb )
 {
-    limit_chain_type::iterator del_iter;
-    size_type amount;
-    long long rmndr;
-    plevel inside;
- 
-    inside = this->_ask;
-    while( (inside <= plev || !plev) && size > 0 && (inside < this->_end) )
+    plevel inside = this->_ask;
+
+    while( (inside <= plev || !plev) 
+           && (size > 0)
+           && (inside < this->_end) )
     {         
         /* see how much we can trade at this level */
         size = _hit_chain(inside, id, size, exec_cb);     
         
-        /* if on an empty chain 'jump' to one that isn't */
+        /* if on an empty chain 'jump' to next that isn't */
         for( ; 
              inside->first.empty() && inside < this->_end; 
              ++inside) 
@@ -525,19 +524,17 @@ SOB_CLASS::_hit_bids( plevel plev,
                       id_type id,
                       size_type size,
                       order_exec_cb_type& exec_cb )
-{
-    limit_chain_type::iterator del_iter;
-    size_type amount;
-    long long rmndr;
-    plevel inside;
-    
-    inside = this->_bid;
-    while( (inside >= plev || !plev) && size > 0 && (inside >= this->_beg) )
+{  
+    plevel inside = this->_bid;
+
+    while( (inside >= plev || !plev) 
+           && (size > 0)
+           && (inside >= this->_beg) )
     {         
         /* see how much we can trade at this level */
         size = _hit_chain(inside, id, size, exec_cb);  
              
-        /* if on an empty chain 'jump' to one that isn't */
+        /* if on an empty chain 'jump' to next that isn't */
         for( ; 
              inside->first.empty() && inside >= this->_beg; 
              --inside) 
@@ -579,9 +576,13 @@ SOB_CLASS::_hit_chain( plevel inside,
     {
         /* check each order, FIFO, for that price level */
         amount = std::min(size, elem.second.first);
+
+        /* push callbacks into queue; update state */
         this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
                                  elem.second.second, true);
-        size -= amount; /* reduce the amount left to trade */  
+
+        /* reduce the amount left to trade */ 
+        size -= amount;  
   
         rmndr = elem.second.first - amount;
         if(rmndr > 0) 
@@ -643,10 +644,18 @@ SOB_CLASS::_threaded_order_dispatcher()
     for( ; ; ){
 
         {
-            std::unique_lock<std::mutex> lock(*(this->_order_queue_mtx));        
-            this->_order_queue_cond.wait(lock, [this]{return !this->_order_queue.empty();}); 
+            std::unique_lock<std::mutex> lock(*(this->_order_queue_mtx));      
+            this->_order_queue_cond.wait( 
+                lock, 
+                [this]
+                {
+                    return !this->_order_queue.empty();
+                }
+            );
+ 
             if(!this->_master_run_flag)
                 break;
+
             e = std::move(this->_order_queue.front());
             this->_order_queue.pop();
         }         
@@ -657,52 +666,65 @@ SOB_CLASS::_threaded_order_dispatcher()
         if(!id) 
             id = this->_generate_id();
         
-        {
+        try{
             std::lock_guard<std::mutex> lock(*(this->_master_mtx)); 
             /* --- CRITICAL SECTION --- */
-            switch(ot){            
-            case order_type::limit:   
-            {         
-                this->_insert_limit_order( std::get<1>(e), std::get<2>(e),
-                                           std::get<4>(e), std::get<5>(e), 
-                                           id, std::get<7>(e) );             
-                break;
-            }
-            case order_type::market:  
-            {          
-                this->_insert_market_order( std::get<1>(e), std::get<4>(e),
-                                            std::get<5>(e), id, std::get<7>(e) );                
-                break;
-            }
-            case order_type::stop:
-            {
-                this->_insert_stop_order( std::get<1>(e), std::get<3>(e),
-                                          std::get<4>(e), std::get<5>(e),
-                                          id, std::get<7>(e) );
-                break;
+            try{
+                switch(ot){            
+                case order_type::limit:   
+                {         
+                    this->_insert_limit_order( std::get<1>(e), std::get<2>(e),
+                                               std::get<4>(e), std::get<5>(e), 
+                                               id, std::get<7>(e) );             
+                    break;
+                }
+                case order_type::market:  
+                {          
+                    this->_insert_market_order( std::get<1>(e), std::get<4>(e),
+                                                std::get<5>(e), id, std::get<7>(e) );                
+                    break;
+                }
+                case order_type::stop:
+                {
+                    this->_insert_stop_order( std::get<1>(e), std::get<3>(e),
+                                              std::get<4>(e), std::get<5>(e),
+                                              id, std::get<7>(e) );
+                    break;
+                } 
+                case order_type::stop_limit:
+                {
+                    this->_insert_stop_order( std::get<1>(e), std::get<3>(e),
+                                              std::get<2>(e), std::get<4>(e),
+                                              std::get<5>(e), id, std::get<7>(e) );                 
+                    break;
+                } 
+                case order_type::null:
+                {   /* not the cleanest but the most effective/thread-safe */
+                    res = std::get<1>(e) 
+                        ? SEARCH_LIMITS_FIRST(id) 
+                        : SEARCH_STOPS_FIRST(id);
+                    id = (id_type)res;
+                    break;
+                } 
+                default: 
+                    throw std::runtime_error("invalid order type in order_queue");
+                }
+
+            }catch(...){                
+                if(ot != order_type::null)
+                    this->_look_for_triggered_stops();
+                throw;
             } 
-            case order_type::stop_limit:
-            {
-                this->_insert_stop_order( std::get<1>(e), std::get<3>(e),
-                                          std::get<2>(e), std::get<4>(e),
-                                          std::get<5>(e), id, std::get<7>(e) );                 
-                break;
-            } 
-            case order_type::null:
-            {   /* not the cleanest but the most effective/thread-safe */
-                res = std::get<1>(e) ? SEARCH_LIMITS_FIRST(id) : SEARCH_STOPS_FIRST(id);
-                id = (id_type)res;
-                break;
-            } 
-            default: 
-                throw std::runtime_error("invalid order type in order_queue");
-            }
-            
+
             if(ot != order_type::null)
-                this->_look_for_triggered_stops();
-            
+                this->_look_for_triggered_stops();           
             /* --- CRITICAL SECTION --- */
-        }     
+
+        }catch(...){          
+            p.set_exception( std::current_exception() );
+            continue;
+        }
+     
         p.set_value(id);    
     }    
 }
@@ -730,9 +752,14 @@ SOB_CLASS::_push_order_and_wait( order_type oty,
     }    
     this->_order_queue_cond.notify_one();
     
-    /* BLOCKING */ 
-    ret_id = f.get(); 
-    /* BLOCKING */    
+    try{
+        /* BLOCKING */ 
+        ret_id = f.get(); 
+        /* BLOCKING */    
+    }catch(...){
+        this->_clear_callback_queue();        
+        throw;
+    }
         
     this->_clear_callback_queue();    
     return ret_id;
@@ -803,6 +830,7 @@ SOB_CLASS::_trade_has_occured( plevel plev,
     * CAREFUL: we can't insert orders from here since we have yet to finish
     * processing the initial order (possible infinite loop);
     */
+    this->_need_check_for_stops = true;
     price_type p = this->_itop(plev);
     
     this->_deferred_callback_queue.push_back( 
@@ -842,6 +870,10 @@ SOB_CLASS::_look_for_triggered_stops()
     * we don't check against max/min, because of the cached high/lows 
     */
     plevel low, high;
+
+    if(!this->_need_check_for_stops)
+        return;
+    this->_need_check_for_stops = false;
 
     for( low = this->_low_buy_stop ; 
          low <= this->_last; 
@@ -982,9 +1014,19 @@ SOB_CLASS::_insert_market_order( bool buy,
 
     rmndr = buy ? this->_lift_offers(nullptr,id,size,exec_cb)
                 : this->_hit_bids(nullptr,id,size,exec_cb);
-    if(rmndr)
-        throw liquidity_exception("market order couldn't fill");
-    
+
+    if(rmndr == size){        
+        throw liquidity_exception("market order couldn't fill any");
+    }else if(rmndr > 0){
+        std::string msg;
+        msg.append("market order couldn't fill all (")
+           .append( std::to_string(size-rmndr) )
+           .append("/")
+           .append( std::to_string(size) )
+           .append(")");
+        throw liquidity_exception(msg.c_str());
+    }
+      
     if(admin_cb) 
         admin_cb(id);
 }
@@ -1431,8 +1473,8 @@ SOB_CLASS::insert_market_order( bool buy,
     if(size <= 0)
         throw invalid_order("invalid order size");
     
-    if(this->_market_makers.empty())
-        throw invalid_state("orderbook has no market makers");    
+    //if(this->_market_makers.empty())
+    //    throw invalid_state("orderbook has no market makers");    
     
     return this->_push_order_and_wait(order_type::market, buy, nullptr, nullptr,
                                       size, exec_cb, admin_cb); 
@@ -1466,8 +1508,8 @@ SOB_CLASS::insert_stop_order( bool buy,
     if(size <= 0)
         throw invalid_order("invalid order size");
     
-    if(this->_market_makers.empty())
-        throw invalid_state("orderbook has no market makers");
+    //if(this->_market_makers.empty())
+    //    throw invalid_state("orderbook has no market makers");
 
     try{
         plimit = limit ? this->_ptoi(limit) : nullptr;
