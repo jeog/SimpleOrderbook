@@ -468,15 +468,13 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>
 };
 
 
-/****************************************************************************
- ****************************************************************************
- ***                                                                      ***
- *** _lift_offers / _hit_bids are the guts of order execution: attempting ***
- *** to match limit/market orders against the order book, adjusting       ***
- *** state, checking for overflows, signaling etc.                        ***
- ***                                                                      ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ *  _lift_offers / _hit_bids are the guts of order execution:
+ *      match limit/market orders against the order book,
+ *      adjust internal state,
+ *      check for overflows                        
+ */
+
 SOB_TEMPLATE 
 size_type 
 SOB_CLASS::_lift_offers( plevel plev, 
@@ -492,32 +490,20 @@ SOB_CLASS::_lift_offers( plevel plev,
     inside = this->_ask;
     while( (inside <= plev || !plev) && size > 0 && (inside < this->_end) )
     {         
-        del_iter = inside->first.begin();
-        for(limit_chain_type::value_type& elem : inside->first)
-        {
-            /* check each order , FIFO, for that price level */                
-            amount = std::min(size, elem.second.first);
-            this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
-                                     elem.second.second, true);                             
-            size -= amount; /* reduce the amount left to trade */         
-            rmndr = elem.second.first - amount;
-            if(rmndr > 0) 
-                elem.second.first = rmndr; /* adjust outstanding order size */
-            else                    
-                ++del_iter; /* indicate removal if we cleared offer */
-                if(size <= 0) 
-                    break; /* if we have nothing left to trade*/
-        }
-        inside->first.erase(inside->first.begin(),del_iter);     
+        /* see how much we can trade at this level */
+        size = _hit_chain(inside, id, size, exec_cb);     
         
+        /* if on an empty chain 'jump' to one that isn't */
         for( ; 
              inside->first.empty() && inside < this->_end; 
              ++inside) 
-            { /* if an empty chain 'jump' to one that isn't */            
+            { 
             }                
 
-        this->_ask = inside; /* @ +1 the beg if we went all the way ! */
-                
+        /* reset the inside ask */
+        this->_ask = inside;      
+
+        /* reset ask size; if we ran out of offers STOP */          
         if(inside >= this->_end){
             this->_ask_size = 0;        
             break;
@@ -548,32 +534,20 @@ SOB_CLASS::_hit_bids( plevel plev,
     inside = this->_bid;
     while( (inside >= plev || !plev) && size > 0 && (inside >= this->_beg) )
     {         
-        del_iter = inside->first.begin();
-        for(limit_chain_type::value_type& elem : inside->first)
-        {
-            /* check each order, FIFO, for that price level */
-            amount = std::min(size, elem.second.first);
-            this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
-                                     elem.second.second, true);
-            size -= amount; /* reduce the amount left to trade */    
-            rmndr = elem.second.first - amount;
-            if(rmndr > 0) 
-                elem.second.first = rmndr; /* adjust outstanding order size */
-            else                    
-                ++del_iter;    /* indicate removal if we cleared bid */        
-            if(size <= 0) 
-                break; /* if we have nothing left to trade*/
-        }
-        inside->first.erase(inside->first.begin(),del_iter);                
-
+        /* see how much we can trade at this level */
+        size = _hit_chain(inside, id, size, exec_cb);  
+             
+        /* if on an empty chain 'jump' to one that isn't */
         for( ; 
              inside->first.empty() && inside >= this->_beg; 
              --inside) 
-           { /* if on an empty chain 'jump' to one that isn't */ 
+           {  
            }            
 
-        this->_bid = inside; /* @ -1 the beg if we went all the way ! */
-                    
+        /* reset the inside bid */
+        this->_bid = inside;      
+
+        /* reset bid size; if we ran out of bids STOP */              
         if(inside < this->_beg){
             this->_bid_size = 0;        
             break;
@@ -586,6 +560,41 @@ SOB_CLASS::_hit_bids( plevel plev,
             this->_low_buy_limit = this->_bid;
     }
     return size; /* what we couldn't fill */
+}
+
+
+SOB_TEMPLATE
+size_type
+SOB_CLASS::_hit_chain( plevel inside,
+                         id_type id,
+                         size_type size,
+                         order_exec_cb_type& exec_cb )
+{
+    size_type amount;
+    long long rmndr;
+ 
+    limit_chain_type::iterator del_iter = inside->first.begin();
+
+    for(limit_chain_type::value_type& elem : inside->first)
+    {
+        /* check each order, FIFO, for that price level */
+        amount = std::min(size, elem.second.first);
+        this->_trade_has_occured(inside, amount, id, elem.first, exec_cb, 
+                                 elem.second.second, true);
+        size -= amount; /* reduce the amount left to trade */  
+  
+        rmndr = elem.second.first - amount;
+        if(rmndr > 0) 
+            elem.second.first = rmndr; /* adjust outstanding order size */
+        else                    
+            ++del_iter; /* indicate removal if we cleared bid */   
+     
+        if(size <= 0) 
+            break; /* if we have nothing left to trade*/
+    }
+    inside->first.erase(inside->first.begin(),del_iter);  
+
+    return size;
 }
 
 

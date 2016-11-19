@@ -413,6 +413,12 @@ private:
               size_type size,
               order_exec_cb_type& exec_cb);
 
+    size_type
+    _hit_chain(plevel inside,
+               id_type id,
+               size_type size,
+               order_exec_cb_type& exec_cb);
+
     /* signal trade has occurred(admin only, DONT INSERT NEW TRADES IN HERE!) */
     void 
     _trade_has_occured(plevel plev, 
