@@ -563,18 +563,18 @@ SOB_CLASS::_hit_bids( plevel plev,
 SOB_TEMPLATE
 size_type
 SOB_CLASS::_hit_chain( plevel inside,
-                         id_type id,
-                         size_type size,
-                         order_exec_cb_type& exec_cb )
+                       id_type id,
+                       size_type size,
+                       order_exec_cb_type& exec_cb )
 {
     size_type amount;
     long long rmndr;
  
     limit_chain_type::iterator del_iter = inside->first.begin();
 
+    /* check each order, FIFO, for this plevel */
     for(limit_chain_type::value_type& elem : inside->first)
-    {
-        /* check each order, FIFO, for that price level */
+    {        
         amount = std::min(size, elem.second.first);
 
         /* push callbacks into queue; update state */
@@ -582,8 +582,7 @@ SOB_CLASS::_hit_chain( plevel inside,
                                  elem.second.second, true);
 
         /* reduce the amount left to trade */ 
-        size -= amount;  
-  
+        size -= amount;    
         rmndr = elem.second.first - amount;
         if(rmndr > 0) 
             elem.second.first = rmndr; /* adjust outstanding order size */
@@ -601,6 +600,55 @@ SOB_CLASS::_hit_chain( plevel inside,
 
 SOB_TEMPLATE
 void 
+SOB_CLASS::_trade_has_occured( plevel plev,
+                               size_type size,
+                               id_type idbuy,
+                               id_type idsell,
+                               order_exec_cb_type& cbbuy,
+                               order_exec_cb_type& cbsell,
+                               bool took_offer )
+{  /*
+    * CAREFUL: we can't insert orders from here since we have yet to finish
+    * processing the initial order (possible infinite loop);
+    */  
+    price_type p = this->_itop(plev);
+    
+    this->_deferred_callback_queue.push_back( /* buy side */
+        dfrd_cb_elem_type(
+            callback_msg::fill,     
+            cbbuy, 
+            idbuy, 
+            p, 
+            size
+        )
+    );
+
+    this->_deferred_callback_queue.push_back( /* sell side */
+        dfrd_cb_elem_type(
+            callback_msg::fill, 
+            cbsell, 
+            idsell, 
+            p, 
+            size
+        )
+    );
+    
+    if(this->_t_and_s_full)
+        this->_t_and_s.pop_back();
+    else if( this->_t_and_s.size() >= (this->_t_and_s_max_sz - 1) )
+        this->_t_and_s_full = true;
+
+    this->_t_and_s.push_back( t_and_s_type(clock_type::now(),p,size) );
+
+    this->_last = plev;
+    this->_total_volume += size;
+    this->_last_size = size;
+    this->_need_check_for_stops = true;
+}
+
+
+SOB_TEMPLATE
+void 
 SOB_CLASS::_threaded_waker(int sleep)
 {
     if(sleep <= 0) 
@@ -612,24 +660,26 @@ SOB_CLASS::_threaded_waker(int sleep)
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep));
         std::lock_guard<std::recursive_mutex> lock(*(this->_mm_mtx));
         /* ---(OUTER) CRITICAL SECTION --- */ 
-        for(auto& mm : this->_market_makers){    
+        for(auto& mm : this->_market_makers)
+        {    
             std::this_thread::sleep_for(std::chrono::milliseconds(sleep));
             std::lock_guard<std::mutex> lock(*(this->_master_mtx));
             /* ---(INNER) CRITICAL SECTION --- */                
             this->_deferred_callback_queue.push_back( /* callback with wake msg */    
-                dfrd_cb_elem_type(callback_msg::wake, mm->get_callback(), 
-                                  0, this->_itop(this->_last), 0) ); 
+                dfrd_cb_elem_type(
+                    callback_msg::wake, 
+                    mm->get_callback(), 
+                    0, 
+                    this->_itop(this->_last), 
+                    0
+                ) 
+            ); 
             /* ---(INNER) CRITICAL SECTION --- */
         }
         /* ---(OUTER) CRITICAL SECTION --- */ 
     }
 }
 
-#define SEARCH_LIMITS_FIRST(id) \
-this->_pull_order<limit_chain_type>(id) || this->_pull_order<stop_chain_type>(id)
-
-#define SEARCH_STOPS_FIRST(id) \
-this->_pull_order<stop_chain_type>(id) || this->_pull_order<limit_chain_type>(id)
 
 SOB_TEMPLATE
 void 
@@ -673,36 +723,40 @@ SOB_CLASS::_threaded_order_dispatcher()
                 switch(ot){            
                 case order_type::limit:   
                 {         
-                    this->_insert_limit_order( std::get<1>(e), std::get<2>(e),
-                                               std::get<4>(e), std::get<5>(e), 
-                                               id, std::get<7>(e) );             
+                    this->_insert_limit_order(std::get<1>(e), std::get<2>(e),
+                                              std::get<4>(e), std::get<5>(e), 
+                                              id, std::get<7>(e));             
                     break;
                 }
                 case order_type::market:  
                 {          
-                    this->_insert_market_order( std::get<1>(e), std::get<4>(e),
-                                                std::get<5>(e), id, std::get<7>(e) );                
+                    this->_insert_market_order(std::get<1>(e), std::get<4>(e),
+                                               std::get<5>(e), id, std::get<7>(e));                
                     break;
                 }
                 case order_type::stop:
                 {
-                    this->_insert_stop_order( std::get<1>(e), std::get<3>(e),
-                                              std::get<4>(e), std::get<5>(e),
-                                              id, std::get<7>(e) );
+                    this->_insert_stop_order(std::get<1>(e), std::get<3>(e),
+                                             std::get<4>(e), std::get<5>(e),
+                                             id, std::get<7>(e));
                     break;
                 } 
                 case order_type::stop_limit:
                 {
-                    this->_insert_stop_order( std::get<1>(e), std::get<3>(e),
-                                              std::get<2>(e), std::get<4>(e),
-                                              std::get<5>(e), id, std::get<7>(e) );                 
+                    this->_insert_stop_order(std::get<1>(e), std::get<3>(e),
+                                             std::get<2>(e), std::get<4>(e),
+                                             std::get<5>(e), id, std::get<7>(e));                 
                     break;
                 } 
-                case order_type::null:
-                {   /* not the cleanest but the most effective/thread-safe */
+                case order_type::null: /* not the cleanest but most effective/thread-safe */
+                {   
+                    /* e[1] indicates whether to search limits first */
                     res = std::get<1>(e) 
-                        ? SEARCH_LIMITS_FIRST(id) 
-                        : SEARCH_STOPS_FIRST(id);
+                        ? (this->_pull_order<limit_chain_type>(id) 
+                            || this->_pull_order<stop_chain_type>(id))
+                        : (this->_pull_order<stop_chain_type>(id) 
+                            || this->_pull_order<limit_chain_type>(id));
+                    /* not really id; bool */
                     id = (id_type)res;
                     break;
                 } 
@@ -711,12 +765,12 @@ SOB_CLASS::_threaded_order_dispatcher()
                 }
 
             }catch(...){                
-                if(ot != order_type::null)
+                if(ot == order_type::market || ot == order_type::limit)
                     this->_look_for_triggered_stops();
                 throw;
             } 
 
-            if(ot != order_type::null)
+            if(ot == order_type::market || ot == order_type::limit)
                 this->_look_for_triggered_stops();           
             /* --- CRITICAL SECTION --- */
 
@@ -794,9 +848,11 @@ SOB_CLASS::_clear_callback_queue()
     order_exec_cb_type cb;
     std::deque<dfrd_cb_elem_type> tmp;
     
-    bool busy = false;    
+    bool busy = false; 
+
+    /* if false set to true(atomically); if true return */   
     this->_busy_with_callbacks.compare_exchange_strong(busy,true);
-    if(busy) /* if false set to true(atomically); if true return */
+    if(busy) 
         return;    
 
     {     
@@ -817,50 +873,15 @@ SOB_CLASS::_clear_callback_queue()
 }
 
 
-SOB_TEMPLATE
-void 
-SOB_CLASS::_trade_has_occured( plevel plev,
-                               size_type size,
-                               id_type idbuy,
-                               id_type idsell,
-                               order_exec_cb_type& cbbuy,
-                               order_exec_cb_type& cbsell,
-                               bool took_offer)
-{  /*
-    * CAREFUL: we can't insert orders from here since we have yet to finish
-    * processing the initial order (possible infinite loop);
-    */
-    this->_need_check_for_stops = true;
-    price_type p = this->_itop(plev);
-    
-    this->_deferred_callback_queue.push_back( 
-        dfrd_cb_elem_type(callback_msg::fill, cbbuy, idbuy, p, size));
+/*
+ *  CURRENTLY working under the constraint that stop priority goes:  
+ *     low price to high for buys                                   
+ *     high price to low for sells                                  
+ *     buys before sells                                            
+ *                                                                  
+ *  (The other possibility is FIFO irrespective of price)              
+ */
 
-    this->_deferred_callback_queue.push_back(
-        dfrd_cb_elem_type(callback_msg::fill, cbsell, idsell, p, size));
-    
-    if(this->_t_and_s_full)
-        this->_t_and_s.pop_back();
-    else if( this->_t_and_s.size() >= (this->_t_and_s_max_sz - 1) )
-        this->_t_and_s_full = true;
-
-    this->_t_and_s.push_back( t_and_s_type(clock_type::now(),p,size) );
-    this->_last = plev;
-    this->_total_volume += size;
-    this->_last_size = size;
-}
-
-
-/*************************************************************************
- ************************************************************************
- *** CURRENTLY working under the constraint that stop priority goes:  ***
- ***     low price to high for buys                                   ***
- ***     high price to low for sells                                  ***
- ***     buys before sells                                            ***
- ***                                                                  ***
- *** The other possibility is FIFO irrespective of price              ***
- ************************************************************************
- ************************************************************************/
 SOB_TEMPLATE
 void 
 SOB_CLASS::_look_for_triggered_stops()
@@ -873,6 +894,7 @@ SOB_CLASS::_look_for_triggered_stops()
 
     if(!this->_need_check_for_stops)
         return;
+
     this->_need_check_for_stops = false;
 
     for( low = this->_low_buy_stop ; 
@@ -1053,7 +1075,7 @@ SOB_CLASS::_insert_stop_order( bool buy,
                                size_type size,
                                order_exec_cb_type exec_cb,
                                id_type id,
-                               order_admin_cb_type admin_cb)
+                               order_admin_cb_type admin_cb )
 {  /*
     * we need an actual trade @/through the stop, i.e can't assume
     * it's already been triggered by where last/bid/ask is...
