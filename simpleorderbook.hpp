@@ -424,17 +424,17 @@ private:
               order_exec_cb_type& exec_cb);
 
     size_type
-    _hit_chain(plevel inside,
+    _hit_chain(plevel plev,
                id_type id,
                size_type size,
                order_exec_cb_type& exec_cb);
 
     bool 
-    _find_new_best_bid(plevel b);
+    _find_new_best_bid();
 
 
     bool 
-    _find_new_best_ask(plevel a);
+    _find_new_best_ask();
 
     /* signal trade has occurred(admin only, DONT INSERT NEW TRADES IN HERE!) */
     void 
