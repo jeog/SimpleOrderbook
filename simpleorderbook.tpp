@@ -38,8 +38,8 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
         _upper_incr(this->_incrs_in_range(price,max)),
         _total_incr(this->_generate_and_check_total_incr()),
         /*** range checks ***/
-        _base( min ),
-        _book( _total_incr + 1), /*pad the beg side */
+        _base(min),
+        _book(_total_incr + 1), /*pad the beg side */
         _beg( &(*_book.begin()) + 1 ), /**/
         _end( &(*_book.end())), 
         _last( this->_beg + _lower_incr ), 
@@ -56,8 +56,8 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
     external price:   [ THROW ][ min  ]                       [  max  ][ THROW ]        
     
 *******************************************************************************/
-        _low_buy_limit( &(*this->_last) ),
-        _high_sell_limit( &(*this->_last) ),
+        _low_buy_limit( &(*this->_end) ),
+        _high_sell_limit( &(*(this->_beg-1)) ),
         _low_buy_stop( &(*this->_end) ),
         _high_buy_stop( &(*(this->_beg-1)) ),
         _low_sell_stop( &(*this->_end) ),
@@ -167,9 +167,9 @@ private:
     public:
         static inline void 
         call(const My* sob,plevel* ph,plevel *pl)
-        {
-            *pl = sob->_low_buy_limit;
-            *ph = sob->_high_sell_limit; 
+        {   /* Nov 20 2016 - add min/max */
+            *pl = (plevel)min(sob->_low_buy_limit,sob->_ask);
+            *ph = (plevel)max(sob->_high_sell_limit,sob->_bid); 
         }
     };
 
@@ -492,29 +492,42 @@ SOB_CLASS::_lift_offers( plevel plev,
         /* see how much we can trade at this level */
         size = _hit_chain(inside, id, size, exec_cb);     
         
-        /* if on an empty chain 'jump' to next that isn't */
-        for( ; 
-             inside->first.empty() && inside < this->_end; 
-             ++inside) 
-            { 
-            }                
-
-        /* reset the inside ask */
-        this->_ask = inside;      
-
-        /* reset ask size; if we ran out of offers STOP */          
-        if(inside >= this->_end){
-            this->_ask_size = 0;        
+        if( !this->_find_new_best_ask(inside) )
             break;
-        }else{
-            this->_ask_size = _chain<limit_chain_type>::size(&this->_ask->first);    
-        }
-                
-        /* adjust cached val */
-        if(this->_ask > this->_high_sell_limit)
-            this->_high_sell_limit = this->_ask;
     }
     return size; /* what we couldn't fill */
+}
+
+
+SOB_TEMPLATE 
+bool 
+SOB_CLASS::_find_new_best_ask(plevel a)
+{
+    /* if on an empty chain 'jump' to next that isn't */
+    for( ; 
+         a->first.empty() && a < this->_end; 
+         ++a) 
+        { 
+        }                
+
+    /* reset the inside ask */
+    this->_ask = a;      
+
+    /* reset ask size; if we ran out of offers STOP */          
+    if(a >= this->_end){
+        this->_ask_size = 0;  
+        /* reset cache val */
+        this->_high_sell_limit = this->_beg-1;      
+        return false;
+    }else{
+        this->_ask_size = _chain<limit_chain_type>::size(&this->_ask->first);    
+    }
+            
+    /* adjust cached val */
+    if(this->_ask > this->_high_sell_limit)
+        this->_high_sell_limit = this->_ask;
+
+    return true;
 }
 
 
@@ -534,30 +547,44 @@ SOB_CLASS::_hit_bids( plevel plev,
         /* see how much we can trade at this level */
         size = _hit_chain(inside, id, size, exec_cb);  
              
-        /* if on an empty chain 'jump' to next that isn't */
-        for( ; 
-             inside->first.empty() && inside >= this->_beg; 
-             --inside) 
-           {  
-           }            
-
-        /* reset the inside bid */
-        this->_bid = inside;      
-
-        /* reset bid size; if we ran out of bids STOP */              
-        if(inside < this->_beg){
-            this->_bid_size = 0;        
+        if( !this->_find_new_best_bid(inside) )
             break;
-        }else{
-            this->_bid_size = _chain<limit_chain_type>::size(&this->_bid->first);     
-        }
-                    
-        /* adjust cached val */
-        if(this->_bid < this->_low_buy_limit)
-            this->_low_buy_limit = this->_bid;
     }
     return size; /* what we couldn't fill */
 }
+
+
+SOB_TEMPLATE 
+bool 
+SOB_CLASS::_find_new_best_bid(plevel b)
+{
+    /* if on an empty chain 'jump' to next that isn't */
+    for( ; 
+         b->first.empty() && b >= this->_beg; 
+         --b) 
+       {  
+       }            
+
+    /* reset the inside bid */
+    this->_bid = b;      
+
+    /* reset bid size; if we ran out of bids STOP */              
+    if(b < this->_beg){
+        this->_bid_size = 0;    
+        /* reset cache val */ 
+        this->_low_buy_limit = this->_end;         
+        return false;
+    }else{
+        this->_bid_size = _chain<limit_chain_type>::size(&this->_bid->first);     
+    }
+                
+    /* adjust cached val */
+    if(this->_bid < this->_low_buy_limit)
+        this->_low_buy_limit = this->_bid;
+
+    return true;
+}
+
 
 
 SOB_TEMPLATE
@@ -783,24 +810,6 @@ SOB_CLASS::_threaded_order_dispatcher()
     }    
 }
 
-SOB_TEMPLATE
-	bool 
-	SOB_CLASS::_pull_order(bool limits_first, id_type id)
-    {
-        if(limits_first){
-            bool r = this->_pull_order<limit_chain_type>(id);
-            if(r)
-                return r;
-            r = this->_pull_order<stop_chain_type>(id);
-            return r;
-        }else{
-            bool r = this->_pull_order<stop_chain_type>(id);
-            if(r)
-                return r;
-            r = this->_pull_order<limit_chain_type>(id);
-            return r;
-        }
-    }
 
 SOB_TEMPLATE
 id_type 
@@ -1244,15 +1253,29 @@ SOB_TEMPLATE
 void 
 SOB_CLASS::_adjust_limit_cache_vals(plevel plev)
 {    
-    if( plev > this->_high_sell_limit )
-        throw cache_value_error("can't remove limit higher than cached val");
-    else if( plev == this->_high_sell_limit )
-        --(this->_high_sell_limit); /*dont look for next valid plevel*/
-    
-    if( plev < this->_low_buy_limit )
-        throw cache_value_error("can't remove limit lower than cached val");
-    else if( plev == this->_low_buy_limit )
-        ++(this->_low_buy_limit); /*dont look for next valid plevel*/     
+    /* we can compare v bid because if we get here and the order is a buy it
+       must be <= the best bid, otherwise its a sell */
+    if(plev <= this->_bid){ 
+
+        if(plev < this->_low_buy_limit)
+            throw cache_value_error("can't remove limit lower than cached val");
+
+        if(plev == this->_low_buy_limit)
+            this->_low_buy_limit++;  /*dont look for next valid plevel*/
+
+        if(plev == this->_bid)
+            this->_find_new_best_bid(plev); 
+    }else{
+
+        if(plev > this->_high_sell_limit)
+            throw cache_value_error("can't remove limit higher than cached val");
+
+        if(plev == this->_high_sell_limit)
+            this->_high_sell_limit--;  /*dont look for next valid plevel*/
+
+        if(plev == this->_ask)
+            this->_find_new_best_ask(plev);
+    }   
 }
 
 

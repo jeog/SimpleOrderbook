@@ -357,11 +357,13 @@ private:
     _pull_order(id_type id);
 
     /* optimize by checking limit or stop chains first */  
-	bool 
-	_pull_order(bool limits_first, id_type id);   
-      //  return limits_first
-   //         ? (this->_pull_order<limit_chain_type>(id) || this->_pull_order<stop_chain_type>(id))
-    //        : (this->_pull_order<stop_chain_type>(id) || this->_pull_order<limit_chain_type>(id));
+	inline bool 
+	_pull_order(bool limits_first, id_type id)   
+    {
+        return limits_first
+            ? (this->_pull_order<limit_chain_type>(id) || this->_pull_order<stop_chain_type>(id))
+            : (this->_pull_order<stop_chain_type>(id) || this->_pull_order<limit_chain_type>(id));
+    }
    
     /* helper for getting exec callback (what about admin_cb specialization?) */
     inline order_exec_cb_type 
@@ -426,6 +428,13 @@ private:
                id_type id,
                size_type size,
                order_exec_cb_type& exec_cb);
+
+    bool 
+    _find_new_best_bid(plevel b);
+
+
+    bool 
+    _find_new_best_ask(plevel a);
 
     /* signal trade has occurred(admin only, DONT INSERT NEW TRADES IN HERE!) */
     void 
