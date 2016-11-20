@@ -356,14 +356,21 @@ private:
     bool 
     _pull_order(id_type id);
 
+    /* optimize by checking limit or stop chains first */  
+	bool 
+	_pull_order(bool limits_first, id_type id);   
+      //  return limits_first
+   //         ? (this->_pull_order<limit_chain_type>(id) || this->_pull_order<stop_chain_type>(id))
+    //        : (this->_pull_order<stop_chain_type>(id) || this->_pull_order<limit_chain_type>(id));
+   
     /* helper for getting exec callback (what about admin_cb specialization?) */
-    order_exec_cb_type 
+    inline order_exec_cb_type 
     _get_cb_from_bndl(limit_bndl_type& b)
     { 
         return b.second; 
     }
 
-    order_exec_cb_type 
+    inline order_exec_cb_type 
     _get_cb_from_bndl(stop_bndl_type& b)
     { 
         return std::get<3>(b);
@@ -378,12 +385,12 @@ private:
     _adjust_limit_cache_vals(plevel plev);
 
     /* dump (to stdout) a particular chain array */
-    template< bool BuyNotSell >
+    template<bool BuyNotSell>
     void 
     _dump_limits() const;
 
     /* dump (to stdout) a particular chain array */
-    template< bool BuyNotSell >
+    template<bool BuyNotSell>
     void 
     _dump_stops() const;
 

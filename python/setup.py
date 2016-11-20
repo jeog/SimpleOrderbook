@@ -36,7 +36,7 @@ _cpp_ext = Extension(
     include_dirs = [py_include_dir,"../"],
     library_dirs = [py_library_dir],
     libraries = [py_library_name],
-    extra_compile_args=["-fPIC","-std=c++11"]
+    extra_compile_args=["-fPIC","-std=c++11", "-g", "-O0"]
  )
 
 setup( ext_modules=[_cpp_ext], **_setup_dict )    

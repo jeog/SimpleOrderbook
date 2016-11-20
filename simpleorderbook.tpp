@@ -688,8 +688,7 @@ SOB_CLASS::_threaded_order_dispatcher()
     order_queue_elem_type e;
     std::promise<id_type> p;
     order_type ot;
-    id_type id;
-    bool res;
+    id_type id;    
     
     for( ; ; ){
 
@@ -750,14 +749,15 @@ SOB_CLASS::_threaded_order_dispatcher()
                 } 
                 case order_type::null: /* not the cleanest but most effective/thread-safe */
                 {   
-                    /* e[1] indicates whether to search limits first */
+                    /* e[1] indicates whether to search limits first 
                     res = std::get<1>(e) 
                         ? (this->_pull_order<limit_chain_type>(id) 
                             || this->_pull_order<stop_chain_type>(id))
                         : (this->_pull_order<stop_chain_type>(id) 
-                            || this->_pull_order<limit_chain_type>(id));
+                            || this->_pull_order<limit_chain_type>(id)); */
+                  
                     /* not really id; bool */
-                    id = (id_type)res;
+                    id = (id_type)(this->_pull_order(std::get<1>(e),id));
                     break;
                 } 
                 default: 
@@ -783,6 +783,24 @@ SOB_CLASS::_threaded_order_dispatcher()
     }    
 }
 
+SOB_TEMPLATE
+	bool 
+	SOB_CLASS::_pull_order(bool limits_first, id_type id)
+    {
+        if(limits_first){
+            bool r = this->_pull_order<limit_chain_type>(id);
+            if(r)
+                return r;
+            r = this->_pull_order<stop_chain_type>(id);
+            return r;
+        }else{
+            bool r = this->_pull_order<stop_chain_type>(id);
+            if(r)
+                return r;
+            r = this->_pull_order<limit_chain_type>(id);
+            return r;
+        }
+    }
 
 SOB_TEMPLATE
 id_type 
