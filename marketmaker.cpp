@@ -93,7 +93,7 @@ MarketMaker::MarketMaker(MarketMaker&& mm) noexcept /* see notes in header */
         if(&mm == this)
             throw move_error("can't move to ourself");
 
-        this->_callback->rebind(this);
+        _callback->rebind(this);
 
         mm._book = nullptr;
         mm._callback_ext = nullptr;
@@ -110,17 +110,17 @@ MarketMaker::start(sob_iface_type *book,price_type implied,price_type tick)
     if(!book)
         throw std::invalid_argument("book can not be null(ptr)");
 
-    this->_is_running = true;
-    this->_book = book;
-    this->_tick = tick;
+    _is_running = true;
+    _book = book;
+    _tick = tick;
 }
 
 
 void 
 MarketMaker::stop()
 {
-    this->_is_running = false;
-    this->_book = nullptr;
+    _is_running = false;
+    _book = nullptr;
 }
 
 void 
@@ -137,7 +137,7 @@ MarketMaker::_base_callback(callback_msg msg,
     case callback_msg::fill:
         {
             try{
-                ob = this->_my_orders.at(id); /* THROW */
+                ob = _my_orders.at(id); /* THROW */
             }catch(...){
                 int i = 1;
                 ++i;
@@ -145,35 +145,35 @@ MarketMaker::_base_callback(callback_msg msg,
             rem = std::get<2>(ob) - size;
 
             /* for our derived class */
-            this->_last_fill = std::move(this->_this_fill);
-            this->_this_fill = {std::get<0>(ob),price,size};
+            _last_fill = std::move(_this_fill);
+            _this_fill = {std::get<0>(ob),price,size};
 
-            if(this->this_fill_was_buy()){
-                this->_pos += size;
-                this->_bid_out -= size;
+            if(this_fill_was_buy()){
+                _pos += size;
+                _bid_out -= size;
             }else{
-                this->_pos -= size;
-                this->_offer_out -= size;
+                _pos -= size;
+                _offer_out -= size;
             }
 
             if(rem <= 0)
-                this->_my_orders.erase(id);        
+                _my_orders.erase(id);        
             else
-                this->_my_orders[id] = order_bndl_type(this->this_fill_was_buy(), price, rem);        
+                _my_orders[id] = order_bndl_type(this_fill_was_buy(), price, rem);        
         }
         break;
 
     /* CANCEL */
     case callback_msg::cancel:
         {
-            ob = this->_my_orders.at(id); /* THROW */
+            ob = _my_orders.at(id); /* THROW */
 
             if(std::get<0>(ob))
-                this->_bid_out -= std::get<2>(ob);
+                _bid_out -= std::get<2>(ob);
             else
-                this->_offer_out -= std::get<2>(ob);
+                _offer_out -= std::get<2>(ob);
 
-            this->_my_orders.erase(id);
+            _my_orders.erase(id);
         }
         break;
 
@@ -235,23 +235,23 @@ MarketMaker_Simple1::start(sob_iface_type *book,
 
     my_base_type::start(book,implied,tick);
 
-    for(price = implied + tick ;
-        (this->offer_out() + this->_sz - this->pos()) <= this->_max_pos ;
-        price += tick)
+    for( price = implied + tick;
+         (offer_out() + _sz - pos()) <= _max_pos;
+         price += tick )
     {
         try{ 
-            this->insert<false>(price,this->_sz); 
+            insert<false>(price,_sz); 
         }catch(...){ 
             break; 
         }
     }
 
-    for(price = implied - tick;
-        (this->bid_out() + this->_sz + this->pos()) <= this->_max_pos;
-        price -= tick)
+    for( price = implied - tick;
+         (bid_out() + _sz + pos()) <= _max_pos;
+         price -= tick )
     {
         try{ 
-            this->insert<true>(price,this->_sz); 
+            insert<true>(price,_sz); 
         }catch(...){ 
             break; 
         }
@@ -265,19 +265,19 @@ MarketMaker_Simple1::_exec_callback(callback_msg msg,
                                     price_type price,
                                     size_type size)
 {
-    price_type adj = this->tick();
+    price_type adj = tick();
 
     try{
         switch(msg){
         /* FILL */
         case callback_msg::fill:
             {
-                if(this->last_fill_was_buy()){
-                    this->insert<false>(price + this->tick(), size);
-                    this->random_remove<false>(price + this->tick(),0);
+                if(last_fill_was_buy()){
+                    insert<false>(price + tick(), size);
+                    random_remove<false>(price + tick(),0);
                 }else{
-                    this->insert<true>(price - this->tick(), size);
-                    this->random_remove<true>(price - this->tick(),0);
+                    insert<true>(price - tick(), size);
+                    random_remove<true>(price - tick(),0);
                 }
             }
             break;
@@ -287,20 +287,20 @@ MarketMaker_Simple1::_exec_callback(callback_msg msg,
             {
                 if(price <= adj)
                     return;
-                if(this->pos() < 0)
-                    this->random_remove<true>(price- adj*3,0);
+                if(pos() < 0)
+                    random_remove<true>(price- adj*3,0);
                 else
-                    this->random_remove<false>(price + adj*3,0);
+                    random_remove<false>(price + adj*3,0);
 
-                if(price > this->last_fill_price() 
-                   && (this->offer_out() + this->_sz - this->pos() <= this->_max_pos))
+                if( price > last_fill_price() 
+                    && ((offer_out() + _sz - pos()) <= _max_pos) )
                 {
-                    this->insert<false>(price + this->tick(), this->_sz);
+                    insert<false>(price + tick(), _sz);
                 }
-                else if(price < this->last_fill_price()
-                        && (this->bid_out() + this->_sz + this->pos() <= this->_max_pos))
+                else if( price < last_fill_price()
+                         && ((bid_out() + _sz + pos()) <= _max_pos) )
                 {
-                    this->insert<true>(price - this->tick(), this->_sz);
+                    insert<true>(price - tick(), _sz);
                 }
             }
             break;
@@ -358,7 +358,7 @@ MarketMaker_Random::MarketMaker_Random(size_type sz_low,
         _lowsz(sz_low),
         _highsz(sz_high),
         _midsz( (sz_high-sz_low)/2),
-        _rand_engine(this->_gen_seed()),
+        _rand_engine(_gen_seed()),
         _distr(sz_low, sz_high),
         _distr2(1, (int)d),
         _disp(d)
@@ -399,25 +399,25 @@ MarketMaker_Random::start(sob_iface_type *book,
 
     my_base_type::start(book,implied,tick);
 
-    mod = this->_distr2(this->_rand_engine);
-    amt = this->_distr(this->_rand_engine);
+    mod = _distr2(_rand_engine);
+    amt = _distr(_rand_engine);
 
-    for(price = implied + tick*mod ;
-        (this->offer_out() + amt    <= this->_max_pos);
-        price += mod * tick)
+    for( price = implied + tick * mod;
+         (offer_out() + amt) <= _max_pos;
+         price += (mod * tick) )
     {
         try{ 
-            this->insert<false>(price, amt); 
+            insert<false>(price, amt); 
         }catch(...){ 
             break; 
         }
     }
 
-    for(price = implied - tick*mod ;
-        (this->bid_out() + amt <= this->_max_pos);
-        price -= mod * tick)
+    for( price = implied - tick * mod;
+         (bid_out() + amt) <= _max_pos;
+         price -= (mod * tick) )
     {
-        try{ this->insert<true>(price, amt); }catch(...){ break; }
+        try{ insert<true>(price, amt); }catch(...){ break; }
     }
 }
 
@@ -437,51 +437,49 @@ MarketMaker_Random::_exec_callback(callback_msg msg,
         /* FILL */
         case callback_msg::fill:
             {
-                adj = this->tick() * this->_distr2(this->_rand_engine);
-                amt = this->_distr(this->_rand_engine);
+                adj = tick() * _distr2(_rand_engine);
+                amt = _distr(_rand_engine);
                 skip = false;
 
-                if(this->this_fill_was_buy()){
-
-                    if(this->bid_out() + amt + this->pos() > this->_max_pos)
+                if(this_fill_was_buy()){
+                    if(bid_out() + amt + pos() > _max_pos)
                     {
-                        cumm = rret = this->random_remove<true>(price -adj,id);
+                        cumm = rret = random_remove<true>(price -adj,id);
                         while(cumm < amt){
                             if(rret ==0){
                                 skip = true;
                                 break;
                             }
-                            rret = this->random_remove<true>(price -adj*3,id);
+                            rret = random_remove<true>(price -adj*3,id);
                             cumm += rret;
                         }
                     }
 
                     if(!skip)
-                        this->insert<true>(price - adj, amt);
+                        insert<true>(price - adj, amt);
 
-                    if(this->offer_out() + amt - this->pos() < this->_max_pos)
-                        this->insert<false>(price + adj, size);
+                    if(offer_out() + amt - pos() < _max_pos)
+                        insert<false>(price + adj, size);
 
                 }else{
-
-                    if(this->offer_out() + amt - this->pos() > this->_max_pos)
+                    if(offer_out() + amt - pos() > _max_pos)
                     {
-                        cumm = rret = this->random_remove<false>(price + adj,id);
+                        cumm = rret = random_remove<false>(price + adj,id);
                         while(cumm < amt){
                             if(rret ==0){
                                 skip = true;
                                 break;
                             }
-                            rret = this->random_remove<false>(price + adj*3,id);
+                            rret = random_remove<false>(price + adj*3,id);
                             cumm += rret;
                         }
                     }
 
                     if(!skip)
-                        this->insert<false>(price + adj, amt);
+                        insert<false>(price + adj, amt);
 
-                    if(this->bid_out() + amt + this->pos() < this->_max_pos)
-                        this->insert<true>(price - adj, size);
+                    if(bid_out() + amt + pos() < _max_pos)
+                        insert<true>(price - adj, size);
                 }
             }
             break;
@@ -500,18 +498,18 @@ MarketMaker_Random::_exec_callback(callback_msg msg,
         /* WAKE */
         case callback_msg::wake:
             {
-                adj = this->tick() * this->_distr2(this->_rand_engine);
+                adj = tick() * _distr2(_rand_engine);
                 if(price <= adj)
                     return;
 
-                if(this->pos() < 0){
-                    cumm = this->random_remove<true>(price- adj*2,0);
+                if(pos() < 0){
+                    cumm = random_remove<true>(price- adj*2,0);
                     if(cumm)
-                        this->insert<true>(price - adj, cumm);
+                        insert<true>(price - adj, cumm);
                 }else{
-                    cumm = this->random_remove<false>(price + adj*2,0);
+                    cumm = random_remove<false>(price + adj*2,0);
                     if(cumm)
-                     this->insert<false>(price + adj, cumm);
+                     insert<false>(price + adj, cumm);
                 }
             }
             break;

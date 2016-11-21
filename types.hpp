@@ -276,19 +276,19 @@ public:
     inline my_type 
     operator+(const my_type& r) const
     {
-        return my_type(this->whole+r.whole, this->incr + r.incr);
+        return my_type(whole + r.whole, incr + r.incr);
     }
 
     inline my_type 
     operator-(const my_type& r) const
     {
-        return my_type(this->whole - r.whole, this->incr - r.incr);
+        return my_type(whole - r.whole, incr - r.incr);
     }
 
     inline long long 
     to_incr() const
     {
-        return (this->whole * increments_per_unit + this->incr);
+        return (whole * increments_per_unit + incr);
     }
     
     // TODO other arithmetic overloads

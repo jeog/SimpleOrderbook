@@ -72,13 +72,13 @@ public:
     virtual 
     ~PyFuncWrap() 
         { 
-            Py_XDECREF(this->_callback); 
+            Py_XDECREF(_callback); 
         }
 
     operator 
     bool()
     { 
-        return this->_callback; 
+        return _callback; 
     }
 };
 
@@ -105,7 +105,7 @@ public:
                NativeLayer::size_type size) const
     {
         PyObject* args = Py_BuildValue("kkfk", (int)msg, id, price, size);
-        PyObject_CallObject(this->_callback, args);
+        PyObject_CallObject(_callback, args);
         Py_DECREF(args);
     }
 };
@@ -131,7 +131,7 @@ public:
                NativeLayer::price_type tick) const
     {
         PyObject* args = Py_BuildValue("ff", implied, tick);
-        PyObject_CallObject(this->_callback, args);
+        PyObject_CallObject(_callback, args);
         Py_DECREF(args);
     }
 };
@@ -155,7 +155,7 @@ public:
     void 
     operator()() const 
     { 
-        PyObject_CallObject(this->_callback, NULL); 
+        PyObject_CallObject(_callback, NULL); 
     }
 };
 
@@ -181,8 +181,8 @@ private:
                    NativeLayer::price_type price,
                    NativeLayer::size_type size)
     {
-        if(this->_cb)
-            this->_cb(msg,id,price,size);
+        if(_cb)
+            _cb(msg,id,price,size);
         /* else throw */
     }
 
@@ -192,8 +192,8 @@ private:
           NativeLayer::price_type tick)
     {
         my_base_type::start(book,implied,tick);
-        if(this->_start)
-            this->_start(implied, tick);
+        if(_start)
+            _start(implied, tick);
         /* else throw */
     }
 
@@ -201,8 +201,8 @@ private:
     stop()
     {
         my_base_type::stop();
-        if(this->_stop)
-            this->_stop();
+        if(_stop)
+            _stop();
         /* else O.K. (for now) */
     }
 

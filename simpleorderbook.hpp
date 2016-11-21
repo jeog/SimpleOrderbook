@@ -311,7 +311,7 @@ private:
     inline large_size_type 
     _generate_id()
     {
-        return ++(this->_last_id);
+        return ++_last_id;
     }
 
     /* price-to-index and index-to-price utilities  */
@@ -361,8 +361,8 @@ private:
 	_pull_order(bool limits_first, id_type id)   
     {
         return limits_first
-            ? (this->_pull_order<limit_chain_type>(id) || this->_pull_order<stop_chain_type>(id))
-            : (this->_pull_order<stop_chain_type>(id) || this->_pull_order<limit_chain_type>(id));
+            ? (_pull_order<limit_chain_type>(id) || _pull_order<stop_chain_type>(id))
+            : (_pull_order<stop_chain_type>(id) || _pull_order<limit_chain_type>(id));
     }
    
     /* helper for getting exec callback (what about admin_cb specialization?) */
@@ -579,25 +579,25 @@ public:
     inline void 
     dump_buy_limits() const 
     { 
-        this->_dump_limits<true>(); 
+        _dump_limits<true>(); 
     }
 
     inline void 
     dump_sell_limits() const 
     { 
-        this->_dump_limits<false>(); 
+        _dump_limits<false>(); 
     }
 
     inline void 
     dump_buy_stops() const 
     { 
-        this->_dump_stops<true>(); 
+        _dump_stops<true>(); 
     }
 
     inline void 
     dump_sell_stops() const 
     { 
-        this->_dump_stops<false>(); 
+        _dump_stops<false>(); 
     }
 
     void 
@@ -606,91 +606,91 @@ public:
     inline market_depth_type 
     bid_depth(size_type depth=8) const
     {
-        return this->_market_depth<side_of_market::bid>(depth);
+        return _market_depth<side_of_market::bid>(depth);
     }
 
     inline market_depth_type 
     ask_depth(size_type depth=8) const
     {
-        return this->_market_depth<side_of_market::ask>(depth);
+        return _market_depth<side_of_market::ask>(depth);
     }
 
     inline market_depth_type 
     market_depth(size_type depth=8) const
     {
-        return this->_market_depth<side_of_market::both>(depth);
+        return _market_depth<side_of_market::both>(depth);
     }
 
     inline price_type 
     bid_price() const
     {
-        return this->_itop(this->_bid);
+        return _itop(_bid);
     }
 
     inline price_type 
     ask_price() const
     {
-        return this->_itop(this->_ask);
+        return _itop(_ask);
     }
 
     inline price_type 
     last_price() const
     {
-        return this->_itop(this->_last);
+        return _itop(_last);
     }
 
     inline size_type 
     bid_size() const
     {
-        return this->_bid_size;
+        return _bid_size;
     }
 
     inline size_type 
     ask_size() const
     {
-        return this->_ask_size;
+        return _ask_size;
     }
 
     inline size_type 
     total_bid_size() const
     {
-        return this->_total_depth<side_of_market::bid>();
+        return _total_depth<side_of_market::bid>();
     }
 
     inline size_type 
     total_ask_size() const
     {
-        return this->_total_depth<side_of_market::ask>();
+        return _total_depth<side_of_market::ask>();
     }
 
     inline size_type 
     total_size() const
     {
-        return this->_total_depth<side_of_market::both>();
+        return _total_depth<side_of_market::both>();
     }
 
     inline size_type 
     last_size() const
     {
-        return this->_last_size;
+        return _last_size;
     }
 
     inline large_size_type 
     volume() const
     {
-        return this->_total_volume;
+        return _total_volume;
     }
 
     inline large_size_type 
     last_id() const
     {
-        return this->_last_id;
+        return _last_id;
     }
 
     inline const time_and_sales_type& 
     time_and_sales() const
     {
-        return this->_t_and_s;
+        return _t_and_s;
     }
 };
 

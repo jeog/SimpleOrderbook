@@ -141,11 +141,14 @@ private:
     struct dynamic_functor{
         MarketMaker* _mm;
         bool _mm_alive;
-        order_exec_cb_type _base_f, _deriv_f;
+        order_exec_cb_type _base_f;
+        order_exec_cb_type _deriv_f;
 
     public:
         dynamic_functor(MarketMaker* mm)
-            	: _mm(mm), _mm_alive(true)
+            : 
+                _mm(mm), 
+                _mm_alive(true)
             { 
                 this->rebind(mm); 
             }
@@ -153,9 +156,9 @@ private:
         void 
         rebind(MarketMaker* mm)
         {
-            this->_mm = mm;
-            this->_base_f = std::bind(&MarketMaker::_base_callback,_mm,_1,_2,_3,_4);
-            this->_deriv_f = std::bind(&MarketMaker::_exec_callback,_mm,_1,_2,_3,_4);
+            _mm = mm;
+            _base_f = std::bind(&MarketMaker::_base_callback,_mm,_1,_2,_3,_4);
+            _deriv_f = std::bind(&MarketMaker::_exec_callback,_mm,_1,_2,_3,_4);
         }
 
         void 
@@ -164,7 +167,7 @@ private:
                    price_type price, 
                    size_type size)
         {
-            if(!this->_mm_alive)
+            if(!_mm_alive)
                 return;
 
             ++_mm->_recurse_count;
@@ -172,12 +175,12 @@ private:
 
             if(_mm->_tot_recurse_count <= MarketMaker::_tot_recurse_limit)
             {
-                this->_base_f(msg,id,price,size);
+                _base_f(msg,id,price,size);
 
                 if(_mm->_callback_ext)
                     _mm->_callback_ext(msg,id,price,size);
 
-                this->_deriv_f(msg,id,price,size);
+                _deriv_f(msg,id,price,size);
             }
 
             if(_mm->_tot_recurse_count) 
@@ -190,7 +193,7 @@ private:
         inline void 
         kill() 
         { 
-            this->_mm_alive = false; 
+            _mm_alive = false; 
         }
     }; /* struct dynamic_functor */
 
@@ -212,21 +215,21 @@ public:
                    price_type price, 
                    size_type size)
         {
-            if(this->_df) 
-                this->_df->operator()(msg,id,price,size);
+            if(_df) 
+                _df->operator()(msg,id,price,size);
         }
 
         inline operator 
         bool()
         { 
-            return (bool)(this->_df); 
+            return (bool)_df; 
         }
 
         inline void 
         kill() 
         { 
-            if(this->_df) 
-                this->_df->kill(); 
+            if(_df) 
+                _df->kill(); 
         }
     }; /* struct dynamic_functor_wrap */
 
@@ -315,79 +318,80 @@ public:
     virtual 
     ~MarketMaker() noexcept
         { /* if alive change state of callback so we don't used freed memory */
-            if(this->_callback) this->_callback->kill();
+            if(_callback) 
+                _callback->kill();
         }
 
     inline bool 
     this_fill_was_buy() const 
     { 
-        return this->_this_fill.is_buy; 
+        return _this_fill.is_buy; 
     }
 
     inline bool 
     last_fill_was_buy() const 
     { 
-        return this->_last_fill.is_buy; 
+        return _last_fill.is_buy; 
     }
 
     inline price_type 
     this_fill_price() const 
     { 
-        return this->_this_fill.price; 
+        return _this_fill.price; 
     }
 
     inline price_type 
     last_fill_price() const 
     { 
-        return this->_last_fill.price; 
+        return _last_fill.price; 
     }
 
     inline size_type 
     this_fill_size() const 
     { 
-        return this->_this_fill.size; 
+        return _this_fill.size; 
     }
 
     inline size_type 
     last_fill_size() const 
     { 
-        return this->_last_fill.size; 
+        return _last_fill.size; 
     }
 
     inline size_type 
     tick_chng() const
     {
-        return tick_diff(this->_this_fill.price, this->_last_fill.price,this->tick());
+        return tick_diff(_this_fill.price, _last_fill.price, tick());
     }
 
     inline price_type 
     tick() const    
     { 
-        return this->_tick; 
+        return _tick; 
     }
 
     inline size_type 
     bid_out() const 
     { 
-        return this->_bid_out; 
+        return _bid_out; 
     }
 
     inline size_type 
     offer_out() const 
     { 
-        return this->_offer_out; 
+        return _offer_out; 
     }
 
     inline size_type 
     pos() const 
     { 
-        return this->_pos; 
+        return _pos; 
     }
 
     virtual order_exec_cb_type 
     get_callback()
     {
-        return dynamic_functor_wrap(this->_callback);
+        return dynamic_functor_wrap(_callback);
     }
 
     static market_makers_type 
@@ -408,23 +412,23 @@ template<bool BuyNotSell>
 void 
 MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
 {
-    if(!this->_is_running)
+    if(!_is_running)
         throw invalid_state("market/market-maker is not in a running state");
 
-    std::lock_guard<std::recursive_mutex> rlock(this->_mtx);
+    std::lock_guard<std::recursive_mutex> rlock(_mtx);
 
-    if(this->_recurse_count > this->_recurse_limit){
+    if(_recurse_count > _recurse_limit){
         /*
          * note we are reseting the count; caller can catch and keep going with
          * the recursive calls if they want, we did our part...
          */
-        this->_recurse_count = 0;
+        _recurse_count = 0;
         throw callback_overflow("market maker trying to insert after exceeding the"
                                 " recursion limit set for the callback stack");
     }
 
     /* note: following block is all args for ->insert_limit_order  */
-    this->_book->insert_limit_order( 
+    _book->insert_limit_order( 
         /* arg 1 */
         BuyNotSell,
         /* arg 2 */ 
@@ -432,7 +436,7 @@ MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
         /* arg 3 */
         size,
         /* arg 4 */
-        (!no_order_cb ? dynamic_functor_wrap(this->_callback)
+        (!no_order_cb ? dynamic_functor_wrap(_callback)
                       : dynamic_functor_wrap(nullptr)),
         /* arg 5 */
         [=](id_type id)
@@ -448,7 +452,7 @@ MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
             if(id == 0)
                 throw invalid_order("order could not be inserted");
 
-            this->_my_orders.insert(
+            _my_orders.insert(
                 orders_value_type(
                     id,
                     order_bndl_type(BuyNotSell, price,size)
@@ -456,9 +460,9 @@ MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
             );
 
             if(BuyNotSell) 
-                this->_bid_out += size;
+                _bid_out += size;
             else         
-                this->_offer_out += size;
+                _offer_out += size;
         }
     );
 }
@@ -475,11 +479,11 @@ MarketMaker::random_remove(price_type minp, id_type this_id)
     size_type s;
     orders_map_type::const_iterator riter, eiter;
 
-    std::lock_guard<std::recursive_mutex> rlock(this->_mtx);
+    std::lock_guard<std::recursive_mutex> rlock(_mtx);
 
-    eiter = this->_my_orders.end();
+    eiter = _my_orders.end();
     riter = std::find_if(
-                this->_my_orders.cbegin(),
+                _my_orders.cbegin(),
                 eiter,
                 [=](orders_value_type p)
                 {                    
@@ -493,7 +497,7 @@ MarketMaker::random_remove(price_type minp, id_type this_id)
     s = 0;
     if(riter != eiter){
         s = std::get<2>(riter->second);
-        this->_book->pull_order(riter->first);
+        _book->pull_order(riter->first);
     }
     return s;
 }
