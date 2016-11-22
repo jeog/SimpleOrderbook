@@ -253,7 +253,11 @@ private:
     std::thread _order_dispatcher_thread;
 
     /* handles the async/consumer side of the order queue */
-    void _threaded_order_dispatcher();
+    void 
+    _threaded_order_dispatcher();
+
+    id_type 
+    _route_order(order_queue_elem_type& e, id_type& id);
 
     /* master sync for accessing internals */
     std::unique_ptr<std::mutex> _master_mtx;
@@ -404,7 +408,7 @@ private:
     _on_trade_completion();
 
     void 
-    _look_for_triggered_stops();
+    _look_for_triggered_stops(bool nothrow);
 
     template< bool BuyStops>
     void 

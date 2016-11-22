@@ -265,7 +265,7 @@ MarketMaker_Simple1::_exec_callback(callback_msg msg,
                                     price_type price,
                                     size_type size)
 {
-    price_type adj = tick();
+    price_type t = tick();
 
     try{
         switch(msg){
@@ -273,11 +273,11 @@ MarketMaker_Simple1::_exec_callback(callback_msg msg,
         case callback_msg::fill:
             {
                 if(last_fill_was_buy()){
-                    insert<false>(price + tick(), size);
-                    random_remove<false>(price + tick(),0);
+                    insert<false>(price + t, size);
+                    random_remove<false>(price + t,0);
                 }else{
-                    insert<true>(price - tick(), size);
-                    random_remove<true>(price - tick(),0);
+                    insert<true>(price - t, size);
+                    random_remove<true>(price - t,0);
                 }
             }
             break;
@@ -285,12 +285,12 @@ MarketMaker_Simple1::_exec_callback(callback_msg msg,
         /* WAKE */
         case callback_msg::wake:
             {
-                if(price <= adj)
+                if(price <= t)
                     return;
                 if(pos() < 0)
-                    random_remove<true>(price- adj*3,0);
+                    random_remove<true>(price- t*3,0);
                 else
-                    random_remove<false>(price + adj*3,0);
+                    random_remove<false>(price + t*3,0);
 
                 if( price > last_fill_price() 
                     && ((offer_out() + _sz - pos()) <= _max_pos) )
@@ -428,7 +428,7 @@ MarketMaker_Random::_exec_callback(callback_msg msg,
                                    price_type price,
                                    size_type size)
 {
-    price_type adj;
+    price_type t;
     size_type amt, rret, cumm;
     bool skip;
 
@@ -437,49 +437,49 @@ MarketMaker_Random::_exec_callback(callback_msg msg,
         /* FILL */
         case callback_msg::fill:
             {
-                adj = tick() * _distr2(_rand_engine);
+                t = tick() * _distr2(_rand_engine);
                 amt = _distr(_rand_engine);
                 skip = false;
 
                 if(this_fill_was_buy()){
                     if(bid_out() + amt + pos() > _max_pos)
                     {
-                        cumm = rret = random_remove<true>(price -adj,id);
+                        cumm = rret = random_remove<true>(price -t,id);
                         while(cumm < amt){
                             if(rret ==0){
                                 skip = true;
                                 break;
                             }
-                            rret = random_remove<true>(price -adj*3,id);
+                            rret = random_remove<true>(price -t*3,id);
                             cumm += rret;
                         }
                     }
 
                     if(!skip)
-                        insert<true>(price - adj, amt);
+                        insert<true>(price - t, amt);
 
                     if(offer_out() + amt - pos() < _max_pos)
-                        insert<false>(price + adj, size);
+                        insert<false>(price + t, size);
 
                 }else{
                     if(offer_out() + amt - pos() > _max_pos)
                     {
-                        cumm = rret = random_remove<false>(price + adj,id);
+                        cumm = rret = random_remove<false>(price + t,id);
                         while(cumm < amt){
                             if(rret ==0){
                                 skip = true;
                                 break;
                             }
-                            rret = random_remove<false>(price + adj*3,id);
+                            rret = random_remove<false>(price + t*3,id);
                             cumm += rret;
                         }
                     }
 
                     if(!skip)
-                        insert<false>(price + adj, amt);
+                        insert<false>(price + t, amt);
 
                     if(bid_out() + amt + pos() < _max_pos)
-                        insert<true>(price - adj, size);
+                        insert<true>(price - t, size);
                 }
             }
             break;
@@ -498,18 +498,18 @@ MarketMaker_Random::_exec_callback(callback_msg msg,
         /* WAKE */
         case callback_msg::wake:
             {
-                adj = tick() * _distr2(_rand_engine);
-                if(price <= adj)
+                t = tick() * _distr2(_rand_engine);
+                if(price <= t)
                     return;
 
                 if(pos() < 0){
-                    cumm = random_remove<true>(price- adj*2,0);
+                    cumm = random_remove<true>(price- t*2,0);
                     if(cumm)
-                        insert<true>(price - adj, cumm);
+                        insert<true>(price - t, cumm);
                 }else{
-                    cumm = random_remove<false>(price + adj*2,0);
+                    cumm = random_remove<false>(price + t*2,0);
                     if(cumm)
-                     insert<false>(price + adj, cumm);
+                     insert<false>(price + t, cumm);
                 }
             }
             break;
