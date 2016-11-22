@@ -22,6 +22,7 @@ along with this program.    If not, see http://www.gnu.org/licenses.
 #include <structmember.h>
 #include "../types.hpp"
 #include "../marketmaker.hpp"
+#include "../interfaces.hpp"
 
 //#define IGNORE_TO_DEBUG_NATIVE
 #ifndef IGNORE_TO_DEBUG_NATIVE
@@ -43,6 +44,7 @@ extern PyTypeObject pyMM_type;
 typedef struct {
     PyObject_HEAD
     PyObject* _mm;
+    bool _valid;
 } pyMM;
 
 typedef struct {
@@ -163,14 +165,11 @@ public:
 class MarketMaker_Py
     : public NativeLayer::MarketMaker {
 
+    /* allow python ext to insert directly */
     template<bool BuyNotSell>
     friend PyObject* 
     MM_insert(pyMM* self, PyObject* args, PyObject* kwds);
 
-    friend PyObject* 
-    SOB_add_market_makers_local(pySOB* self, PyObject* args);
-
-private:
     StartFuncWrap _start;
     StopFuncWrap _stop;
     ExecCallbackWrap _cb;
@@ -182,19 +181,17 @@ private:
                    NativeLayer::size_type size)
     {
         if(_cb)
-            _cb(msg,id,price,size);
-        /* else throw */
+            _cb(msg,id,price,size);       
     }
 
     void 
-    start(NativeLayer::MarketMaker::sob_iface_type *book,
+    start(NativeLayer::SimpleOrderbook::LimitInterface *book,
           NativeLayer::price_type implied, 
           NativeLayer::price_type tick)
     {
         my_base_type::start(book,implied,tick);
         if(_start)
-            _start(implied, tick);
-        /* else throw */
+            _start(implied, tick);       
     }
 
     void 
@@ -202,8 +199,7 @@ private:
     {
         my_base_type::stop();
         if(_stop)
-            _stop();
-        /* else O.K. (for now) */
+            _stop();       
     }
 
     virtual NativeLayer::pMarketMaker 
@@ -239,6 +235,7 @@ public:
     ~MarketMaker_Py() noexcept 
         {
         }
+  
 };
 
 #endif /* IGNORE_TO_DEBUG_NATIVE */

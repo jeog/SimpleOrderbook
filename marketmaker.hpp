@@ -66,10 +66,10 @@ operator+(market_makers_type&& l, MarketMaker&& r);
  *
  *   To prevent the callbacks/insert mechanism from going into an unstable
  *   state (e.g an infinite loop: insert->callback->insert->callback etc.) we
- *   set a ::_recurse_limit that if exceeded with throw callback_overflow on
+ *   set a ::RECURSE_LIMIT that if exceeded with throw callback_overflow on
  *   a call to insert<>(). It resets the count before throwing so you can catch
  *   this in the callback, clean up, and exit gracefully. We also employ a larger
- *   version that doesn't reset(::_tot_recurse_limit) that prevents further
+ *   version that doesn't reset(::TOTAL_RECURSE_LIMIT) that prevents further
  *   recursion until previous callbacks come off the 'stack'
  *
  *   Callbacks are handled internally by struct dynamic_functor which rebinds the
@@ -131,9 +131,6 @@ class MarketMaker
     friend market_makers_type 
     operator+(market_makers_type&& l, MarketMaker&& r);
 
-public:
-    typedef SimpleOrderbook::LimitInterface sob_iface_type;
-
 protected:
     typedef MarketMaker my_base_type;
 
@@ -157,8 +154,8 @@ private:
         rebind(MarketMaker* mm)
         {
             _mm = mm;
-            _base_f = std::bind(&MarketMaker::_base_callback,_mm,_1,_2,_3,_4);
-            _deriv_f = std::bind(&MarketMaker::_exec_callback,_mm,_1,_2,_3,_4);
+            _base_f = std::bind(&MarketMaker::_base_callback, _mm, _1, _2, _3, _4);
+            _deriv_f = std::bind(&MarketMaker::_exec_callback, _mm, _1, _2, _3, _4);
         }
 
         void 
@@ -173,7 +170,7 @@ private:
             ++_mm->_recurse_count;
             ++_mm->_tot_recurse_count;
 
-            if(_mm->_tot_recurse_count <= MarketMaker::_tot_recurse_limit)
+            if(_mm->_tot_recurse_count <= MarketMaker::TOTAL_RECURSE_LIMIT)
             {
                 _base_f(msg,id,price,size);
 
@@ -205,7 +202,8 @@ public:
 
     public:
         dynamic_functor_wrap(df_sptr_type df = nullptr) 
-            	: _df(df) 
+            : 
+                _df(df) 
             {
             }
 
@@ -244,7 +242,10 @@ private:
         size_type size;
     }fill_info;
 
-    sob_iface_type *_book;
+    static const int RECURSE_LIMIT = 5;
+    static const int TOTAL_RECURSE_LIMIT = 50;
+
+    NativeLayer::SimpleOrderbook::LimitInterface *_book;
     order_exec_cb_type _callback_ext;
     df_sptr_type _callback;
     orders_map_type _my_orders;
@@ -258,9 +259,6 @@ private:
     long long _pos;
     int _recurse_count;
     int _tot_recurse_count;
-
-    static const int _recurse_limit = 5;
-    static const int _tot_recurse_limit = 50;
 
     void 
     _base_callback(callback_msg msg,
@@ -300,7 +298,9 @@ protected:
 
     /* derived need to call down to start / stop */
     virtual void 
-    start(sob_iface_type *book, price_type implied, price_type tick);
+    start(NativeLayer::SimpleOrderbook::LimitInterface *book, 
+          price_type implied, 
+          price_type tick);
 
     virtual void
     stop();
@@ -417,7 +417,7 @@ MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
 
     std::lock_guard<std::recursive_mutex> rlock(_mtx);
 
-    if(_recurse_count > _recurse_limit){
+    if(_recurse_count > RECURSE_LIMIT){
         /*
          * note we are reseting the count; caller can catch and keep going with
          * the recursive calls if they want, we did our part...
@@ -436,8 +436,7 @@ MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
         /* arg 3 */
         size,
         /* arg 4 */
-        (!no_order_cb ? dynamic_functor_wrap(_callback)
-                      : dynamic_functor_wrap(nullptr)),
+        (!no_order_cb ? dynamic_functor_wrap(_callback) : dynamic_functor_wrap(nullptr)),
         /* arg 5 */
         [=](id_type id)
         {
@@ -522,7 +521,9 @@ class MarketMaker_Simple1
 
 protected:
     void 
-    start(sob_iface_type *book, price_type implied, price_type tick);
+    start(NativeLayer::SimpleOrderbook::LimitInterface *book, 
+          price_type implied, 
+          price_type tick);
 
 public:
     typedef std::initializer_list<std::pair<size_type,size_type>> init_list_type;
@@ -581,7 +582,9 @@ private:
 
 protected:
     void 
-    start(sob_iface_type *book, price_type implied, price_type tick);
+    start(NativeLayer::SimpleOrderbook::LimitInterface *book, 
+          price_type implied, 
+          price_type tick);
 
 public:
     typedef std::tuple<size_type,size_type,size_type,dispersion> init_params_type;

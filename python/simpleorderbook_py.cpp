@@ -468,10 +468,12 @@ SOB_add_market_makers_local(pySOB* self, PyObject* args)
 {
     using namespace NativeLayer;
 
-    PyObject *py_mms, *tmp;
+    PyObject *py_mms;
+    int good_obj;
     size_type mm_num;
     market_makers_type pmms;
     MarketMaker_Py* mm;
+    pyMM* mm_c;
     SimpleOrderbook::FullInterface* sob;
 
     if(!PyArg_ParseTuple(args, "O", &py_mms)) /* DO WEE NEED TO INCREF ?? */
@@ -481,47 +483,58 @@ SOB_add_market_makers_local(pySOB* self, PyObject* args)
     }
 
     try{
-        tmp = nullptr;
-        mm = nullptr;
-        mm_num = PyTuple_Size(py_mms);
         sob = (SimpleOrderbook::FullInterface*)self->_sob;
+        mm_num = PySequence_Size(py_mms);
         while(mm_num--){
-            try{
-                /* DEBUG */
-                std::cout<< "DEBUG, beg: " << std::to_string(mm_num) << std::endl;
-                /* DEBUG */
-                tmp = PyTuple_GetItem(py_mms,mm_num); /* borrow tmp */
-                mm = (MarketMaker_Py*)(((pyMM*)tmp)->_mm);
+            try{                       
+                mm_c = (pyMM*)PySequence_GetItem(py_mms, mm_num); /* new ref */
+                if(!mm_c)
+                    throw invalid_state("NULL item in sequence");
+
+                good_obj = PyObject_IsInstance((PyObject*)mm_c, (PyObject*)&pyMM_type);
+                if(!good_obj){
+                    Py_DECREF((PyObject*)mm_c);
+                    std::string msg("element in sequence not valid market maker: ");
+                    msg.append(std::to_string(mm_num));
+                    throw invalid_parameters(msg.c_str());                    
+                }else if(good_obj < 0){
+                    Py_DECREF((PyObject*)mm_c);
+                    return NULL;
+                }
+   
+                mm = (MarketMaker_Py*)(mm_c->_mm);
+                Py_DECREF(mm_c);
+
                 if(!mm)
-                    throw invalid_state("NULL item MarketMaker_Py* in tuple");
-                /*
-                 * DEBUG
-                 *
-                 * for now let's do the dangerous thing and maintain a reference to
-                 * the object(instead of moving via _move_to_new()) so we can access
-                 * the MM from outside the SOB
-                 *
-                 * DEBUG
-                 */
-                pmms.push_back(pMarketMaker(mm));
-                /* DEBUG */
-                std::cout<< "DEBUG, end-try: " << std::to_string(mm_num) << std::endl;
-                /* DEBUG */
-            }catch(invalid_state& e){ 
+                    throw invalid_state("NULL item MarketMaker_Py* in tuple");                
+          
+            }catch(invalid_state&){ 
                 throw; 
-            }catch(...){ 
-                // if(mm) delete mm; 
+            }catch(invalid_parameters&){ 
+                throw; 
+            }catch(...){                 
             } 
-
-            // if(mm) delete mm;
-
-            /* DEBUG */
-            std::cout<< "DEBUG, end-while: " << std::to_string(mm_num) << std::endl;
-            /* DEBUG */
+            /*
+             * DEBUG
+             *
+             * for now let's do the dangerous thing and maintain a reference to
+             * the object(instead of moving via _move_to_new()) so we can access
+             * the MM from outside the SOB
+             *
+             * DEBUG
+             */  
+            if(!mm_c->_valid){
+                std::cerr<< "market maker at index [" << mm_num 
+                         << "] is not valid (have you already added it?) and will be ignored" 
+                         << std::endl;
+                continue;
+            }
+            mm_c->_valid = false;
+            pmms.push_back(pMarketMaker(mm));            
         }
 
         if(pmms.size())
-            sob->add_market_makers(std::move(pmms));
+            sob->add_market_makers(std::move(pmms));        
         else
             throw std::runtime_error("no market makers to add");
 
@@ -926,7 +939,7 @@ PyInit_simpleorderbook(void)
     Py_INCREF(&pySOB_type);
     PyModule_AddObject(mod, "SimpleOrderbook", (PyObject*)&pySOB_type);
 
-    /* python/marketmaker.cpp */
+    /* python/marketmaker_py.cpp */
     Py_INCREF(&pyMM_type);
     PyModule_AddObject(mod, "MarketMaker", (PyObject*)&pyMM_type);
 

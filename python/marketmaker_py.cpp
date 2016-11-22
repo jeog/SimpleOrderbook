@@ -115,6 +115,7 @@ MM_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 
     self = (pyMM*)type->tp_alloc(type,0);
     self->_mm = nullptr;
+    self->_valid = true;
 
     if(self != NULL){
         try{
@@ -143,8 +144,9 @@ MM_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 static void 
 MM_Delete(pyMM* self)
 {
-    if(self->_mm)
+    if(self->_mm && self->_valid){
         delete (MarketMaker_Py*)(self->_mm);
+    }
 
     Py_TYPE(self)->tp_free((PyObject*)self);
 }

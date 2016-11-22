@@ -724,10 +724,7 @@ SOB_CLASS::_threaded_order_dispatcher()
             std::unique_lock<std::mutex> lock(*_order_queue_mtx);      
             _order_queue_cond.wait( 
                 lock, 
-                [this]
-                {
-                    return !this->_order_queue.empty();
-                }
+                [this]{ return !this->_order_queue.empty(); }
             );
  
             if(!_master_run_flag)
@@ -755,7 +752,7 @@ SOB_CLASS::_threaded_order_dispatcher()
 
 
 SOB_TEMPLATE
-id_type 
+void 
 SOB_CLASS::_route_order(order_queue_elem_type& e, id_type& id)
 {
     std::lock_guard<std::mutex> lock(*_master_mtx); 
@@ -817,10 +814,8 @@ SOB_CLASS::_push_order_and_wait( order_type oty,
     }    
     _order_queue_cond.notify_one();
     
-    try{
-        /* BLOCKING */ 
-        ret_id = f.get(); 
-        /* BLOCKING */    
+    try{         
+        ret_id = f.get(); /* BLOCKING */            
     }catch(...){
         _clear_callback_queue();        
         throw;
@@ -843,10 +838,14 @@ SOB_CLASS::_push_order_no_wait( order_type oty,
                                 id_type id )
 { 
     {
-         std::lock_guard<std::mutex> lock(*_order_queue_mtx);
-         _order_queue.push(
-             order_queue_elem_type(oty, buy, limit, stop, size, cb, id, admin_cb,
-                   /* dummy --> */ std::move(std::promise<id_type>())) );
+        std::lock_guard<std::mutex> lock(*_order_queue_mtx);
+        _order_queue.push(
+            order_queue_elem_type(
+                oty, buy, limit, stop, 
+                size, cb, id, admin_cb,
+/* dummy --> */ std::move(std::promise<id_type>())
+            ) 
+        );
     }    
     _order_queue_cond.notify_one();
 }
@@ -857,7 +856,7 @@ void
 SOB_CLASS::_clear_callback_queue()
 {
     order_exec_cb_type cb;
-    std::deque<dfrd_cb_elem_type> tmp;
+    std::deque<dfrd_cb_elem_type> cb_elems;
     
     bool busy = false; 
     /* if false, set to true(atomically); if true return */   
@@ -870,17 +869,18 @@ SOB_CLASS::_clear_callback_queue()
         /* --- CRITICAL SECTION --- */    
         std::move( _deferred_callback_queue.begin(),
                    _deferred_callback_queue.end(), 
-                   back_inserter(tmp) );    
+                   back_inserter(cb_elems) );    
      
         _deferred_callback_queue.clear(); 
         /* --- CRITICAL SECTION --- */
     }    
 
-    for(auto & e : tmp){     
+    for(auto & e : cb_elems){     
         cb = T_(e,1);
         if(cb) 
             cb(T_(e,0), T_(e,2), T_(e,3), T_(e,4));                
-    }        
+    }      
+  
     _busy_with_callbacks.store(false);
 }
 
@@ -1142,7 +1142,7 @@ SOB_CLASS::_market_depth(size_type depth) const
     for( ; h >= l; --h){
         if( !h->first.empty() ){
             d = _chain<limit_chain_type>::size(&h->first);
-            md.insert(market_depth_type::value_type(_itop(h),d));
+            md.insert( market_depth_type::value_type(_itop(h),d) );
         }
     }
     return md;
@@ -1184,14 +1184,14 @@ SOB_CLASS::_get_order_info(id_type id)
     
     std::lock_guard<std::mutex> lock(*_master_mtx); 
     /* --- CRITICAL SECTION --- */    
-    std::pair<plevel,FirstChainTy*> pc = _chain<FirstChainTy>::find(this,id);
-    p = T_(pc,0);
-    fc = T_(pc,1);
+    auto pc1 = _chain<FirstChainTy>::find(this,id);
+    p = T_(pc1,0);
+    fc = T_(pc1,1);
 
     if(!p || !fc){
-        std::pair<plevel,SecondChainTy*> pc = _chain<SecondChainTy>::find(this,id);
-        p = T_(pc,0);
-        sc = T_(pc,1);
+        auto pc2 = _chain<SecondChainTy>::find(this,id);
+        p = T_(pc2,0);
+        sc = T_(pc2,1);
         return (!p || !sc)
             ? _order_info<void>::generate() /* null version */
             : _order_info<SecondChainTy>::generate(this, id, p, sc); 
@@ -1219,14 +1219,15 @@ SOB_CLASS::_pull_order(id_type id)
     c = T_(cp,1);
 
     if(!c || !p)
-        return false;
-
-    auto bndl = c->at(id);
+        return false;   
 
     /* get the callback and, if stop order, its direction... before erasing */
+    auto bndl = c->at(id);
     cb = _get_cb_from_bndl(bndl); 
+
     if(!IsLimit) 
         is_buystop = T_(bndl,0); 
+
     c->erase(id);
 
     /* adjust cache vals as necessary */
@@ -1239,7 +1240,13 @@ SOB_CLASS::_pull_order(id_type id)
         
     /* callback with cancel msg */     
     _deferred_callback_queue.push_back( 
-        dfrd_cb_elem_type(callback_msg::cancel, cb, id, 0, 0) 
+        dfrd_cb_elem_type(
+            callback_msg::cancel, 
+            cb, 
+            id, 
+            0, 
+            0
+        ) 
     ); 
 
     return true;
@@ -1366,7 +1373,7 @@ void SOB_CLASS::_dump_stops() const
     for( ; h >= l; --h){ 
         if( !h->second.empty() ){
             std::cout<< _itop(h);
-            for(const stop_chain_type::value_type& e : h->second){
+            for(const auto & e : h->second){
                 plim = (plevel)T_(e.second,1);
                 std::cout<< " <" << (T_(e.second,0) ? "B " : "S ")
                                  << std::to_string( T_(e.second,2) ) << " @ "
@@ -1470,7 +1477,7 @@ SOB_CLASS::add_market_makers(market_makers_type&& mms)
 {
     std::lock_guard<std::recursive_mutex> lock(*_mm_mtx);
     /* --- CRITICAL SECTION --- */                
-    for(pMarketMaker& mm : mms){     
+    for(auto & mm : mms){     
         mm->start(this, _itop(_last), tick_size);        
         _market_makers.push_back(std::move(mm));        
     }

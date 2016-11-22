@@ -256,7 +256,7 @@ private:
     void 
     _threaded_order_dispatcher();
 
-    id_type 
+    void 
     _route_order(order_queue_elem_type& e, id_type& id);
 
     /* master sync for accessing internals */
