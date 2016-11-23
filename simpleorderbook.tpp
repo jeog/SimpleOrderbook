@@ -479,116 +479,270 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>
 
 
 /*
- *  _lift_offers / _hit_bids : are the guts of order execution:
+ *  _core_exec<bool> : specialization for buy/sell branch in _trade
+ *
+ *  _limit_exec<bool>  : specialization for simple buy/sell branch in _pull
+ *
+ *  _stop_exec<bool>  : specialization for simple buy/sell branch in _pull
+ *             
+ */
+
+SOB_TEMPLATE
+template<bool BidSide, bool Redirect> /* SELL, hit bids */
+struct SOB_CLASS::_core_exec {
+    template<typename My>
+    static inline bool
+    is_executable_chain(const My* sob, typename SOB_CLASS::plevel p) 
+    {
+        return (p <= sob->_bid || !p) && (sob->_bid >= sob->_beg);
+    }
+
+    template<typename My>
+    static inline typename SOB_CLASS::plevel
+    get_inside(const My* sob) 
+    {
+        return sob->_bid;
+    }
+
+    /* THIS WILL GET IMPORTED BY THE <false> specialization */
+    template<typename My>
+    static inline bool
+    find_new_best_inside(My* sob) 
+    {
+        /* if on an empty chain 'jump' to next that isn't, reset _ask as we go */ 
+        _core_exec<Redirect>::_jump_to_nonempty_chain(sob);              
+
+        /* reset size; if we run out of orders reset state/cache and return */        
+        if( !_core_exec<Redirect>::_check_and_reset_size(sob) )
+            return false;
+                
+        _core_exec<Redirect>::_adjust_limit_cache(sob);
+        return true;
+    }
+
+private:
+    template<typename My>
+    static inline void
+    _jump_to_nonempty_chain(My* sob) 
+    {
+        for( ; 
+             sob->_bid->first.empty() && (sob->_bid >= sob->_beg); 
+             --sob->_bid )
+           {  
+           } 
+    }
+
+    template<typename My>
+    static inline bool
+    _check_and_reset_size(My* sob)
+    {
+        if(sob->_bid < sob->_beg){
+            sob->_bid_size = 0;             
+            sob->_low_buy_limit = sob->_end; 
+            return false;
+        }
+        
+        sob->_bid_size = SOB_CLASS::_chain<SOB_CLASS::limit_chain_type>::size(&sob->_bid->first);             
+        return true;
+    }
+
+    template<typename My>
+    static inline void
+    _adjust_limit_cache(My* sob) 
+    {       
+        if(sob->_bid < sob->_low_buy_limit)
+            sob->_low_buy_limit = sob->_bid;
+    }
+
+};
+
+
+SOB_TEMPLATE
+template<bool Redirect> /* BUY, hit offers */
+struct SOB_CLASS::_core_exec<false,Redirect>
+        : public _core_exec<true,false> {  
+    friend _core_exec<true,false>;
+
+    template<typename My>
+    static inline bool
+    is_executable_chain(const My* sob, typename SOB_CLASS::plevel p) 
+    {
+        return (p >= sob->_ask || !p) && (sob->_ask < sob->_end);
+    }
+
+    template<typename My>
+    static inline typename SOB_CLASS::plevel
+    get_inside(const My* sob) 
+    {
+        return sob->_ask;
+    }
+
+private:
+    template<typename My>
+    static inline void
+    _jump_to_nonempty_chain(My* sob) 
+    {
+        for( ; 
+             sob->_ask->first.empty() && (sob->_ask < sob->_end); 
+             ++sob->_ask ) 
+            { 
+            }  
+    }
+
+    template<typename My>
+    static inline bool
+    _check_and_reset_size(My* sob) 
+    {
+        if(sob->_ask >= sob->_end){
+            sob->_ask_size = 0;          
+            sob->_high_sell_limit = sob->_beg-1;    
+            return false;
+        }else{
+            sob->_ask_size = SOB_CLASS::_chain<SOB_CLASS::limit_chain_type>::size(&sob->_ask->first);    
+        }
+        return true;
+    }
+
+    template<typename My>
+    static inline void
+    _adjust_limit_cache(My* sob) 
+    {       
+        if(sob->_ask > sob->_high_sell_limit)
+            sob->_high_sell_limit = sob->_ask;
+    }
+};
+
+
+SOB_TEMPLATE
+template<bool BuyLimit, bool Redirect> 
+struct SOB_CLASS::_limit_exec {
+    template<typename My>
+    static inline void
+    adjust_limit_cache_after_pull(My* sob, SOB_CLASS::plevel p) 
+    {
+        if(p < sob->_low_buy_limit) /* this *should* never happen */
+            throw cache_value_error("can't remove limit lower than cached val");
+
+        if(p == sob->_low_buy_limit)
+            ++sob->_low_buy_limit;  /*dont look for next valid plevel*/
+ 
+        if(p == sob->_bid)
+            SOB_CLASS::_core_exec<true>::find_new_best_inside(sob);      
+    }
+};
+
+
+SOB_TEMPLATE
+template<bool Redirect> 
+struct SOB_CLASS::_limit_exec<false,Redirect> {
+    template<typename My>
+    static inline void
+    adjust_limit_cache_after_pull(My* sob, SOB_CLASS::plevel p) 
+    {
+        if(p > sob->_high_sell_limit) /* this *should* never happen */
+            throw cache_value_error("can't remove limit higher than cached val");
+
+        if(p == sob->_high_sell_limit)
+            --sob->_high_sell_limit;  /*dont look for next valid plevel*/
+
+        if(p == sob->_ask)
+            SOB_CLASS::_core_exec<false>::find_new_best_inside(sob);       
+    }
+
+};
+
+
+SOB_TEMPLATE
+template<bool BuyStop, bool Redirect> 
+struct SOB_CLASS::_stop_exec {
+    template<typename My> 
+    static inline void
+    adjust_stop_cache_after_pull(My* sob, SOB_CLASS::plevel p) 
+    {
+        if(p > sob->_high_buy_stop) /* this *should* never happen */
+            throw cache_value_error("can't remove stop higher than cached val");
+        else if(p == sob->_high_buy_stop)
+            --sob->_high_buy_stop; /*dont look for next valid plevel*/ 
+        
+        if(p < sob->_low_buy_stop) /* this *should* never happen */
+            throw cache_value_error("can't remove stop lower than cached val");
+        else if(p == sob->_low_buy_stop)
+            ++sob->_low_buy_stop; /*dont look for next valid plevel*/     
+    }
+
+    /* THIS WILL GET IMPORTED BY THE <false> specialization */
+    template<typename My>
+    static inline bool
+    stop_chain_is_empty(My* sob, SOB_CLASS::stop_chain_type* c)
+    {
+        auto ifcond = [](const SOB_CLASS::stop_chain_type::value_type & v) 
+                      { 
+                          return T_(v.second,0) == Redirect; 
+                      };
+
+        auto biter = c->cbegin();
+        auto eiter = c->cend();
+        auto riter = find_if(biter, eiter, ifcond);
+
+        return (riter == eiter);
+    }
+};
+
+
+SOB_TEMPLATE
+template<bool Redirect> 
+struct SOB_CLASS::_stop_exec<false,Redirect> 
+        : public _stop_exec<true,false> {
+    template<typename My> 
+    static inline void
+    adjust_stop_cache_after_pull(My* sob, SOB_CLASS::plevel p) 
+    {
+        if(p > sob->_high_sell_stop) /* this *should* never happen */
+            throw cache_value_error("can't remove stop higher than cached val");
+        else if(p == sob->_high_sell_stop)
+            --sob->_high_sell_stop; /*dont look for next valid plevel */     
+        
+        if(p < sob->_low_sell_stop) /* this *should* never happen */
+            throw cache_value_error("can't remove stop lower than cached val");
+        else if(p == sob->_low_sell_stop)
+            ++sob->_low_sell_stop; /*dont look for next valid plevel*/        
+    }
+};
+
+
+/*
+ *  _trade<bool> : the guts of order execution:
  *      match limit/market orders against the order book,
  *      adjust internal state,
  *      check for overflows  
  *
  *  _hit_chain : handles all the trades at a particular plevel
  *               returns what it couldn't fill
- *
- *  _find_new_best_ask / _find_new_best_bid : reset the ask / bid plevel                 
+ *               
  */
 
 SOB_TEMPLATE 
+template<bool BidSide>
 size_type 
-SOB_CLASS::_lift_offers( plevel plev, 
-                         id_type id, 
-                         size_type size,
-                         order_exec_cb_type& exec_cb )
+SOB_CLASS::_trade( plevel plev, 
+                   id_type id, 
+                   size_type size,
+                   order_exec_cb_type& exec_cb )
 {
-    while( (plev >= _ask || !plev) 
-           && (size > 0)
-           && (_ask < _end) )
+    plevel inside;
+
+    while( (size > 0) && _core_exec<BidSide>::is_executable_chain(this, plev) )
     {         
+        inside = _core_exec<BidSide>::get_inside(this);
         /* see how much we can trade at this level */
-        size = _hit_chain(_ask, id, size, exec_cb);     
-        
-        if( !_find_new_best_ask() )
+        size = _hit_chain(inside, id, size, exec_cb);      
+                     
+        if( !_core_exec<BidSide>::find_new_best_inside(this) )
             break;
     }
 
     return size; /* what we couldn't fill */
 }
-
-
-SOB_TEMPLATE 
-bool 
-SOB_CLASS::_find_new_best_ask()
-{
-    /* if on an empty chain 'jump' to next that isn't, reset _ask as we go */
-    for( ; 
-         _ask->first.empty() && (_ask < _end); 
-         ++_ask ) 
-        { 
-        }                
-
-    /* reset ask size; if we run out of offers reset state/cache and return */          
-    if(_ask >= _end){
-        _ask_size = 0;          
-        _high_sell_limit = _beg-1;    
-        return false;
-    }else{
-        _ask_size = _chain<limit_chain_type>::size(&_ask->first);    
-    }
-            
-    /* adjust cache */
-    if(_ask > _high_sell_limit)
-        _high_sell_limit = _ask;
-
-    return true;
-}
-
-
-SOB_TEMPLATE 
-size_type 
-SOB_CLASS::_hit_bids( plevel plev,
-                      id_type id,
-                      size_type size,
-                      order_exec_cb_type& exec_cb )
-{  
-    while( (plev <= _bid || !plev) 
-           && (size > 0)
-           && (_bid >= _beg) )
-    {         
-        /* see how much we can trade at this level */
-        size = _hit_chain(_bid, id, size, exec_cb);  
-             
-        if( !_find_new_best_bid() )
-            break;
-    }
-
-    return size; /* what we couldn't fill */
-}
-
-
-SOB_TEMPLATE 
-bool 
-SOB_CLASS::_find_new_best_bid()
-{
-    /* if on an empty chain 'jump' to next that isn't, reset _bid as we go */
-    for( ; 
-         _bid->first.empty() && (_bid >= _beg); 
-         --_bid )
-       {  
-       }            
-
-    /* reset ask size; if we run out of offers reset state/cache and return */                  
-    if(_bid < _beg){
-        _bid_size = 0;             
-        _low_buy_limit = _end; 
-        return false;
-    }else{
-        _bid_size = _chain<limit_chain_type>::size(&_bid->first);     
-    }
-                
-    /* adjust cache */
-    if(_bid < _low_buy_limit)
-        _low_buy_limit = _bid;
-
-    return true;
-}
-
 
 
 SOB_TEMPLATE
@@ -646,20 +800,14 @@ SOB_CLASS::_trade_has_occured( plevel plev,
     _deferred_callback_queue.push_back( /* buy side */
         dfrd_cb_elem_type(
             callback_msg::fill,     
-            cbbuy, 
-            idbuy, 
-            p, 
-            size
+            cbbuy, idbuy, p, size
         )
     );
 
     _deferred_callback_queue.push_back( /* sell side */
         dfrd_cb_elem_type(
             callback_msg::fill, 
-            cbsell, 
-            idsell, 
-            p, 
-            size
+            cbsell, idsell, p, size
         )
     );
     
@@ -1009,9 +1157,11 @@ SOB_CLASS::_insert_limit_order( bool buy,
      * pass ref to callback functor, we'll copy later if necessary
      */
     if(buy && limit >= _ask)
-        rmndr = _lift_offers(limit,id,size,exec_cb);
+//        rmndr = _lift_offers(limit,id,size,exec_cb);
+        rmndr = _trade<false>(limit,id,size,exec_cb);
     else if(!buy && limit <= _bid)
-        rmndr = _hit_bids(limit,id,size,exec_cb);
+//        rmndr = _hit_bids(limit,id,size,exec_cb);
+        rmndr = _trade<true>(limit,id,size,exec_cb);
 
     /*
      * then add what remains to bid side; copy callback functor, needs to persist
@@ -1055,8 +1205,12 @@ SOB_CLASS::_insert_market_order( bool buy,
 {
     size_type rmndr = size;
 
-    rmndr = buy ? _lift_offers(nullptr,id,size,exec_cb)
-                : _hit_bids(nullptr,id,size,exec_cb);
+//    rmndr = buy ? _lift_offers(nullptr,id,size,exec_cb)
+//                : _hit_bids(nullptr,id,size,exec_cb);
+
+    rmndr = buy 
+          ? _trade<false>(nullptr,id,size,exec_cb)
+          : _trade<true>(nullptr,id,size,exec_cb);
 
     if(rmndr == size){        
         throw liquidity_exception("market order couldn't fill any");
@@ -1231,102 +1385,43 @@ SOB_CLASS::_pull_order(id_type id)
     c->erase(id);
 
     /* adjust cache vals as necessary */
-    if(IsLimit && c->empty())
-        _adjust_limit_cache_vals(p);
-    else if(!IsLimit && is_buystop)         
-        _adjust_stop_cache_vals<true>(p,(stop_chain_type*)c);
-    else if(!IsLimit && !is_buystop)
-        _adjust_stop_cache_vals<false>(p,(stop_chain_type*)c); 
+    if(IsLimit && c->empty()){
+       /*  
+           we can compare vs bid because if we get here and the order is a buy it
+           must be <= the best bid, otherwise its a sell 
+
+           remember, p is empty if we get here 
+        */
+        if(p <= _bid) 
+            _limit_exec<true>::adjust_limit_cache_after_pull(this, p);
+        else
+            _limit_exec<false>::adjust_limit_cache_after_pull(this, p);
+
+    }else if(!IsLimit && is_buystop){
+         
+        if( _stop_exec<true>::stop_chain_is_empty(this, (stop_chain_type*)c) ){
+
+            _stop_exec<true>::adjust_stop_cache_after_pull(this, p);
+        }
+
+    }else if(!IsLimit && !is_buystop){
+     
+        if( _stop_exec<false>::stop_chain_is_empty(this, (stop_chain_type*)c) ){
+
+            _stop_exec<false>::adjust_stop_cache_after_pull(this, p);
+        }
+
+    }
         
     /* callback with cancel msg */     
     _deferred_callback_queue.push_back( 
         dfrd_cb_elem_type(
             callback_msg::cancel, 
-            cb, 
-            id, 
-            0, 
-            0
+            cb, id, 0, 0
         ) 
     ); 
 
     return true;
-}
-
-
-SOB_TEMPLATE
-void 
-SOB_CLASS::_adjust_limit_cache_vals(plevel plev)
-{    
-   /*  we can compare vs bid because if we get here and the order is a buy it
-       must be <= the best bid, otherwise its a sell 
-
-       remember, plevel is empty if we get here 
-    */
-    if(plev <= _bid){ 
-
-        if(plev < _low_buy_limit) /* this *should* never happen */
-            throw cache_value_error("can't remove limit lower than cached val");
-
-        if(plev == _low_buy_limit)
-            ++_low_buy_limit;  /*dont look for next valid plevel*/
-
-        if(plev == _bid)
-            _find_new_best_bid(); 
-    }else{
-
-        if(plev > _high_sell_limit) /* this *should* never happen */
-            throw cache_value_error("can't remove limit higher than cached val");
-
-        if(plev == _high_sell_limit)
-            --_high_sell_limit;  /*dont look for next valid plevel*/
-
-        if(plev == _ask)
-            _find_new_best_ask();
-    }   
-}
-
-
-SOB_TEMPLATE
-template<bool BuyStop>
-void 
-SOB_CLASS::_adjust_stop_cache_vals(plevel plev,stop_chain_type* c)
-{ 
-    auto ifcond = [](const stop_chain_type::value_type& v)
-                    {
-                        return T_(v.second,0) == BuyStop;
-                    };
-
-    auto biter = c->cbegin();
-    auto eiter = c->cend();
-    auto riter = find_if(biter, eiter, ifcond);
-
-    if(riter != eiter)
-        return;
-    
-    if(BuyStop){
-
-        if(plev > _high_buy_stop) /* this *should* never happen */
-            throw cache_value_error("can't remove stop higher than cached val");
-        else if(plev == _high_buy_stop)
-            --_high_buy_stop; /*dont look for next valid plevel*/ 
-        
-        if(plev < _low_buy_stop) /* this *should* never happen */
-            throw cache_value_error("can't remove stop lower than cached val");
-        else if(plev == _low_buy_stop)
-            ++_low_buy_stop; /*dont look for next valid plevel*/ 
-    
-    }else{
-
-        if(plev > _high_sell_stop) /* this *should* never happen */
-            throw cache_value_error("can't remove stop higher than cached val");
-        else if(plev == _high_sell_stop)
-            --_high_sell_stop; /*dont look for next valid plevel */     
-        
-        if(plev < _low_sell_stop) /* this *should* never happen */
-            throw cache_value_error("can't remove stop lower than cached val");
-        else if(plev == _low_sell_stop)
-            ++_low_sell_stop; /*dont look for next valid plevel*/             
-    }                
 }
 
 

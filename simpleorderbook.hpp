@@ -414,31 +414,28 @@ private:
     void 
     _handle_triggered_stop_chain(plevel plev);
 
-    /* execute if orders match */
-    size_type 
-    _lift_offers(plevel plev, 
-                 id_type id, 
-                 size_type size,
-                 order_exec_cb_type& exec_cb);
-
-    size_type 
-    _hit_bids(plevel plev, 
-              id_type id, 
-              size_type size,
-              order_exec_cb_type& exec_cb);
-
     size_type
     _hit_chain(plevel plev,
                id_type id,
                size_type size,
                order_exec_cb_type& exec_cb);
 
-    bool 
-    _find_new_best_bid();
+    template<bool BidSize>
+    size_type 
+    _trade(plevel plev, 
+           id_type id, 
+           size_type size,
+           order_exec_cb_type& exec_cb);
 
 
-    bool 
-    _find_new_best_ask();
+    template<bool BidSide, bool Redirect=BidSide>
+    struct _core_exec;
+
+    template<bool BuyLimit, bool Redirect=BuyLimit>
+    struct _limit_exec;
+
+    template<bool BuyStop, bool Redirect=BuyStop>
+    struct _stop_exec;
 
     /* signal trade has occurred(admin only, DONT INSERT NEW TRADES IN HERE!) */
     void 
