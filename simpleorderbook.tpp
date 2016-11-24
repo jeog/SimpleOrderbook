@@ -618,16 +618,31 @@ template<bool BuyLimit, bool Redirect>
 struct SOB_CLASS::_limit_exec {
     template<typename My>
     static inline void
-    adjust_limit_cache_after_pull(My* sob, SOB_CLASS::plevel p) 
+    adjust_state_after_pull(My* sob, SOB_CLASS::plevel limit) 
     {
-        if(p < sob->_low_buy_limit) /* this *should* never happen */
+        if(limit < sob->_low_buy_limit) /* this *should* never happen */
             throw cache_value_error("can't remove limit lower than cached val");
 
-        if(p == sob->_low_buy_limit)
+        if(limit == sob->_low_buy_limit)
             ++sob->_low_buy_limit;  /*dont look for next valid plevel*/
  
-        if(p == sob->_bid)
+        if(limit == sob->_bid)
             SOB_CLASS::_core_exec<true>::find_new_best_inside(sob);      
+    }
+
+    template<typename My>
+    static inline void
+    adjust_state_after_insert(My* sob, 
+                                    SOB_CLASS::plevel limit, 
+                                    SOB_CLASS::limit_chain_type* orders) 
+    {
+        if(limit >= sob->_bid){
+            sob->_bid = limit;
+            sob->_bid_size = SOB_CLASS::_chain<limit_chain_type>::size(orders);
+        }
+
+        if(limit < sob->_low_buy_limit)
+            sob->_low_buy_limit = limit;     
     }
 };
 
@@ -637,18 +652,32 @@ template<bool Redirect>
 struct SOB_CLASS::_limit_exec<false,Redirect> {
     template<typename My>
     static inline void
-    adjust_limit_cache_after_pull(My* sob, SOB_CLASS::plevel p) 
+    adjust_state_after_pull(My* sob, SOB_CLASS::plevel limit) 
     {
-        if(p > sob->_high_sell_limit) /* this *should* never happen */
+        if(limit > sob->_high_sell_limit) /* this *should* never happen */
             throw cache_value_error("can't remove limit higher than cached val");
 
-        if(p == sob->_high_sell_limit)
+        if(limit == sob->_high_sell_limit)
             --sob->_high_sell_limit;  /*dont look for next valid plevel*/
 
-        if(p == sob->_ask)
+        if(limit == sob->_ask)
             SOB_CLASS::_core_exec<false>::find_new_best_inside(sob);       
     }
 
+    template<typename My>
+    static inline void
+    adjust_state_after_insert(My* sob, 
+                              SOB_CLASS::plevel limit, 
+                              SOB_CLASS::limit_chain_type* orders) 
+    {
+        if(limit <= sob->_ask){
+            sob->_ask = limit;
+            sob->_ask_size = SOB_CLASS::_chain<limit_chain_type>::size(orders);
+        }
+
+        if(limit > sob->_high_sell_limit)
+            sob->_high_sell_limit = limit;   
+    }
 };
 
 
@@ -657,17 +686,41 @@ template<bool BuyStop, bool Redirect>
 struct SOB_CLASS::_stop_exec {
     template<typename My> 
     static inline void
-    adjust_stop_cache_after_pull(My* sob, SOB_CLASS::plevel p) 
+    adjust_state_after_pull(My* sob, SOB_CLASS::plevel stop) 
     {
-        if(p > sob->_high_buy_stop) /* this *should* never happen */
+        if(stop > sob->_high_buy_stop) /* this *should* never happen */
             throw cache_value_error("can't remove stop higher than cached val");
-        else if(p == sob->_high_buy_stop)
+        else if(stop == sob->_high_buy_stop)
             --sob->_high_buy_stop; /*dont look for next valid plevel*/ 
         
-        if(p < sob->_low_buy_stop) /* this *should* never happen */
+        if(stop < sob->_low_buy_stop) /* this *should* never happen */
             throw cache_value_error("can't remove stop lower than cached val");
-        else if(p == sob->_low_buy_stop)
+        else if(stop == sob->_low_buy_stop)
             ++sob->_low_buy_stop; /*dont look for next valid plevel*/     
+    }
+
+    template<typename My> 
+    static inline void
+    adjust_state_after_insert(My* sob, SOB_CLASS::plevel stop) 
+    {
+        if(stop < sob->_low_buy_stop)    
+            sob->_low_buy_stop = stop;
+
+        if(stop > sob->_high_buy_stop) 
+            sob->_high_buy_stop = stop;    
+    }
+
+    template<typename My> 
+    static inline void
+    adjust_state_after_trigger(My* sob, SOB_CLASS::plevel stop) 
+    {    
+        sob->_low_buy_stop = stop + 1;        
+        
+        if(sob->_low_buy_stop > sob->_high_buy_stop)
+        {            
+            sob->_low_buy_stop = sob->_end;
+            sob->_high_buy_stop = sob->_beg - 1;
+        }
     }
 
     /* THIS WILL GET IMPORTED BY THE <false> specialization */
@@ -695,17 +748,42 @@ struct SOB_CLASS::_stop_exec<false,Redirect>
         : public _stop_exec<true,false> {
     template<typename My> 
     static inline void
-    adjust_stop_cache_after_pull(My* sob, SOB_CLASS::plevel p) 
+    adjust_state_after_pull(My* sob, SOB_CLASS::plevel stop) 
     {
-        if(p > sob->_high_sell_stop) /* this *should* never happen */
+        if(stop > sob->_high_sell_stop) /* this *should* never happen */
             throw cache_value_error("can't remove stop higher than cached val");
-        else if(p == sob->_high_sell_stop)
+        else if(stop == sob->_high_sell_stop)
             --sob->_high_sell_stop; /*dont look for next valid plevel */     
         
-        if(p < sob->_low_sell_stop) /* this *should* never happen */
+        if(stop < sob->_low_sell_stop) /* this *should* never happen */
             throw cache_value_error("can't remove stop lower than cached val");
-        else if(p == sob->_low_sell_stop)
+        else if(stop == sob->_low_sell_stop)
             ++sob->_low_sell_stop; /*dont look for next valid plevel*/        
+    }
+
+    template<typename My> 
+    static inline void
+    adjust_state_after_insert(My* sob, SOB_CLASS::plevel stop) 
+    {
+        if(stop > sob->_high_sell_stop) 
+            sob->_high_sell_stop = stop;
+
+        if(stop < _low_sell_stop)    
+            sob->_low_sell_stop = sob->stop;  
+    }
+
+    template<typename My> 
+    static inline void
+    adjust_state_after_trigger(My* sob, SOB_CLASS::plevel stop) 
+    {  
+        sob->_high_sell_stop = stop - 1;
+        
+        if(sob->_high_sell_stop < sob->_low_sell_stop)
+        {            
+            sob->_high_sell_stop = sob->_beg - 1;
+            sob->_low_sell_stop = sob->_end;
+        }
+   
     }
 };
 
@@ -731,9 +809,10 @@ SOB_CLASS::_trade( plevel plev,
 {
     plevel inside;
 
-    while( (size > 0) && _core_exec<BidSide>::is_executable_chain(this, plev) )
+    while((size > 0) && _core_exec<BidSide>::is_executable_chain(this, plev))
     {         
         inside = _core_exec<BidSide>::get_inside(this);
+
         /* see how much we can trade at this level */
         size = _hit_chain(inside, id, size, exec_cb);      
                      
@@ -1091,21 +1170,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     cchain = stop_chain_type(plev->second);
     plev->second.clear();
 
-    if(BuyStops){
-        _low_buy_stop = plev + 1;        
-        /* no more buy stops */ 
-        if(_low_buy_stop > _high_buy_stop){            
-            _low_buy_stop = _end;
-            _high_buy_stop = _beg-1;
-        }
-    }else{
-        _high_sell_stop = plev - 1;
-        /* no more sell stops */
-        if(_high_sell_stop < _low_sell_stop){            
-            _high_sell_stop = _beg-1;
-            _low_sell_stop = _end;
-        }
-    }
+    _stop_exec<BuyStops>::adjust_stop_after_trigger(this, plev);
 
     for(auto & e : cchain)
     {
@@ -1152,42 +1217,26 @@ SOB_CLASS::_insert_limit_order( bool buy,
                                 order_admin_cb_type admin_cb )
 {
     size_type rmndr = size; 
-    /*
-     * first look if there are matching orders on the offer side
-     * pass ref to callback functor, we'll copy later if necessary
-     */
+
+    /* first look if there are matching orders on the offer side
+       pass ref to callback functor, we'll copy later if necessary */
+
     if(buy && limit >= _ask)
-//        rmndr = _lift_offers(limit,id,size,exec_cb);
         rmndr = _trade<false>(limit,id,size,exec_cb);
     else if(!buy && limit <= _bid)
-//        rmndr = _hit_bids(limit,id,size,exec_cb);
         rmndr = _trade<true>(limit,id,size,exec_cb);
 
-    /*
-     * then add what remains to bid side; copy callback functor, needs to persist
-     */
+    /* then add what remains to bid side; copy callback functor, needs to persist */
     if(rmndr > 0){
         limit_chain_type* orders = &limit->first;
         limit_bndl_type bndl = limit_bndl_type(rmndr,exec_cb);
-        orders->insert(limit_chain_type::value_type(id,std::move(bndl)));
+
+        orders->insert( limit_chain_type::value_type(id,std::move(bndl)) );
         
-        if(buy){
-            if(limit >= _bid){
-                _bid = limit;
-                _bid_size = _chain<limit_chain_type>::size(orders);
-            }
-
-            if(limit < _low_buy_limit)
-                _low_buy_limit = limit;
-        }else{
-            if(limit <= _ask){
-                _ask = limit;
-                _ask_size = _chain<limit_chain_type>::size(orders);
-            }
-
-            if(limit > _high_sell_limit)
-                _high_sell_limit = limit;
-        }
+        if(buy)
+            _limit_exec<true>::adjust_state_after_insert(this,limit,orders);
+        else
+            _limit_exec<false>::adjust_state_after_insert(this,limit,orders);        
     }
     
     if(admin_cb)
@@ -1204,9 +1253,6 @@ SOB_CLASS::_insert_market_order( bool buy,
                                  order_admin_cb_type admin_cb )
 {
     size_type rmndr = size;
-
-//    rmndr = buy ? _lift_offers(nullptr,id,size,exec_cb)
-//                : _hit_bids(nullptr,id,size,exec_cb);
 
     rmndr = buy 
           ? _trade<false>(nullptr,id,size,exec_cb)
@@ -1251,30 +1297,24 @@ SOB_CLASS::_insert_stop_order( bool buy,
                                order_exec_cb_type exec_cb,
                                id_type id,
                                order_admin_cb_type admin_cb )
-{  /*
-    * we need an actual trade @/through the stop, i.e can't assume
-    * it's already been triggered by where last/bid/ask is...
-    *
-    * simply pass the order to the appropriate stop chain
-    *
-    * copy callback functor, needs to persist
-    */
+{  
+   /*  we need an actual trade @/through the stop, i.e can't assume
+       it's already been triggered by where last/bid/ask is...
+     
+       simply pass the order to the appropriate stop chain
+     
+       (copy callback functor, needs to persist) */
+
     stop_chain_type* orders = &stop->second;
     stop_bndl_type bndl = stop_bndl_type(buy,(void*)limit,size,exec_cb);
-    orders->insert(stop_chain_type::value_type(id,std::move(bndl)));
+
+    orders->insert( stop_chain_type::value_type(id,std::move(bndl)) );
     
-    /* udpate cache vals */
-    if(buy){
-        if(stop < _low_buy_stop)    
-            _low_buy_stop = stop;
-        if(stop > _high_buy_stop) 
-            _high_buy_stop = stop;
-    }else{ 
-        if(stop > _high_sell_stop) 
-            _high_sell_stop = stop;
-        if(stop < _low_sell_stop)    
-            _low_sell_stop = stop;
-    }
+    /* udpate state/cache vals */
+    if(buy)
+        _stop_exec<true>::adjust_state_on_insert(this, stop);
+    else
+        _stop_exec<false>::adjust_state_on_insert(this, stop);
     
     if(admin_cb) 
         admin_cb(id);
@@ -1393,22 +1433,22 @@ SOB_CLASS::_pull_order(id_type id)
            remember, p is empty if we get here 
         */
         if(p <= _bid) 
-            _limit_exec<true>::adjust_limit_cache_after_pull(this, p);
+            _limit_exec<true>::adjust_state_after_pull(this, p);
         else
-            _limit_exec<false>::adjust_limit_cache_after_pull(this, p);
+            _limit_exec<false>::adjust_state_after_pull(this, p);
 
     }else if(!IsLimit && is_buystop){
          
         if( _stop_exec<true>::stop_chain_is_empty(this, (stop_chain_type*)c) ){
 
-            _stop_exec<true>::adjust_stop_cache_after_pull(this, p);
+            _stop_exec<true>::adjust_state_after_pull(this, p);
         }
 
     }else if(!IsLimit && !is_buystop){
      
         if( _stop_exec<false>::stop_chain_is_empty(this, (stop_chain_type*)c) ){
 
-            _stop_exec<false>::adjust_stop_cache_after_pull(this, p);
+            _stop_exec<false>::adjust_state_after_pull(this, p);
         }
 
     }
