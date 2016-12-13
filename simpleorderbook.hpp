@@ -238,9 +238,6 @@ private:
     /* store deferred callbacks info until we are clear to execute */
     std::deque<dfrd_cb_elem_type> _deferred_callback_queue;
 
-    /* flag used for restricting async attempts to clear queue until done*/
-    std::atomic_bool _cbs_in_progress;
-
     /* time & sales */
     std::vector< t_and_s_type > _t_and_s;
     size_type _t_and_s_max_sz;
@@ -251,6 +248,11 @@ private:
     std::unique_ptr<std::mutex> _order_queue_mtx;
     std::condition_variable _order_queue_cond;
     std::thread _order_dispatcher_thread;
+
+    long long _noutstanding_orders;
+
+    void 
+    _block_on_outstanding_orders();
 
     /* handles the async/consumer side of the order queue */
     void 
@@ -288,6 +290,15 @@ private:
     /* generate order_info_type tuple via specializations (in .tpp) */
     template<typename ChainTy, typename My = my_type>
     struct _order_info;
+
+    template<bool BidSide, bool Redirect = BidSide>
+    struct _core_exec;
+
+    template<bool BuyLimit, typename Dummy = void>
+    struct _limit_exec;
+
+    template<bool BuyStop, bool Redirect = BuyStop>
+    struct _stop_exec;
 
     /* push order onto the order queue and block until execution */
     id_type 
@@ -427,15 +438,6 @@ private:
            size_type size,
            order_exec_cb_type& exec_cb);
 
-
-    template<bool BidSide, bool Redirect=BidSide>
-    struct _core_exec;
-
-    template<bool BuyLimit, bool Redirect=BuyLimit>
-    struct _limit_exec;
-
-    template<bool BuyStop, bool Redirect=BuyStop>
-    struct _stop_exec;
 
     /* signal trade has occurred(admin only, DONT INSERT NEW TRADES IN HERE!) */
     void 

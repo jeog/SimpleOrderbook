@@ -75,14 +75,14 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
         _total_volume(0),
         _last_id(0),
         _market_makers(),
-        _deferred_callback_queue(),
-        _cbs_in_progress(false),
+        _deferred_callback_queue(),  
         _t_and_s(),
         _t_and_s_max_sz(1000),
         _t_and_s_full(false),
         _order_queue(),
         _order_queue_mtx(new std::mutex), /* smart ptr, no need t delete */   
         _order_queue_cond(),
+        _noutstanding_orders(0),
         _master_mtx(new std::mutex), /* smart ptr, no need t delete */
         _mm_mtx(new std::recursive_mutex), /* smart ptr, no need t delete */
         _busy_with_callbacks(false),
@@ -117,6 +117,8 @@ SOB_CLASS::~SimpleOrderbook()
        *    1) _master_run_flag = false
        *    2) join killed _waker 
        *    3) join killed _order_dispatcher 
+       *
+       *  ?? Is it an issue we set an unguarded _master_run_flag to false here ??
        */
         _master_run_flag = false;
         try{ 
@@ -129,6 +131,7 @@ SOB_CLASS::~SimpleOrderbook()
             {
                 std::lock_guard<std::mutex> lock(*_order_queue_mtx);
                 _order_queue.push(order_queue_elem_type()); 
+                /* don't incr _noutstanding_orders; we break main loop before we can decr */
             }    
             _order_queue_cond.notify_one();
 
@@ -383,19 +386,7 @@ struct SOB_CLASS::_order_info<typename SOB_CLASS::stop_chain_type, My>{
 
 SOB_TEMPLATE
 template<typename ChainTy, typename Dummy> 
-struct SOB_CLASS::_chain {    
-    static inline ChainTy* 
-    get(typename SOB_CLASS::plevel p)
-    { 
-        return nullptr; 
-    }
-
-    static inline size_type 
-    size(ChainTy* c)
-    { 
-        return nullptr; 
-    }
-
+struct SOB_CLASS::_chain { 
 protected:
     template<typename InnerChainTy, typename My>
     static std::pair<typename SOB_CLASS::plevel,InnerChainTy*> 
@@ -481,9 +472,9 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>
 /*
  *  _core_exec<bool> : specialization for buy/sell branch in _trade
  *
- *  _limit_exec<bool>  : specialization for simple buy/sell branch in _pull
+ *  _limit_exec<bool>  : specialization for buy/sell branch in _pull/_insert
  *
- *  _stop_exec<bool>  : specialization for simple buy/sell branch in _pull
+ *  _stop_exec<bool>  : specialization for buy/sell branch in _pull/_insert/_trigger
  *             
  */
 
@@ -614,7 +605,7 @@ private:
 
 
 SOB_TEMPLATE
-template<bool BuyLimit, bool Redirect> 
+template<bool BuyLimit, typename Dummy> 
 struct SOB_CLASS::_limit_exec {
     template<typename My>
     static inline void
@@ -633,12 +624,12 @@ struct SOB_CLASS::_limit_exec {
     template<typename My>
     static inline void
     adjust_state_after_insert(My* sob, 
-                                    SOB_CLASS::plevel limit, 
-                                    SOB_CLASS::limit_chain_type* orders) 
+                              SOB_CLASS::plevel limit, 
+                              SOB_CLASS::limit_chain_type* orders) 
     {
         if(limit >= sob->_bid){
             sob->_bid = limit;
-            sob->_bid_size = SOB_CLASS::_chain<limit_chain_type>::size(orders);
+            sob->_bid_size = SOB_CLASS::_chain<SOB_CLASS::limit_chain_type>::size(orders);
         }
 
         if(limit < sob->_low_buy_limit)
@@ -647,9 +638,9 @@ struct SOB_CLASS::_limit_exec {
 };
 
 
-SOB_TEMPLATE
-template<bool Redirect> 
-struct SOB_CLASS::_limit_exec<false,Redirect> {
+SOB_TEMPLATE 
+template<typename Dummy>
+struct SOB_CLASS::_limit_exec<false, Dummy> {
     template<typename My>
     static inline void
     adjust_state_after_pull(My* sob, SOB_CLASS::plevel limit) 
@@ -672,7 +663,7 @@ struct SOB_CLASS::_limit_exec<false,Redirect> {
     {
         if(limit <= sob->_ask){
             sob->_ask = limit;
-            sob->_ask_size = SOB_CLASS::_chain<limit_chain_type>::size(orders);
+            sob->_ask_size = SOB_CLASS::_chain<SOB_CLASS::limit_chain_type>::size(orders);
         }
 
         if(limit > sob->_high_sell_limit)
@@ -682,7 +673,7 @@ struct SOB_CLASS::_limit_exec<false,Redirect> {
 
 
 SOB_TEMPLATE
-template<bool BuyStop, bool Redirect> 
+template<bool BuyStop, bool Redirect /* = BuyStop */> 
 struct SOB_CLASS::_stop_exec {
     template<typename My> 
     static inline void
@@ -743,7 +734,7 @@ struct SOB_CLASS::_stop_exec {
 
 
 SOB_TEMPLATE
-template<bool Redirect> 
+template<bool Redirect /* = false */> 
 struct SOB_CLASS::_stop_exec<false,Redirect> 
         : public _stop_exec<true,false> {
     template<typename My> 
@@ -768,8 +759,8 @@ struct SOB_CLASS::_stop_exec<false,Redirect>
         if(stop > sob->_high_sell_stop) 
             sob->_high_sell_stop = stop;
 
-        if(stop < _low_sell_stop)    
-            sob->_low_sell_stop = sob->stop;  
+        if(stop < sob->_low_sell_stop)    
+            sob->_low_sell_stop = stop;  
     }
 
     template<typename My> 
@@ -870,10 +861,10 @@ SOB_CLASS::_trade_has_occured( plevel plev,
                                order_exec_cb_type& cbbuy,
                                order_exec_cb_type& cbsell,
                                bool took_offer )
-{  /*
-    * CAREFUL: we can't insert orders from here since we have yet to finish
-    * processing the initial order (possible infinite loop);
-    */  
+{  
+    /* CAREFUL: we can't insert orders from here since we have yet to finish
+       processing the initial order (possible infinite loop); */  
+
     price_type p = _itop(plev);
     
     _deferred_callback_queue.push_back( /* buy side */
@@ -926,9 +917,7 @@ SOB_CLASS::_threaded_waker(int sleep)
                 dfrd_cb_elem_type(
                     callback_msg::wake, 
                     mm->get_callback(), 
-                    0, 
-                    _itop(_last), 
-                    0
+                    0, _itop(_last), 0
                 ) 
             ); 
             /* ---(INNER) CRITICAL SECTION --- */
@@ -953,12 +942,15 @@ SOB_CLASS::_threaded_order_dispatcher()
                 lock, 
                 [this]{ return !this->_order_queue.empty(); }
             );
- 
-            if(!_master_run_flag)
-                break;
 
             e = std::move(_order_queue.front());
             _order_queue.pop();
+ 
+            if(!_master_run_flag){
+                if(_noutstanding_orders)
+                    throw std::logic_error("!_master_run_flag && _noutstanding_orders != 0");
+                break;
+            }
         }         
         
         p = std::move( T_(e,8) );        
@@ -969,10 +961,12 @@ SOB_CLASS::_threaded_order_dispatcher()
         try{
             _route_order(e,id);
         }catch(...){          
+            --_noutstanding_orders;
             p.set_exception( std::current_exception() );
             continue;
         }
      
+        --_noutstanding_orders;
         p.set_value(id);    
     }    
 }
@@ -1038,17 +1032,20 @@ SOB_CLASS::_push_order_and_wait( order_type oty,
          _order_queue.push(
              order_queue_elem_type(oty, buy, limit, stop, size, cb, id, 
                                    admin_cb, std::move(p)) );
+         ++_noutstanding_orders;
     }    
     _order_queue_cond.notify_one();
     
     try{         
-        ret_id = f.get(); /* BLOCKING */            
+        ret_id = f.get(); /* BLOCKING (on f)*/            
     }catch(...){
-        _clear_callback_queue();        
+        _block_on_outstanding_orders(); /* BLOCKING (on _noutstanding_orders) */         
+        _clear_callback_queue(); 
         throw;
     }
         
-    _clear_callback_queue();    
+    _block_on_outstanding_orders(); /* BLOCKING (on _noutstanding_orders) */         
+    _clear_callback_queue(); 
     return ret_id;
 }
 
@@ -1073,8 +1070,26 @@ SOB_CLASS::_push_order_no_wait( order_type oty,
 /* dummy --> */ std::move(std::promise<id_type>())
             ) 
         );
+        ++_noutstanding_orders;
     }    
     _order_queue_cond.notify_one();
+}
+
+
+SOB_TEMPLATE
+void 
+SOB_CLASS::_block_on_outstanding_orders()
+{
+    while(1){
+        {
+            std::lock_guard<std::mutex> lock(*_order_queue_mtx);
+            if(_noutstanding_orders < 0)
+                throw std::logic_error("_noutstanding_orders < 0");
+            else if(_noutstanding_orders == 0)
+                break;
+        }
+        std::this_thread::yield();
+    }
 }
 
 
@@ -1083,10 +1098,12 @@ void
 SOB_CLASS::_clear_callback_queue()
 {
     order_exec_cb_type cb;
-    std::deque<dfrd_cb_elem_type> cb_elems;
-    
+    std::deque<dfrd_cb_elem_type> cb_elems;  
+ 
     bool busy = false; 
-    /* if false, set to true(atomically); if true return */   
+    /* use _busy_with callbacks to abort recursive calls 
+           if false, set to true(atomically) 
+           if true leave it alone and return */  
     _busy_with_callbacks.compare_exchange_strong(busy,true);
     if(busy) 
         return;    
@@ -1135,15 +1152,11 @@ SOB_CLASS::_look_for_triggered_stops(bool nothrow)
 
         _need_check_for_stops = false;
 
-        for(plevel low = _low_buy_stop; low <= _last; ++low)  
-        {      
-            _handle_triggered_stop_chain<true>(low); 
-        }
+        for(plevel low = _low_buy_stop; low <= _last; ++low)              
+            _handle_triggered_stop_chain<true>(low);         
 
-        for(plevel high = _high_sell_stop; high >= _last; --high)
-        {
-            _handle_triggered_stop_chain<false>(high);    
-        }
+        for(plevel high = _high_sell_stop; high >= _last; --high)        
+            _handle_triggered_stop_chain<false>(high);           
 
     }catch(...){
         if(!nothrow)
@@ -1170,7 +1183,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     cchain = stop_chain_type(plev->second);
     plev->second.clear();
 
-    _stop_exec<BuyStops>::adjust_stop_after_trigger(this, plev);
+    _stop_exec<BuyStops>::adjust_state_after_trigger(this, plev);
 
     for(auto & e : cchain)
     {
@@ -1181,24 +1194,20 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         * note we are keeping the old id
         * 
         * we can't use the blocking version of _push_order or we'll deadlock
-        * the order_queue; since we can't guarantee an exec before clearing
-        * the queue, we don't (NOT A BIG DEAL IN PRACTICE; NEED TO FIX EVENTUALLY)
+        * the order_queue; we simply increment _noutstanding_orders instead
+        * and block on that in when necessary.
         */    
         if(limit){ /* stop to limit */        
             if(cb){ 
                 _deferred_callback_queue.push_back( 
                     dfrd_cb_elem_type(
                         callback_msg::stop_to_limit, 
-                        cb, 
-                        e.first, 
-                        _itop(limit), 
-                        sz
+                        cb, e.first, _itop(limit), sz
                     ) 
                 );            
             }
-            _push_order_no_wait(order_type::limit, T_(e.second,0), limit, nullptr, 
-                                sz, cb, nullptr, e.first);   
-                  
+            _push_order_no_wait(order_type::limit, T_(e.second,0), limit, 
+                                nullptr, sz, cb, nullptr, e.first);     
         }else{ /* stop to market */
             _push_order_no_wait(order_type::market, T_(e.second,0), nullptr, 
                                 nullptr, sz, cb, nullptr, e.first);
@@ -1263,10 +1272,8 @@ SOB_CLASS::_insert_market_order( bool buy,
     }else if(rmndr > 0){
         std::string msg;
         msg.append("market order couldn't fill all (")
-           .append( std::to_string(size-rmndr) )
-           .append("/")
-           .append( std::to_string(size) )
-           .append(")");
+           .append( std::to_string(size-rmndr) ).append("/")
+           .append( std::to_string(size) ).append(")");
         throw liquidity_exception(msg.c_str());
     }
       
@@ -1309,12 +1316,11 @@ SOB_CLASS::_insert_stop_order( bool buy,
     stop_bndl_type bndl = stop_bndl_type(buy,(void*)limit,size,exec_cb);
 
     orders->insert( stop_chain_type::value_type(id,std::move(bndl)) );
-    
-    /* udpate state/cache vals */
+        
     if(buy)
-        _stop_exec<true>::adjust_state_on_insert(this, stop);
+        _stop_exec<true>::adjust_state_after_insert(this, stop);
     else
-        _stop_exec<false>::adjust_state_on_insert(this, stop);
+        _stop_exec<false>::adjust_state_after_insert(this, stop);
     
     if(admin_cb) 
         admin_cb(id);
