@@ -72,22 +72,28 @@ SOB_CLASS::SimpleOrderbook(my_price_type price,
         _low_sell_stop( &(*_end) ),
         _high_sell_stop( &(*(_beg-1)) ),
 
+        /* internal trade stats */
         _total_volume(0),
-        _last_id(0),
-        _market_makers(),
-        _deferred_callback_queue(),  
+        _last_id(0), 
         _t_and_s(),
         _t_and_s_max_sz(1000),
         _t_and_s_full(false),
-        _order_queue(),
-        _order_queue_mtx(new std::mutex), /* smart ptr, no need t delete */   
-        _order_queue_cond(),
-        _noutstanding_orders(0),
-        _master_mtx(new std::mutex), /* smart ptr, no need t delete */
-        _mm_mtx(new std::recursive_mutex), /* smart ptr, no need t delete */
+
+        _market_makers(),
+        _mm_mtx(new std::recursive_mutex), /* smart ptr */
+        
+        _deferred_callback_queue(), 
         _busy_with_callbacks(false),
+
+        /* our threaded approach to order queuing/exec */
+        _order_queue(),
+        _order_queue_mtx(new std::mutex), /* smart ptr */   
+        _order_queue_cond(),
+        _noutstanding_orders(0),                       
         _need_check_for_stops(false),
-        _master_run_flag(true)
+
+        _master_mtx(new std::mutex), /* smart ptr */ 
+        _master_run_flag(true)       
     {             
         if( min.to_incr() == 0 )
             throw std::invalid_argument("(TrimmedRational) min price must be > 0");
@@ -980,25 +986,37 @@ SOB_CLASS::_route_order(order_queue_elem_type& e, id_type& id)
     /* --- CRITICAL SECTION --- */
     try{
         switch( T_(e,0) ){            
-        case order_type::limit:                
-            _insert_limit_order(T_(e,1), T_(e,2), T_(e,4), T_(e,5), id, T_(e,7));             
+        case order_type::limit:         
+            T_(e,1)       
+                ? _insert_limit_order<true>(T_(e,2), T_(e,4), T_(e,5), id, T_(e,7))
+                : _insert_limit_order<false>(T_(e,2), T_(e,4), T_(e,5), id, T_(e,7));
+                         
             _look_for_triggered_stops(false); /* throw */      
             break;
        
         case order_type::market:                
-            _insert_market_order(T_(e,1), T_(e,4), T_(e,5), id, T_(e,7));              
+            T_(e,1)
+                ? _insert_market_order<true>(T_(e,4), T_(e,5), id, T_(e,7))
+                : _insert_market_order<false>(T_(e,4), T_(e,5), id, T_(e,7));                                                        
+
             _look_for_triggered_stops(false); /* throw */               
             break;
       
         case order_type::stop:        
-            _insert_stop_order(T_(e,1), T_(e,3), T_(e,4), T_(e,5), id, T_(e,7));
+            T_(e,1)
+                ? _insert_stop_order<true>(T_(e,3), T_(e,4), T_(e,5), id, T_(e,7))
+                : _insert_stop_order<false>(T_(e,3), T_(e,4), T_(e,5), id, T_(e,7));
             break;
          
         case order_type::stop_limit:        
-            _insert_stop_order(T_(e,1), T_(e,3), T_(e,2), T_(e,4), T_(e,5), id, T_(e,7));                 
+            T_(e,1)
+                ? _insert_stop_order<true>(T_(e,3), T_(e,2), T_(e,4), T_(e,5), id, T_(e,7))
+                : _insert_stop_order<false>(T_(e,3), T_(e,2), T_(e,4), T_(e,5), id, T_(e,7));
             break;
          
-        case order_type::null: /* not the cleanest but most effective/thread-safe */       
+        case order_type::null: 
+            /* not the cleanest but most effective/thread-safe 
+               e[1] indicates to check limits first (not buy/sell) */
             id = (id_type)_pull_order(T_(e,1),id);
             break;
         
@@ -1195,16 +1213,18 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         * 
         * we can't use the blocking version of _push_order or we'll deadlock
         * the order_queue; we simply increment _noutstanding_orders instead
-        * and block on that in when necessary.
+        * and block on that when necessary.
         */    
         if(limit){ /* stop to limit */        
             if(cb){ 
+                /*** PROTECTED BY _master_mtx ***/
                 _deferred_callback_queue.push_back( 
                     dfrd_cb_elem_type(
                         callback_msg::stop_to_limit, 
                         cb, e.first, _itop(limit), sz
                     ) 
-                );            
+                );  
+                /*** PROTECTED BY _master_mtx ***/          
             }
             _push_order_no_wait(order_type::limit, T_(e.second,0), limit, 
                                 nullptr, sz, cb, nullptr, e.first);     
@@ -1217,9 +1237,9 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
 
 
 SOB_TEMPLATE
+template<bool BuyLimit>
 void 
-SOB_CLASS::_insert_limit_order( bool buy,
-                                plevel limit,
+SOB_CLASS::_insert_limit_order( plevel limit,
                                 size_type size,
                                 order_exec_cb_type exec_cb,
                                 id_type id,
@@ -1227,25 +1247,26 @@ SOB_CLASS::_insert_limit_order( bool buy,
 {
     size_type rmndr = size; 
 
-    /* first look if there are matching orders on the offer side
-       pass ref to callback functor, we'll copy later if necessary */
-
-    if(buy && limit >= _ask)
-        rmndr = _trade<false>(limit,id,size,exec_cb);
-    else if(!buy && limit <= _bid)
-        rmndr = _trade<true>(limit,id,size,exec_cb);
-
-    /* then add what remains to bid side; copy callback functor, needs to persist */
+    if( (BuyLimit && limit >= _ask) || (!BuyLimit && limit <= _bid) ){
+        /* If there are matching orders on the other side fill @ market
+               - pass ref to callback functor, we'll copy later if necessary 
+               - return what we couldn't fill @ market */
+        rmndr = _trade<!BuyLimit>(limit,id,size,exec_cb);
+    }
+ 
     if(rmndr > 0){
-        limit_chain_type* orders = &limit->first;
-        limit_bndl_type bndl = limit_bndl_type(rmndr,exec_cb);
-
-        orders->insert( limit_chain_type::value_type(id,std::move(bndl)) );
+        limit_chain_type *orders = &limit->first;
+   
+        /* insert what remains as limit order
+           copy callback functor, needs to persist */  
+        orders->insert( 
+            limit_chain_type::value_type(
+                id, 
+                limit_bndl_type(rmndr, exec_cb)
+            ) 
+        );
         
-        if(buy)
-            _limit_exec<true>::adjust_state_after_insert(this,limit,orders);
-        else
-            _limit_exec<false>::adjust_state_after_insert(this,limit,orders);        
+        _limit_exec<BuyLimit>::adjust_state_after_insert(this, limit, orders);         
     }
     
     if(admin_cb)
@@ -1254,26 +1275,20 @@ SOB_CLASS::_insert_limit_order( bool buy,
 
 
 SOB_TEMPLATE
+template<bool BuyMarket>
 void 
-SOB_CLASS::_insert_market_order( bool buy,
-                                 size_type size,
+SOB_CLASS::_insert_market_order( size_type size,
                                  order_exec_cb_type exec_cb,
                                  id_type id,
                                  order_admin_cb_type admin_cb )
 {
-    size_type rmndr = size;
+    size_type rmndr = _trade<BuyMarket>(nullptr, id, size, exec_cb);
 
-    rmndr = buy 
-          ? _trade<false>(nullptr,id,size,exec_cb)
-          : _trade<true>(nullptr,id,size,exec_cb);
-
-    if(rmndr == size){        
-        throw liquidity_exception("market order couldn't fill any");
-    }else if(rmndr > 0){
+    if(rmndr > 0){
         std::string msg;
-        msg.append("market order couldn't fill all (")
+        msg.append("market order couldn't fill: (")
            .append( std::to_string(size-rmndr) ).append("/")
-           .append( std::to_string(size) ).append(")");
+           .append( std::to_string(size) ).append(") filled");
         throw liquidity_exception(msg.c_str());
     }
       
@@ -1283,22 +1298,23 @@ SOB_CLASS::_insert_market_order( bool buy,
 
 
 SOB_TEMPLATE
+template<bool BuyStop>
 void 
-SOB_CLASS::_insert_stop_order( bool buy,
-                               plevel stop,
+SOB_CLASS::_insert_stop_order( plevel stop,
                                size_type size,
                                order_exec_cb_type exec_cb,
                                id_type id,
                                order_admin_cb_type admin_cb)
 {
-    _insert_stop_order(buy,stop,nullptr,size,std::move(exec_cb),id,admin_cb);
+    /* use stop_limit overload; nullptr as limit */
+    _insert_stop_order<BuyStop>(stop, nullptr, size, std::move(exec_cb), id, admin_cb);
 }
 
 
 SOB_TEMPLATE
+template<bool BuyStop>
 void 
-SOB_CLASS::_insert_stop_order( bool buy,
-                               plevel stop,
+SOB_CLASS::_insert_stop_order( plevel stop,
                                plevel limit,
                                size_type size,
                                order_exec_cb_type exec_cb,
@@ -1308,19 +1324,19 @@ SOB_CLASS::_insert_stop_order( bool buy,
    /*  we need an actual trade @/through the stop, i.e can't assume
        it's already been triggered by where last/bid/ask is...
      
-       simply pass the order to the appropriate stop chain
-     
-       (copy callback functor, needs to persist) */
+           - simply pass the order to the appropriate stop chain     
+           - copy callback functor, needs to persist)                */
 
     stop_chain_type* orders = &stop->second;
-    stop_bndl_type bndl = stop_bndl_type(buy,(void*)limit,size,exec_cb);
 
-    orders->insert( stop_chain_type::value_type(id,std::move(bndl)) );
-        
-    if(buy)
-        _stop_exec<true>::adjust_state_after_insert(this, stop);
-    else
-        _stop_exec<false>::adjust_state_after_insert(this, stop);
+    orders->insert( 
+        stop_chain_type::value_type(
+            id, 
+            stop_bndl_type(BuyStop, (void*)limit, size, exec_cb)
+        ) 
+    );
+   
+    _stop_exec<BuyStop>::adjust_state_after_insert(this, stop);
     
     if(admin_cb) 
         admin_cb(id);
@@ -1407,10 +1423,13 @@ template<typename ChainTy>
 bool 
 SOB_CLASS::_pull_order(id_type id)
 { 
+    /*** CALLER MUST HOLD LOCK ON _master_mtx OR RACE CONDTION WITH CALLBACK QUEUE ***/
+
     plevel p; 
     order_exec_cb_type cb;
     ChainTy* c;    
     bool is_buystop;
+    bool is_empty;
 
     constexpr bool IsLimit = SAME_(ChainTy,limit_chain_type);
 
@@ -1432,40 +1451,36 @@ SOB_CLASS::_pull_order(id_type id)
 
     /* adjust cache vals as necessary */
     if(IsLimit && c->empty()){
-       /*  
-           we can compare vs bid because if we get here and the order is a buy it
-           must be <= the best bid, otherwise its a sell 
+        /*  we can compare vs bid because if we get here and the order is 
+            a buy it must be <= the best bid, otherwise its a sell 
 
-           remember, p is empty if we get here 
-        */
-        if(p <= _bid) 
-            _limit_exec<true>::adjust_state_after_pull(this, p);
-        else
-            _limit_exec<false>::adjust_state_after_pull(this, p);
+           (remember, p is empty if we get here)  */
+        (p <= _bid) 
+            ? _limit_exec<true>::adjust_state_after_pull(this, p)
+            : _limit_exec<false>::adjust_state_after_pull(this, p);
 
     }else if(!IsLimit && is_buystop){
-         
-        if( _stop_exec<true>::stop_chain_is_empty(this, (stop_chain_type*)c) ){
 
+        is_empty = _stop_exec<true>::stop_chain_is_empty(this, (stop_chain_type*)c);
+        if(is_empty)
             _stop_exec<true>::adjust_state_after_pull(this, p);
-        }
-
+        
     }else if(!IsLimit && !is_buystop){
-     
-        if( _stop_exec<false>::stop_chain_is_empty(this, (stop_chain_type*)c) ){
 
-            _stop_exec<false>::adjust_state_after_pull(this, p);
-        }
+        is_empty = _stop_exec<false>::stop_chain_is_empty(this, (stop_chain_type*)c);
+        if(is_empty)
+            _stop_exec<false>::adjust_state_after_pull(this, p);        
 
     }
-        
-    /* callback with cancel msg */     
-    _deferred_callback_queue.push_back( 
+       
+    /*** PROTECTED BY _master_mtx ***/    
+    _deferred_callback_queue.push_back( /* callback with cancel msg */ 
         dfrd_cb_elem_type(
             callback_msg::cancel, 
             cb, id, 0, 0
         ) 
-    ); 
+    );
+    /*** PROTECTED BY _master_mtx ***/ 
 
     return true;
 }

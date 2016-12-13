@@ -372,8 +372,8 @@ private:
     _pull_order(id_type id);
 
     /* optimize by checking limit or stop chains first */  
-	inline bool 
-	_pull_order(bool limits_first, id_type id)   
+    inline bool 
+    _pull_order(bool limits_first, id_type id)   
     {
         return limits_first
             ? (_pull_order<limit_chain_type>(id) || _pull_order<stop_chain_type>(id))
@@ -450,32 +450,32 @@ private:
                        bool took_offer);
 
     /* internal insert orders once/if we have an id */
+    template<bool BuyLimit>
     void 
-    _insert_limit_order(bool buy, 
-                        plevel limit, 
+    _insert_limit_order(plevel limit, 
                         size_type size,
                         order_exec_cb_type exec_cb, 
                         id_type id,
                         order_admin_cb_type admin_cb = nullptr);
 
+    template<bool BuyMarket>
     void 
-    _insert_market_order(bool buy, 
-                         size_type size,
+    _insert_market_order(size_type size,
                          order_exec_cb_type exec_cb, 
                          id_type id,
                          order_admin_cb_type admin_cb = nullptr);
 
+    template<bool BuyStop>
     void 
-    _insert_stop_order(bool buy, 
-                       plevel stop, 
+    _insert_stop_order(plevel stop, 
                        size_type size,
                        order_exec_cb_type exec_cb, 
                        id_type id,
                        order_admin_cb_type admin_cb = nullptr);
 
+    template<bool BuyStop>
     void 
-    _insert_stop_order(bool buy, 
-                       plevel stop, 
+    _insert_stop_order(plevel stop, 
                        plevel limit, 
                        size_type size,
                        order_exec_cb_type exec_cb, 
