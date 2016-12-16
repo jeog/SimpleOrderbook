@@ -804,15 +804,15 @@ SOB_CLASS::_trade( plevel plev,
                    size_type size,
                    order_exec_cb_type& exec_cb )
 {
-    plevel inside;
+    while(size){
+        /* can we trade at this price level? */
+        if( !_core_exec<BidSide>::is_executable_chain(this, plev) )
+            break;   
 
-    while((size > 0) && _core_exec<BidSide>::is_executable_chain(this, plev))
-    {         
-        inside = _core_exec<BidSide>::get_inside(this);
-
-        /* see how much we can trade at this level */
-        size = _hit_chain(inside, id, size, exec_cb);      
-                     
+        /* trade at this price level */
+        size = _hit_chain(_core_exec<BidSide>::get_inside(this), id, size, exec_cb);      
+                   
+        /* reset the inside price level (if we can) OR stop */  
         if( !_core_exec<BidSide>::find_new_best_inside(this) )
             break;
     }
@@ -1469,7 +1469,7 @@ SOB_CLASS::_pull_order(id_type id)
 
         is_empty = _stop_exec<false>::stop_chain_is_empty(this, (stop_chain_type*)c);
         if(is_empty)
-            _stop_exec<false>::adjust_state_after_pull(this, p);        
+            _stop_exec<false>::adjust_state_after_pull(this, p);       
 
     }
        
