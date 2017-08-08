@@ -15,17 +15,13 @@
 
 from distutils.core import setup,Extension
 
-py_include_dir = "/usr/include/python3.4m"
-py_library_dir = "/usr/lib/python3.4/config-3.4m-x86_64-linux-gnu"
-py_library_name = "python3.4m"
-
 cpp_sources = ["simpleorderbook_py.cpp","marketmaker_py.cpp", # py wrapper 
                "../simpleorderbook.cpp", "../marketmaker.cpp"] # native
 
 _setup_dict = {
     "name":'simpleorderbook',
     "version":'0.2',
-    "description": "financial-market (vanilla) order matching simulator",
+    "description": "financial-market order book",
     "author":"Jonathon Ogden",
     "author_email":"jeog.dev@gmail.com"
 }   
@@ -33,10 +29,8 @@ _setup_dict = {
 _cpp_ext = Extension(
     "simpleorderbook",
     sources = cpp_sources,
-    include_dirs = [py_include_dir,"../"],
-    library_dirs = [py_library_dir],
-    libraries = [py_library_name],
-    extra_compile_args=["-fPIC","-std=c++11", "-g", "-O0"]
+    include_dirs = ["../"],
+    extra_compile_args=["-fPIC","-std=c++11"] # , "-g", "-O0"]
  )
 
 setup( ext_modules=[_cpp_ext], **_setup_dict )    
