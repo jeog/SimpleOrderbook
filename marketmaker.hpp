@@ -31,7 +31,7 @@ along with this program.    If not, see http://www.gnu.org/licenses.
 #include "interfaces.hpp"
 #include "types.hpp"
 
-namespace NativeLayer{
+namespace NativeLayer {
 
 /* forward declrs in types.hpp */
 
@@ -93,7 +93,7 @@ operator+(market_makers_type&& l, MarketMaker&& r);
  *   market_makers_type collection that can be moved directly into the orderbook.
  */
 
-class MarketMakerA{
+class MarketMakerA {
     virtual pMarketMaker 
     _move_to_new() = 0;
 
@@ -116,8 +116,7 @@ virtual pMarketMaker _move_to_new(){ \
 }
 
 class MarketMaker
-    : public MarketMakerA{
-
+        : public MarketMakerA {
     friend SimpleOrderbook::QuarterTick;
     friend SimpleOrderbook::TenthTick;
     friend SimpleOrderbook::ThirtySecondthTick;
@@ -164,27 +163,27 @@ private:
                    price_type price, 
                    size_type size)
         {
-            if(!_mm_alive)
+            if( !_mm_alive )
                 return;
 
-            ++_mm->_recurse_count;
-            ++_mm->_tot_recurse_count;
+            ++(_mm->_recurse_count);
+            ++(_mm->_tot_recurse_count);
 
-            if(_mm->_tot_recurse_count <= MarketMaker::TOTAL_RECURSE_LIMIT)
+            if( _mm->_tot_recurse_count <= MarketMaker::TOTAL_RECURSE_LIMIT )
             {
                 _base_f(msg,id,price,size);
-
-                if(_mm->_callback_ext)
-                    _mm->_callback_ext(msg,id,price,size);
-
+                if( _mm->_callback_ext ){
+                    _mm->_callback_ext(msg, id, price, size);
+                }
                 _deriv_f(msg,id,price,size);
             }
 
-            if(_mm->_tot_recurse_count) 
-                --_mm->_tot_recurse_count;
-
-            if(_mm->_recurse_count)         
-                --_mm->_recurse_count;
+            if( _mm->_tot_recurse_count ){
+                --(_mm->_tot_recurse_count);
+            }
+            if( _mm->_recurse_count ){
+                --(_mm->_recurse_count);
+            }
         }
 
         inline void 
@@ -192,7 +191,7 @@ private:
         { 
             _mm_alive = false; 
         }
-    }; /* struct dynamic_functor */
+    }; /* dynamic_functor */
 
     typedef std::shared_ptr<dynamic_functor> df_sptr_type;
 
@@ -213,7 +212,7 @@ public:
                    price_type price, 
                    size_type size)
         {
-            if(_df) 
+            if( _df )
                 _df->operator()(msg,id,price,size);
         }
 
@@ -226,10 +225,10 @@ public:
         inline void 
         kill() 
         { 
-            if(_df) 
+            if( _df )
                 _df->kill(); 
         }
-    }; /* struct dynamic_functor_wrap */
+    }; /* dynamic_functor_wrap */
 
 private:
     typedef std::tuple<bool,price_type,size_type> order_bndl_type;
@@ -246,17 +245,25 @@ private:
     static const int TOTAL_RECURSE_LIMIT = 50;
 
     NativeLayer::SimpleOrderbook::LimitInterface *_book;
+
     order_exec_cb_type _callback_ext;
     df_sptr_type _callback;
+
     orders_map_type _my_orders;
+
     bool _is_running;
-    std::recursive_mutex _mtx; /* is this restrictive enough ? */
+
+    /* restrictive enough? */
+    std::recursive_mutex _mtx;
+
     fill_info _this_fill;
     fill_info _last_fill;
     price_type _tick;
+
     size_type _bid_out;
     size_type _offer_out;
     long long _pos;
+
     int _recurse_count;
     int _tot_recurse_count;
 
@@ -265,6 +272,9 @@ private:
                    id_type id, 
                    price_type price,
                    size_type size);
+
+    void
+    _on_fill_callback(price_type price, size_type size, id_type id);
 
     virtual void 
     _exec_callback(callback_msg msg,
@@ -400,7 +410,7 @@ public:
     static market_makers_type 
     Factory(unsigned int n);
 
-    inline static size_type 
+    static inline size_type
     tick_diff(price_type p1, price_type p2, price_type t)
     {
         return (p1 - p2) / t;
@@ -412,12 +422,12 @@ template<bool BuyNotSell>
 void 
 MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
 {
-    if(!_is_running)
+    if( !_is_running ){
         throw invalid_state("market/market-maker is not in a running state");
+    }
 
     std::lock_guard<std::recursive_mutex> rlock(_mtx);
-
-    if(_recurse_count > RECURSE_LIMIT){
+    if( _recurse_count > RECURSE_LIMIT ){
         /*
          * note we are reseting the count; caller can catch and keep going with
          * the recursive calls if they want, we did our part...
@@ -440,28 +450,29 @@ MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
         /* arg 5 */
         [=](id_type id)
         {
-            /*
-             * the post-insertion / pre-completion callback
-             *
-             * this guarantees to complete before the standard callbacks for
-             * this order can be triggered
-             *
-             * !! WE CAN NOT INSERT / PULL FROM HERE !!
-             */
-            if(id == 0)
+           /*
+            * the post-insertion / pre-completion callback
+            *
+            * this guarantees to complete before the standard callbacks for
+            * this order can be triggered
+            *
+            * !! WE CAN NOT INSERT / PULL FROM HERE !!
+            */
+            if(id == 0){
                 throw invalid_order("order could not be inserted");
+            }
 
             _my_orders.insert(
                 orders_value_type(
-                    id,
-                    order_bndl_type(BuyNotSell, price,size)
+                    id, order_bndl_type(BuyNotSell, price,size)
                 )
             );
 
-            if(BuyNotSell) 
+            if(BuyNotSell){
                 _bid_out += size;
-            else         
+            }else{
                 _offer_out += size;
+            }
         }
     );
 }
@@ -470,16 +481,11 @@ MarketMaker::insert(price_type price, size_type size, bool no_order_cb)
 template<bool BuyNotSell>
 size_type 
 MarketMaker::random_remove(price_type minp, id_type this_id)
-{  /*
-    * O(n) as-is
-    * could be O(c) in pracice if we exclude minp:
-    *     (1 - .50^n) chance we find it in n iters
-    */
+{
     size_type s;
     orders_map_type::const_iterator riter, eiter;
 
     std::lock_guard<std::recursive_mutex> rlock(_mtx);
-
     eiter = _my_orders.end();
     riter = std::find_if(
                 _my_orders.cbegin(),
@@ -503,8 +509,7 @@ MarketMaker::random_remove(price_type minp, id_type this_id)
 
 
 class MarketMaker_Simple1
-    : public MarketMaker{
-
+        : public MarketMaker {
     size_type _sz;
     size_type _max_pos;
 
@@ -513,6 +518,13 @@ class MarketMaker_Simple1
                    id_type id, 
                    price_type price, 
                    size_type size);
+
+
+    void
+    _on_fill_callback(price_type price, size_type size);
+
+    void
+    _on_wake_callback(price_type price, size_type size);
 
     DEFAULT_MOVE_TO_NEW(MarketMaker_Simple1)
 
@@ -545,8 +557,7 @@ public:
 
 
 class MarketMaker_Random
-    : public MarketMaker{
-
+        : public MarketMaker{
 public:
     enum class dispersion{
         none = 1, 
@@ -561,6 +572,7 @@ private:
     size_type _lowsz;
     size_type _highsz;
     size_type _midsz;
+
     std::default_random_engine _rand_engine;
     std::uniform_int_distribution<size_type> _distr;
     std::uniform_int_distribution<size_type> _distr2;
@@ -573,6 +585,15 @@ private:
                    id_type id, 
                    price_type price, 
                    size_type size);
+
+    void
+    _on_buy_fill_callback(price_type price, size_type size, id_type id);
+
+    void
+    _on_sell_fill_callback(price_type price, size_type size, id_type id);
+
+    void
+    _on_wake_callback(price_type price, size_type size);
 
     unsigned long long 
     _gen_seed();

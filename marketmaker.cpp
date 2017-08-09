@@ -21,34 +21,32 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #include <chrono>
 #include <cmath>
+#include <exception>
 
 namespace NativeLayer{
 
 using namespace std::placeholders;
 
-
+/* see notes in header */
 market_makers_type 
-operator+(market_makers_type&& l, market_makers_type&& r) /* see notes in header */
+operator+(market_makers_type&& l, market_makers_type&& r)
 { 
     market_makers_type mms;
     mms.reserve(l.size() + r.size());
-
     std::move(l.begin(),l.end(),back_inserter(mms));
     std::move(r.begin(),r.end(),back_inserter(mms));
-
     return mms;
 }
 
 
+/* see notes in header */
 market_makers_type 
-operator+(market_makers_type&& l, MarketMaker&& r) /* see notes in header */
-{ 
+operator+(market_makers_type&& l, MarketMaker&& r)
+{
     market_makers_type mms;
     mms.reserve(l.size() + 1);
-
     std::move(l.begin(),l.end(),back_inserter(mms));
     mms.push_back(r._move_to_new());
-
     return mms;
 }
 
@@ -71,7 +69,8 @@ MarketMaker::MarketMaker(order_exec_cb_type callback)
     }
 
 
-MarketMaker::MarketMaker(MarketMaker&& mm) noexcept /* see notes in header */
+/* see notes in header */
+MarketMaker::MarketMaker(MarketMaker&& mm) noexcept
     : 
         _book(mm._book),
         _callback_ext( mm._callback_ext ),
@@ -88,9 +87,9 @@ MarketMaker::MarketMaker(MarketMaker&& mm) noexcept /* see notes in header */
         _recurse_count(mm._recurse_count),
         _tot_recurse_count(mm._tot_recurse_count)
     {
-        if(&mm == this)
+        if( &mm == this ){
             throw move_error("can't move to ourself");
-
+        }
         _callback->rebind(this);
 
         mm._book = nullptr;
@@ -109,9 +108,9 @@ MarketMaker::start( NativeLayer::SimpleOrderbook::LimitInterface *book,
                     price_type implied,
                     price_type tick )
 {
-    if(!book)
+    if( !book ){
         throw std::invalid_argument("book can not be null(ptr)");
-
+    }
     _is_running = true;
     _book = book;
     _tick = tick;
@@ -126,61 +125,60 @@ MarketMaker::stop()
 }
 
 void 
+MarketMaker::_on_fill_callback(price_type price, size_type size, id_type id)
+{
+    order_bndl_type ob = _my_orders.at(id);
+    long long rem = std::get<2>(ob) - size;
+
+    _last_fill = _this_fill;
+    _this_fill = {std::get<0>(ob), price, size};
+
+    /* needs to come after we set this->_this_fill */
+    bool b = this_fill_was_buy();
+    if( b ){
+        _pos += size;
+        _bid_out -= size;
+    }else{
+        _pos -= size;
+        _offer_out -= size;
+    }
+
+    if( rem <= 0 ){
+        _my_orders.erase(id);
+        return;
+    }
+
+    _my_orders[id] = order_bndl_type(b, price, (size_type)rem);
+}
+
+
+void
 MarketMaker::_base_callback( callback_msg msg,
                              id_type id,
                              price_type price,
                              size_type size )
 {
     order_bndl_type ob;
-    long long rem;
 
     switch(msg){
-
-    /* FILL */
     case callback_msg::fill:
-    {        
-        ob = _my_orders.at(id);         
-        rem = std::get<2>(ob) - size;
-        
-        _last_fill = std::move(_this_fill);
-        _this_fill = {std::get<0>(ob),price,size};
-
-        if(this_fill_was_buy()){
-            _pos += size;
-            _bid_out -= size;
-        }else{
-            _pos -= size;
-            _offer_out -= size;
-        }
-
-        if(rem <= 0)
-            _my_orders.erase(id);        
-        else
-            _my_orders[id] = order_bndl_type(this_fill_was_buy(), price, rem);        
-    }
-    break;
-
-    /* CANCEL */
+        _on_fill_callback(price, size, id);
+        break;
     case callback_msg::cancel:
-    {
         ob = _my_orders.at(id); /* THROW */
-
-        if(std::get<0>(ob))
+        if( std::get<0>(ob) ){
             _bid_out -= std::get<2>(ob);
-        else
+        }else{
             _offer_out -= std::get<2>(ob);
-
+        }
         _my_orders.erase(id);
-    }
-    break;
-
-    /* WAKE */
+        break;
     case callback_msg::wake:
         break;
-
-    /* STOP TO LIMIT */
     case callback_msg::stop_to_limit:
-        throw not_implemented("stop orders should not be used by market makers!");
+        throw std::logic_error("market maker received stop_to_limit callback");
+    default:
+        throw std::logic_error("invalid callback message: " + std::to_string((int)msg));
     }
 }
 
@@ -189,8 +187,9 @@ market_makers_type
 MarketMaker::Factory(init_list_type il)
 {
     market_makers_type mms;
-    for(auto& i : il)
-        mms.push_back(pMarketMaker(new MarketMaker(i)));
+    for( auto& i : il ){
+        mms.push_back( pMarketMaker( new MarketMaker(i) ) );
+    }
     return mms;
 }
 
@@ -199,8 +198,9 @@ market_makers_type
 MarketMaker::Factory(unsigned int n)
 {
     market_makers_type mms;
-    while(n--)
-        mms.push_back(pMarketMaker(new MarketMaker()));
+    while( n-- ){
+        mms.push_back( pMarketMaker( new MarketMaker() ) );
+    }
     return mms;
 }
 
@@ -215,7 +215,8 @@ MarketMaker_Simple1::MarketMaker_Simple1(size_type sz, size_type max_pos)
 
 
 MarketMaker_Simple1::MarketMaker_Simple1(MarketMaker_Simple1&& mm) noexcept
-    :   /* my_base takes care of rebinding dynamic functor */
+    :
+        /* my_base takes care of rebinding dynamic functor */
         my_base_type(std::move(mm)),
         _sz(mm._sz),
         _max_pos(mm._max_pos)
@@ -224,97 +225,98 @@ MarketMaker_Simple1::MarketMaker_Simple1(MarketMaker_Simple1&& mm) noexcept
 
 
 void 
-MarketMaker_Simple1::start(NativeLayer::SimpleOrderbook::LimitInterface *book,
-                           price_type implied,
-                           price_type tick)
+MarketMaker_Simple1::start( NativeLayer::SimpleOrderbook::LimitInterface *book,
+                            price_type implied,
+                            price_type tick)
 {
-    price_type price;
-
     my_base_type::start(book,implied,tick);
 
-    for( price = implied + tick;
-         (offer_out() + _sz - pos()) <= _max_pos;
+    size_type new_off_sz = offer_out() + _sz - pos();
+    for( price_type price = implied + tick;
+         new_off_sz <= _max_pos;
          price += tick )
-    {
-        try{ 
-            insert<false>(price,_sz); 
-        }catch(...){ 
-            break; 
+        {
+            try{
+                insert<false>(price,_sz);
+            }catch(...){
+                break;
+            }
         }
-    }
 
-    for( price = implied - tick;
-         (bid_out() + _sz + pos()) <= _max_pos;
+    size_type new_bid_sz = bid_out() + _sz + pos();
+    for( price_type price = implied - tick;
+         new_bid_sz <= _max_pos;
          price -= tick )
-    {
-        try{ 
-            insert<true>(price,_sz); 
-        }catch(...){ 
-            break; 
+        {
+            try{
+                insert<true>(price,_sz);
+            }catch(...){
+                break;
+            }
         }
-    }
 }
 
 
-void 
-MarketMaker_Simple1::_exec_callback(callback_msg msg,
-                                    id_type id,
-                                    price_type price,
-                                    size_type size)
+void
+MarketMaker_Simple1::_on_fill_callback(price_type price, size_type size)
+{
+    if( last_fill_was_buy() ){
+        insert<false>(price + tick(), size);
+        random_remove<false>(price + tick(), 0);
+        return;
+    }
+    insert<true>(price - tick(), size);
+    random_remove<true>(price - tick(), 0);
+}
+
+
+void
+MarketMaker_Simple1::_on_wake_callback(price_type price, size_type size)
 {
     price_type t = tick();
+    if( price <= t )
+        return;
 
+    if( pos() < 0 ){
+        random_remove<true>(price - (t*3), 0);
+    }else{
+        random_remove<false>(price + (t*3), 0);
+    }
+
+    size_type new_off_sz = offer_out() + _sz - pos();
+    if( price > last_fill_price() && new_off_sz <= _max_pos )
+    {
+        insert<false>(price + t, _sz);
+        return;
+    }
+
+    size_type new_bid_sz = bid_out() + _sz + pos();
+    if( price < last_fill_price() && new_bid_sz <= _max_pos )
+    {
+        insert<true>(price - t, _sz);
+    }
+}
+
+void 
+MarketMaker_Simple1::_exec_callback( callback_msg msg,
+                                     id_type id,
+                                     price_type price,
+                                     size_type size )
+{
     try{
         switch(msg){
-
-        /* FILL */
         case callback_msg::fill:
-        {
-            if(last_fill_was_buy()){
-                insert<false>(price + t, size);
-                random_remove<false>(price + t,0);
-            }else{
-                insert<true>(price - t, size);
-                random_remove<true>(price - t,0);
-            }
-        }
-        break;
-
-        /* WAKE */
+            _on_fill_callback(price, size);
+            break;
         case callback_msg::wake:
-        {
-            if(price <= t)
-                return;
-            if(pos() < 0)
-                random_remove<true>(price- t*3,0);
-            else
-                random_remove<false>(price + t*3,0);
-
-            if( price > last_fill_price() 
-                && ((offer_out() + _sz - pos()) <= _max_pos) )
-            {
-                insert<false>(price + tick(), _sz);
-            }
-            else if( price < last_fill_price()
-                     && ((bid_out() + _sz + pos()) <= _max_pos) )
-            {
-                insert<true>(price - tick(), _sz);
-            }
-        }
-        break;
-
-        /* CANCEL */
+            _on_wake_callback(price, size);
+            break;
         case callback_msg::cancel:
+        case callback_msg::stop_to_limit:
             break;
-
-        /* STOP TO LIMIT */
-        case callback_msg::stop_to_limit:        
-            std::cout<<"simple1_exec, "<<"stop_to_limit: "
-                     << std::to_string(size)
-                     << " @ " <<std::to_string(price) <<std::endl;            
-            break;
+        default:
+            throw std::logic_error("invalid callback message: " + std::to_string((int)msg));
         }
-
     }catch(invalid_order& e){
         std::cerr<< e.what() << std::endl;
     }catch(callback_overflow&){
@@ -330,8 +332,9 @@ market_makers_type
 MarketMaker_Simple1::Factory(init_list_type il)
 {
     market_makers_type mms;
-    for(auto& p : il)
+    for( auto& p : il ){
         mms.push_back( pMarketMaker(new MarketMaker_Simple1(p.first,p.second)) );
+    }
     return mms;
 }
 
@@ -340,16 +343,17 @@ market_makers_type
 MarketMaker_Simple1::Factory(size_type n, size_type sz, size_type max_pos)
 {
     market_makers_type mms;
-    while(n--)
+    while( n-- ){
         mms.push_back( pMarketMaker(new MarketMaker_Simple1(sz,max_pos)) );
+    }
     return mms;
 }
 
 
-MarketMaker_Random::MarketMaker_Random(size_type sz_low,
-                                       size_type sz_high,
-                                       size_type max_pos,
-                                       MarketMaker_Random::dispersion d)
+MarketMaker_Random::MarketMaker_Random( size_type sz_low,
+                                        size_type sz_high,
+                                        size_type max_pos,
+                                        MarketMaker_Random::dispersion d )
     :
         my_base_type(),
         _max_pos(max_pos),
@@ -366,7 +370,8 @@ MarketMaker_Random::MarketMaker_Random(size_type sz_low,
 
 MarketMaker_Random::MarketMaker_Random(MarketMaker_Random&& mm) noexcept
     :   
-        my_base_type(std::move(mm)), /* my_base takes care of rebinding dynamic functor */
+        /* my_base takes care of rebinding dynamic functor */
+        my_base_type(std::move(mm)),
         _max_pos(mm._max_pos),
         _lowsz(mm._lowsz),
         _highsz(mm._highsz),
@@ -388,131 +393,153 @@ MarketMaker_Random::_gen_seed()
 
 
 void 
-MarketMaker_Random::start(NativeLayer::SimpleOrderbook::LimitInterface *book,
-                          price_type implied,
-                          price_type tick)
+MarketMaker_Random::start( NativeLayer::SimpleOrderbook::LimitInterface *book,
+                           price_type implied,
+                           price_type tick )
 {
-    size_type mod, amt;
-    price_type price;
-
     my_base_type::start(book,implied,tick);
 
-    mod = _distr2(_rand_engine);
-    amt = _distr(_rand_engine);
+    size_type mod = _distr2(_rand_engine);
+    price_type amt = _distr(_rand_engine);
 
-    for( price = implied + tick * mod;
+    for( price_type price = implied + tick * mod;
          (offer_out() + amt) <= _max_pos;
          price += (mod * tick) )
-    {
-        try{ 
-            insert<false>(price, amt); 
-        }catch(...){ 
-            break; 
+        {
+            try{
+                insert<false>(price, amt);
+            }catch(...){
+                break;
+            }
+        }
+
+    for( price_type price = implied - tick * mod;
+         (bid_out() + amt) <= _max_pos;
+         price -= (mod * tick) )
+        {
+            try{
+                insert<true>(price, amt);
+            }catch(...){
+                break;
+            }
+        }
+}
+
+
+void
+MarketMaker_Random::_on_buy_fill_callback( price_type price,
+                                           size_type size,
+                                           id_type id )
+{
+    size_type rret;
+    size_type cumm;
+    size_type amt = _distr(_rand_engine);
+    price_type t = tick() * _distr2(_rand_engine);
+    bool skip = false;
+
+    if( bid_out() + amt + pos() > _max_pos ){
+        cumm = random_remove<true>(price - t, id);
+        rret = cumm;
+        while( cumm < amt ){
+            if( rret ==0 ){
+                skip = true;
+                break;
+            }
+            rret = random_remove<true>(price - (t*3), id);
+            cumm += rret;
         }
     }
 
-    for( price = implied - tick * mod;
-         (bid_out() + amt) <= _max_pos;
-         price -= (mod * tick) )
-    {
-        try{ insert<true>(price, amt); }catch(...){ break; }
+    if( !skip ){
+        insert<true>(price - t, amt);
+    }
+
+    if( offer_out() + amt - pos() < _max_pos ){
+        insert<false>(price + t, size);
     }
 }
 
 
-void 
-MarketMaker_Random::_exec_callback(callback_msg msg,
-                                   id_type id,
-                                   price_type price,
-                                   size_type size)
+void
+MarketMaker_Random::_on_sell_fill_callback( price_type price,
+                                            size_type size,
+                                            id_type id )
 {
-    price_type t;
-    size_type amt, rret, cumm;
-    bool skip;
+    size_type rret;
+    size_type cumm;
+    size_type amt = _distr(_rand_engine);
+    price_type t = tick() * _distr2(_rand_engine);
+    bool skip = false;
 
+    if( offer_out() + amt - pos() > _max_pos ){
+        cumm = random_remove<false>(price + t, id);
+        rret = cumm;
+        while( cumm < amt ){
+            if( rret == 0 ){
+                skip = true;
+                break;
+            }
+            rret = random_remove<false>(price + (t*3),id);
+            cumm += rret;
+        }
+    }
+
+    if(!skip){
+        insert<false>(price + t, amt);
+    }
+
+    if(bid_out() + amt + pos() < _max_pos){
+        insert<true>(price - t, size);
+    }
+}
+
+
+void
+MarketMaker_Random::_on_wake_callback(price_type price, size_type size)
+{
+    price_type cumm;
+
+    price_type t = tick() * _distr2(_rand_engine);
+    if(price <= t)
+        return;
+
+    if( pos() < 0 ){
+        cumm = random_remove<true>(price- (t*2), 0);
+        if( cumm ){
+            insert<true>(price - t, cumm);
+        }
+        return;
+    }
+
+    cumm = random_remove<false>(price + (t*2), 0);
+    if( cumm ){
+       insert<false>(price + t, cumm);
+    }
+}
+
+
+void
+MarketMaker_Random::_exec_callback( callback_msg msg,
+                                    id_type id,
+                                    price_type price,
+                                    size_type size )
+{
     try{
         switch(msg){
-
-        /* FILL */
         case callback_msg::fill:
-        {
-            t = tick() * _distr2(_rand_engine);
-            amt = _distr(_rand_engine);
-            skip = false;
-
-            if(this_fill_was_buy()){
-                if(bid_out() + amt + pos() > _max_pos)
-                {
-                    cumm = rret = random_remove<true>(price -t,id);
-                    while(cumm < amt){
-                        if(rret ==0){
-                            skip = true;
-                            break;
-                        }
-                        rret = random_remove<true>(price -t*3,id);
-                        cumm += rret;
-                    }
-                }
-
-                if(!skip)
-                    insert<true>(price - t, amt);
-
-                if(offer_out() + amt - pos() < _max_pos)
-                    insert<false>(price + t, size);
-
-            }else{
-                if(offer_out() + amt - pos() > _max_pos)
-                {
-                    cumm = rret = random_remove<false>(price + t,id);
-                    while(cumm < amt){
-                        if(rret ==0){
-                            skip = true;
-                            break;
-                        }
-                        rret = random_remove<false>(price + t*3,id);
-                        cumm += rret;
-                    }
-                }
-
-                if(!skip)
-                    insert<false>(price + t, amt);
-
-                if(bid_out() + amt + pos() < _max_pos)
-                    insert<true>(price - t, size);
-            }
-        }
-        break;
-
-        /* CANCEL */
-        case callback_msg::cancel:
+            if( this_fill_was_buy() )
+                _on_buy_fill_callback(price, size, id);
+            else
+                _on_sell_fill_callback(price, size, id);
             break;
-
-        /* STOP TO LIMIT */
-        case callback_msg::stop_to_limit:           
-            std::cout<<"random_exec, "<<"stop_to_limit: "
-                     << std::to_string(size)
-                     << " @ " <<std::to_string(price) <<std::endl;            
-            break;
-
-        /* WAKE */
         case callback_msg::wake:
-        {
-            t = tick() * _distr2(_rand_engine);
-            if(price <= t)
-                return;
-
-            if(pos() < 0){
-                cumm = random_remove<true>(price- t*2,0);
-                if(cumm)
-                    insert<true>(price - t, cumm);
-            }else{
-                cumm = random_remove<false>(price + t*2,0);
-                if(cumm)
-                 insert<false>(price + t, cumm);
-            }
-        }
-        break;
-
+            _on_wake_callback(price, size);
+            break;
+        case callback_msg::cancel:
+        case callback_msg::stop_to_limit:
+            break;
+        default:
+            throw std::logic_error("invalid callback message: " + std::to_string((int)msg));
         }
     }catch(invalid_order& e){
         std::cerr<< e.what() << std::endl;
@@ -529,15 +556,10 @@ market_makers_type
 MarketMaker_Random::Factory(init_list_type il)
 {
     market_makers_type mms;
-    for(auto& i : il){
-        mms.push_back(
-            pMarketMaker(
-                new MarketMaker_Random(std::get<0>(i), 
-                                       std::get<1>(i),
-                                       std::get<2>(i), 
-                                       std::get<3>(i))
-             ) 
-        );
+    for( auto& i : il ){
+        mms.push_back( pMarketMaker(
+            new MarketMaker_Random( std::get<0>(i), std::get<1>(i),
+                                    std::get<2>(i), std::get<3>(i) ) ) );
     }
     return mms;
 }
@@ -551,12 +573,9 @@ MarketMaker_Random::Factory(size_type n,
                             dispersion d)
 {
     market_makers_type mms;
-    while(n--){
-        mms.push_back(
-            pMarketMaker(
-                new MarketMaker_Random(sz_low, sz_high, max_pos, d)
-            ) 
-        );
+    while( n-- ){
+        mms.push_back( pMarketMaker(
+            new MarketMaker_Random(sz_low, sz_high, max_pos, d) ) );
     }
     return mms;
 }
