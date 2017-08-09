@@ -232,24 +232,41 @@ private:
     large_size_type _total_volume;
     large_size_type _last_id;
 
-    /* autonomous market makers */
-    market_makers_type _market_makers;
-
-    /* store deferred callbacks info until we are clear to execute */
-    std::deque<dfrd_cb_elem_type> _deferred_callback_queue;
-
     /* time & sales */
     std::vector< t_and_s_type > _t_and_s;
     size_type _t_and_s_max_sz;
     bool _t_and_s_full;
 
+    /* autonomous market makers */
+    market_makers_type _market_makers;
+
+    /* sync mm access */
+    std::unique_ptr<std::recursive_mutex> _mm_mtx;
+
+    /* store deferred callbacks info until we are clear to execute */
+    std::deque<dfrd_cb_elem_type> _deferred_callback_queue;
+
+    /* to prevent recursion within _clear_callback_queue */
+    std::atomic_bool _busy_with_callbacks;
+
     /* async order queue and sync objects */
     std::queue<order_queue_elem_type> _order_queue;
     std::unique_ptr<std::mutex> _order_queue_mtx;
     std::condition_variable _order_queue_cond;
+    long long _noutstanding_orders;
+    bool _need_check_for_stops;
+
+    /* master sync for accessing internals */
+    std::unique_ptr<std::mutex> _master_mtx;
+
+    /* run secondary threads */
+    volatile bool _master_run_flag;
+
+    /* async order queu thread */
     std::thread _order_dispatcher_thread;
 
-    long long _noutstanding_orders;
+    /* periodic async calls to callback with callback_msg::wake */
+    std::thread _waker_thread;
 
     void 
     _block_on_outstanding_orders();
@@ -261,23 +278,8 @@ private:
     void 
     _route_order(order_queue_elem_type& e, id_type& id);
 
-    /* master sync for accessing internals */
-    std::unique_ptr<std::mutex> _master_mtx;
-    /* sync mm access */
-    std::unique_ptr<std::recursive_mutex> _mm_mtx;
-
-    /* periodic async calls to callback with callback_msg::wake */
-    std::thread _waker_thread;
-    void _threaded_waker(int sleep);
-
-    /* to prevent recursion within _clear_callback_queue */
-    std::atomic_bool _busy_with_callbacks;
-
-    /* indicate we should check for stops hit */
-    bool _need_check_for_stops;
-
-    /* run secondary threads */
-    volatile bool _master_run_flag;
+    void
+    _threaded_waker(int sleep);
 
     /* chain utilities via specializations (in .tpp) */
     template<typename ChainTy, typename Dummy = void>
