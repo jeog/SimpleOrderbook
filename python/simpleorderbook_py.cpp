@@ -15,14 +15,29 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see http://www.gnu.org/licenses.
 */
 
+#include <Python.h>
+#include <structmember.h>
+#include "../common.hpp"
 #include "../simpleorderbook.hpp"
-#include "common_py.hpp"
 
-//#define IGNORE_TO_DEBUG_NATIVE
 #ifndef IGNORE_TO_DEBUG_NATIVE
 
-/* try to make the nested types somewhat readable */
-#define NL_SO NativeLayer::SimpleOrderbook
+struct pySOBBundle{
+    sob::FullInterface *interface;
+    sob::SimpleOrderbook::FactoryProxy<> factory;
+    pySOBBundle( sob::FullInterface *interface,
+                 sob::SimpleOrderbook::FactoryProxy<> factory)
+        :
+            interface(interface),
+            factory(factory)
+        {
+        }
+};
+
+typedef struct {
+    PyObject_HEAD
+    PyObject *sob_bndl;
+} pySOB;
 
 /* type string + what() from native exception */
 #define THROW_PY_EXCEPTION_FROM_NATIVE(e) \
@@ -36,13 +51,17 @@ do{ \
 #define CALLDOWN_FOR_STATE_WITH_TRY_BLOCK(apicall,sobcall) \
     static PyObject* SOB_ ## sobcall(pySOB* self){ \
         try{ \
-            NL_SO::FullInterface* sob = (NL_SO::FullInterface*)self->_sob; \
+            using namespace sob; \
+            FullInterface* sob = ((pySOBBundle*)(self->sob_bndl))->interface; \
             return apicall(sob->sobcall()); \
         }catch(std::exception& e){ \
             THROW_PY_EXCEPTION_FROM_NATIVE(e); \
         } \
     }
 
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, min_price )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, max_price )
+CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, incr_size )
 CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, bid_price )
 CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, ask_price )
 CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, last_price )
@@ -57,7 +76,8 @@ CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLongLong, volume )
 #define CALLDOWN_TO_DUMP_WITH_TRY_BLOCK(sobcall) \
     static PyObject* SOB_ ## sobcall(pySOB* self){ \
         try{ \
-            NL_SO::FullInterface* sob = (NL_SO::FullInterface*)self->_sob; \
+            using namespace sob; \
+            FullInterface* sob = ((pySOBBundle*)(self->sob_bndl))->interface; \
             sob->sobcall(); \
         }catch(std::exception& e){ \
             THROW_PY_EXCEPTION_FROM_NATIVE(e); \
@@ -70,13 +90,155 @@ CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_limits )
 CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_buy_stops )
 CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_stops )
 
-static char okws[][16] = { 
-    "id", 
-    "stop",
-    "limit",
-    "size",
-    "callback" 
+
+class PyFuncWrap {
+protected:
+    PyObject* _callback;
+
+    PyFuncWrap(PyObject* callback = nullptr)
+        :
+            _callback(callback)
+        {
+            Py_XINCREF(callback);
+        }
+
+    PyFuncWrap(const PyFuncWrap& obj)
+        :
+            _callback(obj._callback)
+        {
+            Py_XINCREF(obj._callback);
+        }
+
+public:
+    virtual
+    ~PyFuncWrap()
+        {
+            Py_XDECREF(_callback);
+        }
+
+    operator
+    bool()
+    {
+        return _callback;
+    }
 };
+
+
+class ExecCallbackWrap
+    : public PyFuncWrap {
+public:
+    ExecCallbackWrap(PyObject* callback = nullptr)
+        :
+            PyFuncWrap(callback)
+        {
+        }
+
+    ExecCallbackWrap(const ExecCallbackWrap& obj)
+        :
+            PyFuncWrap(obj)
+        {
+        }
+
+    void
+    operator()(sob::callback_msg msg,
+               sob::id_type id,
+               double price,
+               size_t size) const
+    {
+        PyObject* args = Py_BuildValue("kkdk", (int)msg, id, price, size);
+        PyObject_CallObject(_callback, args);
+        Py_DECREF(args);
+    }
+};
+
+
+class StartFuncWrap
+    : public PyFuncWrap {
+public:
+    StartFuncWrap(PyObject* callback = nullptr)
+        :
+            PyFuncWrap(callback)
+        {
+        }
+
+    StartFuncWrap(const StartFuncWrap& obj)
+        :
+            PyFuncWrap(obj)
+        {
+        }
+
+    void
+    operator()(double implied, double tick) const
+    {
+        PyObject* args = Py_BuildValue("dd", implied, tick);
+        PyObject_CallObject(_callback, args);
+        Py_DECREF(args);
+    }
+};
+
+
+class StopFuncWrap
+    : public PyFuncWrap {
+public:
+    StopFuncWrap(PyObject* callback = nullptr)
+        :
+            PyFuncWrap(callback)
+        {
+        }
+
+    StopFuncWrap(const StopFuncWrap& obj)
+        :
+            PyFuncWrap(obj)
+        {
+        }
+
+    void
+    operator()() const
+    {
+        PyObject_CallObject(_callback, NULL);
+    }
+};
+
+
+template< typename T >
+std::pair<int, std::pair< std::string,
+                          typename sob::SimpleOrderbook::FactoryProxy<> >>
+sob_type_make_entry(int index, std::string name){
+    using namespace sob;
+    return std::make_pair(index,
+                std::make_pair(name, SimpleOrderbook::BuildFactoryProxy<T>() ));
+}
+
+const auto SOB_TYPES = [](){
+    using namespace sob;
+    return std::map<int, std::pair< std::string,
+                                    typename SimpleOrderbook::FactoryProxy<> >>
+    {
+        sob_type_make_entry<quarter_tick>(1, "SOB_QUARTER_TICK"),
+        sob_type_make_entry<tenth_tick>(2, "SOB_TENTH_TICK"),
+        sob_type_make_entry<thirty_secondth_tick>(3, "SOB_THIRTY_SECONDTH_TICK"),
+        sob_type_make_entry<hundredth_tick>(4, "SOB_HUNDREDTH_TICK"),
+        sob_type_make_entry<thousandth_tick>(5, "SOB_THOUSANDTH_TICK"),
+        sob_type_make_entry<ten_thousandth_tick>(6, "SOB_TEN_THOUSANDTH_TICK")
+    };
+}();
+
+
+struct KW{
+    static char id[], stop[], limit[], size[], callback[], depth[],
+                sob_type[], price[], low[], high[];
+};
+char KW::id[] = "id";
+char KW::stop[] = "stop";
+char KW::limit[] = "limit";
+char KW::size[] = "size";
+char KW::callback[] = "callback";
+char KW::depth[] = "depth";
+char KW::sob_type[] = "sob_type";
+char KW::price[] = "price";
+char KW::low[] = "low";
+char KW::high[] = "high";
+
 
 /* NOTE: frmt string WON'T match order of varargs because of the callback arg */
 template<typename... Types>
@@ -114,30 +276,26 @@ template<bool BuyNotSell, bool Replace>
 PyObject* 
 SOB_trade_limit(pySOB* self, PyObject* args, PyObject* kwds)
 {
-    using namespace NativeLayer;
-
-    price_type limit;
+    using namespace sob;
+    double limit;
     long size;
-    PyObject* callback;
     bool ares;
-
     id_type id = 0;
-    callback = PyLong_FromLong(1); //dummy
+    PyObject* callback = PyLong_FromLong(1); //dummy
 
     if(Replace){
-        static char* kwlist[] = {okws[0],okws[2],okws[3],okws[4],NULL};
-        /* arg order to interface :::  id, limit, size, callback */
-        ares = get_order_args(args, kwds, "kflO:callback", kwlist, 
+        static char* kwlist[] = {KW::id,KW::limit,KW::size,KW::callback,NULL};
+        ares = get_order_args(args, kwds, "kdlO:callback", kwlist,
                               &callback, &id, &limit, &size);
     }else{
-        static char* kwlist[] = {okws[2],okws[3],okws[4],NULL};
-        /* arg order to interface :::  limit, size, callback */
-        ares = get_order_args(args, kwds, "flO:callback", kwlist, 
+        static char* kwlist[] = {KW::limit,KW::size,KW::callback,NULL};
+        ares = get_order_args(args, kwds, "dlO:callback", kwlist,
                               &callback, &limit, &size);
     }
 
-    if(!ares)
+    if(!ares){
         return NULL;
+    }
 
     if(size <= 0){
         PyErr_SetString(PyExc_ValueError, "size must be > 0");
@@ -145,7 +303,7 @@ SOB_trade_limit(pySOB* self, PyObject* args, PyObject* kwds)
     }
 
     try{
-        SimpleOrderbook::FullInterface* sob = (SimpleOrderbook::FullInterface*)self->_sob;
+        FullInterface* sob = ((pySOBBundle*)(self->sob_bndl))->interface;
         /*
          * be careful with copy contruction/ ref passing of ExecCallbackWrap object
          * we need to copy into the order_map, can pass by reference elsewhere
@@ -167,29 +325,25 @@ template< bool BuyNotSell, bool Replace >
 PyObject* 
 SOB_trade_market(pySOB* self, PyObject* args, PyObject* kwds)
 {
-    using namespace NativeLayer;
-
+    using namespace sob;
     long size;
-    PyObject* callback;
     bool ares;
-
     id_type id = 0;
-    callback = PyLong_FromLong(1); //dummy
+    PyObject* callback = PyLong_FromLong(1); //dummy
 
     if(Replace){
-        static char* kwlist[] = {okws[0],okws[3],okws[4],NULL};
-        /* arg order to interface :::  id, size, callback */
+        static char* kwlist[] = {KW::id,KW::size,KW::callback,NULL};
         ares = get_order_args(args, kwds, "klO:callback", kwlist, 
                               &callback, &id, &size);
     }else{
-        static char* kwlist[] = {okws[3],okws[4],NULL};
-        /* arg order to interface :::  size, callback */
+        static char* kwlist[] = {KW::size,KW::callback,NULL};
         ares = get_order_args(args, kwds, "lO:callback", kwlist, 
                               &callback, &size);
     }
 
-    if(!ares)
+    if(!ares){
         return NULL;
+    }
 
     if(size <= 0){
         PyErr_SetString(PyExc_ValueError, "size must be > 0");
@@ -197,7 +351,7 @@ SOB_trade_market(pySOB* self, PyObject* args, PyObject* kwds)
     }
 
     try{
-        SimpleOrderbook::FullInterface* sob = (SimpleOrderbook::FullInterface*)self->_sob;
+        FullInterface* sob = ((pySOBBundle*)(self->sob_bndl))->interface;
         /*
          * be careful with copy contruction/ ref passing of ExecCallbackWrap object
          * we need to copy into the order_map, can pass by reference elsewhere
@@ -218,30 +372,26 @@ template<bool BuyNotSell, bool Replace>
 PyObject* 
 SOB_trade_stop(pySOB* self,PyObject* args,PyObject* kwds)
 {
-    using namespace NativeLayer;
-
-    price_type stop;
+    using namespace sob;
+    double stop;
     long size;
-    PyObject* callback;
     bool ares;
-
     id_type id = 0;
-    callback = PyLong_FromLong(1); //dummy
+    PyObject* callback = PyLong_FromLong(1); //dummy
 
     if(Replace){
-        static char* kwlist[] = {okws[0],okws[1],okws[3],okws[4],NULL};
-        /* arg order to interface :::  id, stop, size, callback */
-        ares = get_order_args(args, kwds, "kflO:callback", kwlist, 
+        static char* kwlist[] = {KW::id,KW::stop,KW::size,KW::callback,NULL};
+        ares = get_order_args(args, kwds, "kdlO:callback", kwlist,
                               &callback, &id, &stop, &size);
     }else{
-        static char* kwlist[] = {okws[1],okws[3],okws[4],NULL};
-        /* arg order to interface :::  stop, size, callback */
-        ares = get_order_args(args, kwds, "flO:callback", kwlist, 
+        static char* kwlist[] = {KW::stop,KW::size,KW::callback,NULL};
+        ares = get_order_args(args, kwds, "dlO:callback", kwlist,
                               &callback, &stop, &size);
     }
 
-    if(!ares)
+    if(!ares){
         return NULL;
+    }
 
     if(size <= 0){
         PyErr_SetString(PyExc_ValueError, "size must be > 0");
@@ -249,7 +399,7 @@ SOB_trade_stop(pySOB* self,PyObject* args,PyObject* kwds)
     }
 
     try{
-        SimpleOrderbook::FullInterface* sob = (SimpleOrderbook::FullInterface*)self->_sob;
+        FullInterface* sob = ((pySOBBundle*)(self->sob_bndl))->interface;
         /*
          * be careful with copy contruction/ ref passing of ExecCallbackWrap object
          * we need to copy into the order_map, can pass by reference elsewhere
@@ -270,31 +420,27 @@ template<bool BuyNotSell, bool Replace>
 PyObject* 
 SOB_trade_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
 {
-    using namespace NativeLayer;
-
-    price_type stop;
-    price_type limit;
+    using namespace sob;
+    double stop;
+    double limit;
     long size;
-    PyObject* callback;
     bool ares;
-
     id_type id = 0;
-    callback = PyLong_FromLong(1); //dummy
+    PyObject* callback = PyLong_FromLong(1); //dummy
 
     if(Replace){
-        static char* kwlist[] = {okws[0],okws[1],okws[2],okws[3],okws[4],NULL};
-        /* arg order to interface :::  id, stop, limit, size, callback */
-        ares = get_order_args(args, kwds, "kfflO:callback", kwlist, 
+        static char* kwlist[] = {KW::id,KW::stop,KW::limit,KW::size,KW::callback,NULL};
+        ares = get_order_args(args, kwds, "kddlO:callback", kwlist,
                               &callback, &id, &stop, &limit, &size);
     }else{
-        static char* kwlist[] = {okws[1],okws[2],okws[3],okws[4],NULL};
-        /* arg order to interface :::  stop, limit, size, callback */
-        ares = get_order_args(args, kwds, "fflO:callback", kwlist, 
+        static char* kwlist[] = {KW::stop,KW::limit,KW::size,KW::callback,NULL};
+        ares = get_order_args(args, kwds, "ddlO:callback", kwlist,
                               &callback, &stop, &limit, &size);
     }
 
-    if(!ares)
+    if(!ares){
         return NULL;
+    }
 
     if(size <= 0){
         PyErr_SetString(PyExc_ValueError, "size must be > 0");
@@ -302,8 +448,7 @@ SOB_trade_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
     }
 
     try{
-        SimpleOrderbook::FullInterface* sob =
-            (SimpleOrderbook::FullInterface*)self->_sob;
+        FullInterface* sob = ((pySOBBundle*)(self->sob_bndl))->interface;
         /*
          * be careful with copy contruction/ ref passing of ExecCallbackWrap object
          * we need to copy into the order_map, can pass by reference elsewhere
@@ -323,18 +468,17 @@ SOB_trade_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
 PyObject* 
 SOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
 {
-    using namespace NativeLayer;
-
+    using namespace sob;
     bool rval;
     id_type id;
 
-    static char* kwlist[] = {okws[0],NULL};
-
-    if(!get_order_args(args, kwds, "k", kwlist, nullptr, &id))
+    static char* kwlist[] = {KW::id,NULL};
+    if( !get_order_args(args, kwds, "k", kwlist, nullptr, &id) ){
         return NULL;
+    }
 
     try{
-        rval = ((SimpleOrderbook::FullInterface*)self->_sob)->pull_order(id);
+        rval = ((pySOBBundle*)(self->sob_bndl))->interface->pull_order(id);
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
@@ -346,39 +490,27 @@ SOB_pull_order(pySOB* self, PyObject* args, PyObject* kwds)
 static PyObject* 
 SOB_time_and_sales(pySOB* self, PyObject* args)
 {
-    using namespace NativeLayer;
-
-    SimpleOrderbook::FullInterface* sob;
+    using namespace sob;
     long arg;
-    size_type num;
-    PyObject *list, *tup;
 
     if(!PyArg_ParseTuple(args, "l", &arg)){
         PyErr_SetString(PyExc_ValueError, "error parsing args");
         return NULL;
     }
 
+    PyObject *list;
     try{
-        sob = (SimpleOrderbook::FullInterface*)self->_sob;
-
-        const SimpleOrderbook
-                ::QueryInterface
-                ::time_and_sales_type& vec = sob->time_and_sales();
-
+        FullInterface *sob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        const QueryInterface::timesale_vector_type& vec = sob->time_and_sales();
         auto biter = vec.cbegin();
         auto eiter = vec.cend();
+        size_t num = arg <= 0 ? vec.size() : (size_t)arg;
+        list = PyList_New(std::min(vec.size(),(size_t)num));
 
-        num = arg <= 0 ? vec.size() : (size_type)arg;
-
-        list = PyList_New(std::min(vec.size(),(size_type)num));
-
-        for(size_type i = 0; i < num && biter != eiter; ++i, ++biter)
+        for(size_t i = 0; i < num && biter != eiter; ++i, ++biter)
         {
-            std::string s = SimpleOrderbook
-                                ::FullInterface
-                                ::timestamp_to_str(std::get<0>(*biter));
-
-            tup = Py_BuildValue("(s,f,k)", s.c_str(), 
+            std::string s = FullInterface::timestamp_to_str(std::get<0>(*biter));
+            PyObject *tup = Py_BuildValue("(s,f,k)", s.c_str(),
                                 std::get<1>(*biter), std::get<2>(*biter));
             PyList_SET_ITEM(list, i, tup);
         }
@@ -391,22 +523,14 @@ SOB_time_and_sales(pySOB* self, PyObject* args)
 }
 
 
-template<NativeLayer::side_of_market Side>
+template<sob::side_of_market Side>
 static PyObject* 
 SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
 {
-    using namespace NativeLayer;
-
-    SimpleOrderbook::FullInterface* sob;
-    SimpleOrderbook::QueryInterface::market_depth_type md;
+    using namespace sob;
     long depth;
-    size_t indx;
-    bool size_error;
-    PyObject *list, *tup;
 
-    static char keyword[][8] = { "depth" };
-    static char* kwlist[] = {keyword[0],NULL};
-
+    static char* kwlist[] = {KW::depth, NULL};
     if(!PyArg_ParseTupleAndKeywords(args, kwds, "l", kwlist, &depth))
     {
         PyErr_SetString(PyExc_ValueError, "error parsing args");
@@ -418,9 +542,10 @@ SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
         return NULL;
     }
 
+    PyObject *list;
     try{
-        sob = (SimpleOrderbook::FullInterface*)self->_sob;
-
+        FullInterface* sob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        std::map<double,size_t> md;
         switch(Side){
             case(side_of_market::bid): 
                 md = sob->bid_depth(depth);    
@@ -433,8 +558,8 @@ SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
                 break;
         }
 
-        indx = md.size();
-
+        size_t indx = md.size();
+        bool size_error;
         switch(Side){
             case(side_of_market::bid): 
                 /*no break*/
@@ -446,13 +571,13 @@ SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
                 break;
         }
 
-        if(size_error)
-            throw NativeLayer::invalid_state("market_depth size too large");
+        if(size_error){
+            throw sob::invalid_state("market_depth size too large");
+        }
 
         list = PyList_New(indx);
-
         for(auto& elem : md){
-            tup = Py_BuildValue("(f,k)",elem.first,elem.second);
+            PyObject *tup = Py_BuildValue("(f,k)",elem.first,elem.second);
             PyList_SET_ITEM(list, --indx, tup);
         }
 
@@ -463,174 +588,15 @@ SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
 }
 
 
-/*static*/ PyObject* 
-SOB_add_market_makers_local(pySOB* self, PyObject* args)
-{
-    using namespace NativeLayer;
-
-    PyObject *py_mms;
-    int good_obj;
-    size_type mm_num;
-    market_makers_type pmms;
-    MarketMaker_Py* mm;
-    pyMM* mm_c;
-    SimpleOrderbook::FullInterface* sob;
-
-    if(!PyArg_ParseTuple(args, "O", &py_mms)) /* DO WEE NEED TO INCREF ?? */
-    {
-        PyErr_SetString(PyExc_ValueError, "error parsing args");
-        return NULL;
-    }
-
-    try{
-        sob = (SimpleOrderbook::FullInterface*)self->_sob;
-        mm_num = PySequence_Size(py_mms);
-        while(mm_num--){
-            try{                       
-                mm_c = (pyMM*)PySequence_GetItem(py_mms, mm_num); /* new ref */
-                if(!mm_c)
-                    throw invalid_state("NULL item in sequence");
-
-                good_obj = PyObject_IsInstance((PyObject*)mm_c, (PyObject*)&pyMM_type);
-                if(!good_obj){
-                    Py_DECREF((PyObject*)mm_c);
-                    std::string msg("element in sequence not valid market maker: ");
-                    msg.append(std::to_string(mm_num));
-                    throw invalid_parameters(msg.c_str());                    
-                }else if(good_obj < 0){
-                    Py_DECREF((PyObject*)mm_c);
-                    return NULL;
-                }
-   
-                mm = (MarketMaker_Py*)(mm_c->_mm);
-                Py_DECREF(mm_c);
-
-                if(!mm)
-                    throw invalid_state("NULL item MarketMaker_Py* in tuple");                
-          
-            }catch(invalid_state&){ 
-                throw; 
-            }catch(invalid_parameters&){ 
-                throw; 
-            }catch(...){                 
-            } 
-            /*
-             * DEBUG
-             *
-             * for now let's do the dangerous thing and maintain a reference to
-             * the object(instead of moving via _move_to_new()) so we can access
-             * the MM from outside the SOB
-             *
-             * DEBUG
-             */  
-            if(!mm_c->_valid){
-                std::cerr<< "market maker at index [" << mm_num 
-                         << "] is not valid (have you already added it?) and will be ignored" 
-                         << std::endl;
-                continue;
-            }
-            mm_c->_valid = false;
-            pmms.push_back(pMarketMaker(mm));            
-        }
-
-        if(pmms.size())
-            sob->add_market_makers(std::move(pmms));        
-        else
-            throw std::runtime_error("no market makers to add");
-
-    }catch(std::exception& e){
-        THROW_PY_EXCEPTION_FROM_NATIVE(e);
-    }
-    Py_RETURN_NONE;
-}
-
-
-static PyObject* 
-SOB_add_market_makers_native(pySOB* self, PyObject* args)
-{
-    using namespace NativeLayer;
-
-    size_type mm_ty, mm_num, mm_1, mm_2, mm_3;
-    int mm_4;
-    market_makers_type pmms;
-    SimpleOrderbook::FullInterface* sob;
-
-    mm_3 = 0; /* <-- so we can check the optional arg */
-    mm_4 = 1;
-    /*
-     * args :
-     *    1) MM_TYPE
-     *    2) mm_num
-     *    3) type dependent varargs
-     */                                                                            
-
-    /* low/sz, high/max, max/ */
-    if(!PyArg_ParseTuple(args,"kkkk|ki", &mm_ty, &mm_num, &mm_1, &mm_2, &mm_3, &mm_4))
-    {
-        PyErr_SetString(PyExc_ValueError, "error parsing args");
-        return NULL;
-    }
-
-    try{
-        sob = (SimpleOrderbook::FullInterface*)self->_sob;
-        /*
-         * slightly cleaner if we were to use the ::Factory method but we
-         * shouldn't assume it will be defined in a sub-class
-         */
-        while( mm_num-- ){ /* potential issues with the bad args */
-            switch(mm_ty){
-            case(MM_RANDOM):
-            {
-                if(mm_2 < mm_1 || mm_3 < mm_2 || mm_1 == 0)
-                    throw std::invalid_argument("invalid args (type,num,low,high,max)");
-
-                switch(mm_4){
-                    case (int)MarketMaker_Random::dispersion::none: 
-                        break;
-                    case (int)MarketMaker_Random::dispersion::low: 
-                        break;
-                    case (int)MarketMaker_Random::dispersion::moderate: 
-                        break;
-                    case (int)MarketMaker_Random::dispersion::high: 
-                        break;
-                    case (int)MarketMaker_Random::dispersion::very_high: 
-                        break;
-                    default:
-                        throw std::invalid_argument("mm_4 not valid dispersion enum");
-                }
-                pmms.push_back(
-                    pMarketMaker(
-                        new MarketMaker_Random(mm_1, mm_2, mm_3,
-                                               (MarketMaker_Random::dispersion)mm_4)
-                    )
-                );
-            }
-            break;
-
-            case(MM_SIMPLE1):
-            {
-                if(mm_2 < mm_1 || mm_1 == 0)
-                    throw std::invalid_argument("invalid args (type,num,sz,max)");
-                pmms.push_back(pMarketMaker(new MarketMaker_Simple1(mm_1,mm_2)));
-            } 
-            break;
-
-            default:
-                throw std::runtime_error("invalid market maker type");
-            }
-        }
-        sob->add_market_makers(std::move(pmms));
-
-    }catch(std::exception& e){
-        THROW_PY_EXCEPTION_FROM_NATIVE(e);
-    }
-
-    Py_RETURN_NONE;
-}
-
 
 static PyMethodDef pySOB_methods[] = {
     /* GET STATE */
+    {"min_price",(PyCFunction)SOB_min_price, METH_NOARGS, "() -> float"},
+
+    {"max_price",(PyCFunction)SOB_max_price, METH_NOARGS, "() -> float"},
+
+    {"incr_size",(PyCFunction)SOB_incr_size, METH_NOARGS, "() -> float"},
+
     {"bid_price",(PyCFunction)SOB_bid_price, METH_NOARGS, "() -> float"},
 
     {"ask_price",(PyCFunction)SOB_ask_price, METH_NOARGS, "() -> float"},
@@ -651,15 +617,15 @@ static PyMethodDef pySOB_methods[] = {
 
     {"volume",(PyCFunction)SOB_volume, METH_NOARGS, "() -> int"},
 
-    {"bid_depth",(PyCFunction)SOB_market_depth<NativeLayer::side_of_market::bid>,
+    {"bid_depth",(PyCFunction)SOB_market_depth<sob::side_of_market::bid>,
      METH_VARARGS | METH_KEYWORDS,
      "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
 
-    {"ask_depth",(PyCFunction)SOB_market_depth<NativeLayer::side_of_market::ask>,
+    {"ask_depth",(PyCFunction)SOB_market_depth<sob::side_of_market::ask>,
      METH_VARARGS | METH_KEYWORDS,
      "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
 
-    {"market_depth",(PyCFunction)SOB_market_depth<NativeLayer::side_of_market::both>,
+    {"market_depth",(PyCFunction)SOB_market_depth<sob::side_of_market::both>,
      METH_VARARGS | METH_KEYWORDS,
      "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
 
@@ -754,19 +720,6 @@ static PyMethodDef pySOB_methods[] = {
      "replace old order with new sell stop limit order; "
      "(id, stop, limit, size, callback) -> new order ID"},
 
-    /* MARKET MAKERS */
-    {"add_native_market_makers",(PyCFunction)SOB_add_market_makers_native,
-     METH_VARARGS ,
-     "add market makers to orderbook; (MM_TYPE, num, varargs...) -> void\n"
-     "MM_TYPE: use the MM_[...] constants to indicate type of market maker\n"
-     "num: how many market makers of this type to create\n"
-     "varargs: variable args depending on the type's (C++) constructor"},
-
-    {"add_local_market_makers",(PyCFunction)SOB_add_market_makers_local,
-     METH_VARARGS ,
-     "add market makers to orderbook; ( (mms,) ) -> void\n"
-     "(mms,): a tuple of local(python) market makers (MarketMaker type)"},
-
     /* TIME & SALES */
     {"time_and_sales",(PyCFunction)SOB_time_and_sales, METH_VARARGS,
      "(size) -> list of 3-tuples [(str,float,int),(str,float,int),..] "},
@@ -775,69 +728,39 @@ static PyMethodDef pySOB_methods[] = {
 };
 
 
-typedef std::pair<std::string, NL_SO::FullInterface::cnstr_type> sob_type_entry;
-
-#define MAKE_SOB(I,S,T) std::make_pair(I, \
-    std::make_pair(S, &(NL_SO::New<NL_SO::FullInterface,NL_SO::T>)))
-
-const std::map<int,sob_type_entry> SOB_TYPES = {
-    /*
-     * (arbitrary const, const name in python, SimpleOrderbook explicit inst.)
-     */
-    MAKE_SOB(SOB_QUARTER_TICK,"SOB_QUARTER_TICK",QuarterTick),
-    MAKE_SOB(SOB_TENTH_TICK,"SOB_TENTH_TICK",TenthTick),
-    MAKE_SOB(SOB_THIRTYSECONDTH_TICK,"SOB_THIRTYSECONDTH_TICK",ThirtySecondthTick),
-    MAKE_SOB(SOB_HUNDREDTH_TICK,"SOB_HUNDREDTH_TICK",HundredthTick),
-    MAKE_SOB(SOB_THOUSANDTH_TICK,"SOB_THOUSANDTH_TICK",ThousandthTick),
-    MAKE_SOB(SOB_TENTHOUSANDTH_TICK,"SOB_TENTHOUSANDTH_TICK",TenThousandthTick)
-};
-
-const std::map<int,std::string> MM_TYPES = {
-    /*
-     * (arbitrary const, const name in python)
-     * note: construction handle in switch because of varargs
-     */
-    std::make_pair(MM_RANDOM,"MM_RANDOM"),
-    std::make_pair(MM_SIMPLE1,"MM_SIMPLE1")
-};
-
-
 static PyObject* 
 SOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 {
-    using namespace NativeLayer;
+    using namespace sob;
 
     pySOB* self;
-    price_type price,low,high;
+    double low, high;
     int sobty;
-    SimpleOrderbook::FullInterface* sob;
+    FullInterface* sob;
 
-    static char kws[][16] = {"sob_type","price", "low", "high"};
-    static char* kwlist[] = {kws[0], kws[1], kws[2], kws[3], NULL};
+    static char* kwlist[] = {KW::sob_type, KW::low, KW::high, NULL};
 
-    if(!PyArg_ParseTupleAndKeywords(args, kwds, "ifff", kwlist, &sobty, &price, &low, &high))
+    if(!PyArg_ParseTupleAndKeywords(args, kwds, "idd", kwlist, &sobty, &low, &high))
     {
         PyErr_SetString(PyExc_ValueError, "error parsing args to __new__");
         return NULL;
     }
 
     self = (pySOB*)type->tp_alloc(type,0);
-    self->_sob = nullptr;
+    self->sob_bndl = nullptr;
 
     if(self != NULL){
         try{
-            if(price < low || high < price)
-                throw std::invalid_argument("invalid args (type,price,low,high)");
-
             if(low == 0)
                 throw std::invalid_argument("low must be > 0");
 
-            sob = SOB_TYPES.at(sobty).second(price,low,high);
-            if(!sob)
+            auto factory = SOB_TYPES.at(sobty).second;
+            sob = factory.create(low,high);
+            if(!sob){
                 throw std::runtime_error("self->_sob was not constructed");
-            else
-                self->_sob = (PyObject*)sob;
-
+            }else{
+                self->sob_bndl = (PyObject*)new pySOBBundle(sob, factory);
+            }
         }catch(const std::invalid_argument & e){
             PyErr_SetString(PyExc_ValueError, e.what());
         }catch(const std::runtime_error & e){
@@ -858,9 +781,11 @@ SOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
 static void 
 SOB_Delete(pySOB* self)
 {
-    if(self->_sob)
-        delete (NL_SO::FullInterface*)(self->_sob);
-
+    if(self->sob_bndl){
+        sob::FullInterface *sob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        ((pySOBBundle*)(self->sob_bndl))->factory.destroy(sob);
+        delete ((pySOBBundle*)(self->sob_bndl));
+    }
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
@@ -886,9 +811,8 @@ static PyTypeObject pySOB_type = {
     0,
     0,
     Py_TPFLAGS_DEFAULT,
-    "SimpleOrderbook: matching engine/interface for (vanilla) financial-market order types\n\n"
+    "SimpleOrderbook: interface for a C++ financial orderbook and matching engine.\n\n"
     "  type  ::  int  :: type of orderbook (e.g SOB_QUARTER_TICK)\n"
-    "  price :: float :: price to start trading at\n"
     "  low   :: float :: minimum price can trade at\n"
     "  high  :: float :: maximum price can trade at\n" ,
     0,
@@ -929,7 +853,7 @@ PyInit_simpleorderbook(void)
 {
     PyObject* mod;
 
-    if(PyType_Ready(&pySOB_type) < 0 || PyType_Ready(&pyMM_type) < 0)
+    if(PyType_Ready(&pySOB_type) < 0)
         return NULL;
 
     mod = PyModule_Create(&pySOB_mod_def);
@@ -938,14 +862,6 @@ PyInit_simpleorderbook(void)
 
     Py_INCREF(&pySOB_type);
     PyModule_AddObject(mod, "SimpleOrderbook", (PyObject*)&pySOB_type);
-
-    /* python/marketmaker_py.cpp */
-    Py_INCREF(&pyMM_type);
-    PyModule_AddObject(mod, "MarketMaker", (PyObject*)&pyMM_type);
-
-    /* native market maker types */
-    for(auto& p : MM_TYPES)
-        PyObject_SetAttrString(mod, p.second.c_str(), Py_BuildValue("i",p.first));
 
     /* simple orderbook types */
     for(auto& p : SOB_TYPES)

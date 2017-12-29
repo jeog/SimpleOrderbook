@@ -15,12 +15,11 @@
 
 from distutils.core import setup,Extension
 
-cpp_sources = ["simpleorderbook_py.cpp","marketmaker_py.cpp", # py wrapper 
-               "../simpleorderbook.cpp", "../marketmaker.cpp"] # native
+cpp_sources = ["../simpleorderbook.cpp", "simpleorderbook_py.cpp"]
 
 _setup_dict = {
     "name":'simpleorderbook',
-    "version":'0.2',
+    "version":'0.3',
     "description": "financial-market order book",
     "author":"Jonathon Ogden",
     "author_email":"jeog.dev@gmail.com"

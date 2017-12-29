@@ -1,115 +1,161 @@
 ## SimpleOrderbook 
 - - -
-Collection of C++ objects, and a python interface, for matching real-time financial market order flow. The core module is implemented as a C++ class template, providing virtual interfaces. The Python-C API extension module sits on top - wrapping the core implementation objects - providing its own object-oriented interface.
 
-#### Requirements 
-- c++11 compiler support (or a willingness to backport)
-- knowledge of basic market order types, terminology, concepts etc.
+An experimental C++(11) financial-market orderbook and matching engine w/ a Python extension module.
+
+*** **v0.3 is currently undergoing a complete refactoring** 
+
 
 #### Features 
+
 - market, limit, stop-market, and stop-limit orders that trigger callbacks when executed
 - cancel/replace orders by ID
 - query market state(bid size, volume etc.), dump orders to stdout, view Time & Sales 
-- high-speed order-matching/execution
-- Market Maker objects that operate as autonomous agents 'inside' the Orderbook
+- access via a CPython extension module
+- orderbook methods are accessed via a number of (virtual) interfaces
+- orderbook objects are allocated/managed by a static resource manager
+- sacrifices space for speed (e.g using static price levels, pre-allocation of internal objects)
 
-#### Build / Install / Run
+
+#### Getting Started
+
+- **C++** 
+
+        user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -lpthread simpleorderbook.cpp example_code.cpp -o example_code.out
+        user@host:/usr/local/SimpleOrderbook$ ./example_code.out  
 
 - **python**
 
         user@host:/usr/local/SimpleOrderbook/python$ python setup.py install
         user@host:/usr/local/SimpleOrderbook/python$ python
-        >>> import simpleorderbook      
+        >>> import simpleorderbook           
 
-- **C++** 
-
-        user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -lpthread simpleorderbook.cpp marketmaker.cpp example_code.cpp -o example_code.out
-        user@host:/usr/local/SimpleOrderbook$ ./example_code.out  
-- - -
+#### Examples
     
         // example_code.cpp
 
         #include "simpleoderbook.hpp"
-        #include "marketmaker.hpp"
-
-        class MyCustomMarketMaker
-                : public NativeLayer::MarketMaker{
-            // define
-        };
 
         void 
-        execution_callback(NativeLayer::callback_msg msg, 
-                           NativeLayer::id_type id,
-                           NativeLayer::pirce_type price,
-                           NativeLayer::size_type size)
-        {
-            // define
-        }
+        execution_callback(sob::callback_msg msg, 
+                           sob::id_type id,
+                           sob::pirce_type price,
+                           sob::size_type size);
 
         void 
-        insert_orders(NativeLayer::SimpleOrderbook::FullInterface& orderbook)
-        {
-            /* buy 50 @ 49.92 or better */
-            auto id1 = orderbook.insert_limit_order(true, 49.92, 50, execution_callback);
-            /* sell 10 @ market */
-            auto id2 = orderbook.insert_market_order(false, 10, execution_callback);
-            //...
-        }
+        insert_orders(sob::FullInterface *orderbook);
 
         void
-        print_inside_market(NativeLayer::SimpleOrderbook::QueryInterface& orderbook)
-        {
-            std::cout<< "BID: " << orderbook.bid_size() 
-                     << " @ " << orderbook.bid_price() << std::endl;
-            std::cout<< "ASK: " << orderbook.ask_size() 
-                     << " @ " << orderbook.ask_price() << std::endl;
-            std::cout<< "LAST: " << orderbook.last_size() 
-                     << " @ " << orderbook.last_price() << std::endl;
-        }
+        print_inside_market(sob::QueryInterface *orderbook);
 
         int
         main(int argc, char* argv[])
         {
-            using namespace NativeLayer;
+            using namespace sob;
 
-            typedef std::ratio<1,4> quarter_tick;
+            /* 
+             * First, we need to create a factory proxy.
+             *
+             * The following will be used for managing orderbooks of (implementation) type:
+             *     SimpleOrderbook::SimpleOrderbookImpl< std::ratio<1,4>, 1024 * 1024 * 8>
+             *
+             * - uses the default factory 'create' function
+             * - with .25 price intervals
+             * - and a max 8MB of pre-allocated (internal) storage
+             * 
+             * NOTICE the use of the copy constructor. Factory Proxies RESTRICT 
+             * DEFAULT CONSTRUCTION to insure non-null function pointer fields
+             */
+            const size_t MAX_MEM = 1024 * 1024 * 8;
+            SimpleOrderbook::FactoryProxy<> qt8_def_proxy( 
+                SimpleOrderbook::BuildFactoryProxy<quarter_tick, MAX_MEM>()
+            );
 
-            /* .25 tick size; default (1 GB) max memory; 
-               start price: 50.00; minimum price: 1.00, maximum price: 100.00 */
-            SimpleOrderbook::SimpleOrderbook<quarter_tick> orderbook(50.00, 1.00, 100.00);
+           /*
+            * The benefit of this approach(assuming we use the default 'create' 
+            * function) are factory interfaces - for each and *any* type of 
+            * orderbook - all of the same type; allowing for:
+            */
+            typedef SimpleOrderbook::FactoryProxy<> def_proxy_ty;
+            std::map<std::string, def_proxy_ty> my_factory_proxies = { 
+                {"QT", qt8_def_proxy},
+                {"TT", SimpleOrderbook::BuildFactoryProxy<tenth_tick, MAX_MEM * 4>()}
+                {"HT", SimpleOrderbook::BuildFactoryProxy<std::ratio<1,2>, MAX_MEM >()}
+            };
 
-            /* instantiate (1) 'simple' mm;
-               trades 100 at a time, limited to 100000 long or short */
-            MarketMaker_Simple1 simple_market_maker(100,100000);
+            /*  
+             * Use the factory proxy to create an orderbook that operates 
+             * between .25 and 100.00 in .25 increments and return a pointer
+             * to its full interface (create_orderbook defined below) 
+             */                                          
+            FullInterface *orderbook;
+            try{
+                // notice we don't use .operator[] because no default constructor
+                orderbook = my_factory_proxies.at("QT").create(.25, 100.00);
+            }catch(std::out_of_range& e){
+                // no proxy in map
+                return 1;
+            }           
+            if( !orderbook ){
+                // error
+                return 1;
+            }
 
-            /* instantiate a vector of (3) 'random' mms  
-               each trades 10 to 200 at a time, limited to 100000 long or short */
-            auto random_market_makers_3 = MarketMaker_Random::Factory(3,10,200,100000);
-
-            /* instantiate (1) of our own market makers */
-            MyCustomMarketMaker custom_market_maker(...);
-
-            /* move market makers into the orderbook */
-            orderbook.add_market_maker( std::move(simple_market_maker) );
-            orderbook.add_market_makers( std::move(random_market_makers_3) );
-            orderbook.add_market_maker( std::move(custom_market_maker) );
-            /* NOTE: we moved the MMs and *shouldn't* access them after this point*/
-
-            /* access the interface(s) */
+            /* use the interface(s) */
             insert_orders(orderbook);            
             print_inside_market(orderbook);
+
+            /* when done use the proxy to destroy the object(delete is restricted) */
+            my_factory_proxies.at("QT").destroy(orderbook)
+
+            /* 
+             * IMPORTANT: The orderbook resource is managed by a static object 
+             * behind *all* the proxies. It's recommended to destroy an orderbook 
+             * with the same proxy used to create it as orderbook-type specific 
+             * features may be added in the future.
+             */
+
+            /* you can also check for all active orderbooks (of any type)... */
+            std::vector<FullInterface*> objs = my_factory_proxies.at("QT").get_all()
+
+            /* ...and destroy them*/
+            my_factory_proxies.at("QT").destroy_all()
        
             //...
             
             return 0;
         }   
-    
 
-#### Contents
-- simpleorderbook.hpp / simpleorderbook.tpp :: the core code for the orderbook
-- interfaces.hpp :: virtual interfaces to access the orderbook
-- marketmaker.hpp / marketmaker.cpp :: 'autonomous' agents the provide liquidity to the orderbook
-- python/ :: all the C/C++ code (and the setup.py script) for the python extension module
+        void 
+        execution_callback(sob::callback_msg msg, 
+                           sob::id_type id,
+                           sob::pirce_type price,
+                           sob::size_type size)
+        {
+            // define (what happens when a trade occurs)
+        }
+
+        void 
+        insert_orders(sob::FullInterface *orderbook)
+        {
+            /* buy 50 @ 49.92 or better */
+            auto id1 = orderbook->insert_limit_order(true, 49.92, 50, execution_callback);
+            /* sell 10 @ market */
+            auto id2 = orderbook->insert_market_order(false, 10, execution_callback);
+            //...
+        }
+
+        void
+        print_inside_market(sob::QueryInterface *orderbook)
+        {
+            std::cout<< "BID: " << orderbook->bid_size() 
+                     << " @ " << orderbook->bid_price() << std::endl;
+            std::cout<< "ASK: " << orderbook->ask_size() 
+                     << " @ " << orderbook->ask_price() << std::endl;
+            std::cout<< "LAST: " << orderbook->last_size() 
+                     << " @ " << orderbook->last_price() << std::endl;
+        }
+
 
 #### Licensing & Warranty
 *SimpleOrderbook is released under the GNU General Public License(GPL); a copy (LICENSE.txt) should be included. If not, see http://www.gnu.org/licenses. The author reserves the right to issue current and/or future versions of SimpleOrderbook under other licensing agreements. Any party that wishes to use SimpleOrderbook, in whole or in part, in any way not explicitly stipulated by the GPL, is thereby required to obtain a separate license from the author. The author reserves all other rights.*

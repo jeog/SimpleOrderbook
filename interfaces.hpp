@@ -21,77 +21,77 @@ along with this program.    If not, see http://www.gnu.org/licenses.
 #include <vector>
 #include <map>
 
-#include "types.hpp"
+#include "common.hpp"
 
-namespace NativeLayer{
-
-namespace SimpleOrderbook{
+namespace sob{
 
 /*
  * (see simple_orderbook.hpp for a complete description)
  */
 
 class QueryInterface{
+    friend SimpleOrderbook;
 protected:
-    QueryInterface() 
-        {
-        }
+    QueryInterface() {}
+    virtual ~QueryInterface() {}
 
 public:
-    virtual 
-    ~QueryInterface()   
-        {
-        }
-
     typedef QueryInterface my_type;
-    typedef std::tuple<time_stamp_type,price_type,size_type> t_and_s_type;
-    typedef std::vector< t_and_s_type > time_and_sales_type;
-    typedef std::map<price_type,size_type> market_depth_type;
-    typedef std::function<my_type*(size_type,size_type,size_type)> cnstr_type;
+    typedef std::tuple<time_stamp_type,double,size_t> timesale_entry_type;
+    typedef std::vector<timesale_entry_type> timesale_vector_type;
 
-    virtual price_type 
+    virtual double
+    incr_size() const = 0;
+
+    virtual double
+    min_price() const = 0;
+
+    virtual double
+    max_price() const = 0;
+
+    virtual double 
     bid_price() const = 0;
 
-    virtual price_type 
+    virtual double 
     ask_price() const = 0;
 
-    virtual price_type 
+    virtual double 
     last_price() const = 0;
 
-    virtual size_type 
+    virtual size_t 
     bid_size() const = 0;
 
-    virtual size_type 
+    virtual size_t 
     ask_size() const = 0;
 
-    virtual size_type 
+    virtual size_t 
     total_bid_size() const = 0;
 
-    virtual size_type 
+    virtual size_t 
     total_ask_size() const = 0;
 
-    virtual size_type 
+    virtual size_t 
     total_size() const = 0;
 
-    virtual size_type 
+    virtual size_t 
     last_size() const = 0;
 
-    virtual large_size_type 
+    virtual unsigned long long 
     volume() const = 0;
 
-    virtual large_size_type 
+    virtual unsigned long long 
     last_id() const = 0;
 
-    virtual market_depth_type 
-    bid_depth(size_type depth=8) const = 0;
+    virtual std::map<double,size_t> 
+    bid_depth(size_t depth=8) const = 0;
 
-    virtual market_depth_type 
-    ask_depth(size_type depth=8) const = 0;
+    virtual std::map<double,size_t> 
+    ask_depth(size_t depth=8) const = 0;
 
-    virtual market_depth_type 
-    market_depth(size_type depth=8) const = 0;
+    virtual std::map<double,size_t> 
+    market_depth(size_t depth=8) const = 0;
 
-    virtual const time_and_sales_type& 
+    virtual const timesale_vector_type&
     time_and_sales() const = 0;
 
     /* should be const ptr, locking mtx though */
@@ -105,34 +105,28 @@ public:
 
 
 class LimitInterface
-    : public QueryInterface{
+        : public QueryInterface{
+    friend SimpleOrderbook;
 protected:
-    LimitInterface() 
-        {
-        }
+    LimitInterface() {}
+    virtual ~LimitInterface() {}
 
 public:
-    virtual 
-    ~LimitInterface() 
-        {
-        }
-
     typedef LimitInterface my_type;
     typedef QueryInterface my_base_type;
-    typedef std::function<my_type*(size_type,size_type,size_type)> cnstr_type;
 
     virtual id_type
     insert_limit_order(bool buy, 
-                       price_type limit, 
-                       size_type size,
+                       double limit, 
+                       size_t size,
                        order_exec_cb_type exec_cb,
                        order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
     replace_with_limit_order(id_type id, 
                              bool buy, 
-                             price_type limit,
-                             size_type size, 
+                             double limit,
+                             size_t size, 
                              order_exec_cb_type exec_cb,
                              order_admin_cb_type admin_cb = nullptr) = 0;
 
@@ -142,73 +136,58 @@ public:
 
 
 class FullInterface
-    : public LimitInterface{
+        : public LimitInterface{
+    friend SimpleOrderbook;
 protected:
-    FullInterface() 
-        {
-        }
+    FullInterface() {}
+    virtual ~FullInterface() {}
 
 public:
-    virtual 
-    ~FullInterface() 
-        {
-        }
-
     typedef FullInterface my_type;
     typedef LimitInterface my_base_type;
-    typedef std::function<my_type*(size_type,size_type,size_type)> cnstr_type;
-
-    virtual void 
-    add_market_makers(market_makers_type&& mms) = 0;
-
-    virtual void 
-    add_market_maker(MarketMaker&& mms) = 0;
-
-    virtual void 
-    add_market_maker(pMarketMaker&& mms) = 0;
 
     virtual id_type
     insert_market_order(bool buy, 
-                        size_type size, 
+                        size_t size, 
                         order_exec_cb_type exec_cb,
                         order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
     insert_stop_order(bool buy, 
-                      price_type stop, 
-                      size_type size,
+                      double stop, 
+                      size_t size,
                       order_exec_cb_type exec_cb,
                       order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
     insert_stop_order(bool buy, 
-                      price_type stop, 
-                      price_type limit,
-                      size_type size, 
+                      double stop, 
+                      double limit,
+                      size_t size, 
                       order_exec_cb_type exec_cb,
                       order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
     replace_with_market_order(id_type id, 
                               bool buy, 
-                              size_type size,
+                              size_t size,
                               order_exec_cb_type exec_cb,
                               order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
     replace_with_stop_order(id_type id, 
                             bool buy, 
-                            price_type stop, 
-                            size_type size,
+                            double stop, 
+                            size_t size,
                             order_exec_cb_type exec_cb,
                             order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
     replace_with_stop_order(id_type id, 
                             bool buy, 
-                            price_type stop,
-                            price_type limit, 
-                            size_type size,
+                            double stop,
+                            double limit, 
+                            size_t size,
                             order_exec_cb_type exec_cb,
                             order_admin_cb_type admin_cb = nullptr) = 0;
 
@@ -226,9 +205,8 @@ public:
 
 };
 
-}; /* SimpleOrderbook */
 
-}; /* NativeLayer */
+}; /* sob */
 
 #endif /* JO_0815_INTERFACES */
 

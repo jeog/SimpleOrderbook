@@ -15,8 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see http://www.gnu.org/licenses.
 */
 
-#include "interfaces.hpp" /* first or fwrd decl issues with QueryInterface */
-#include "types.hpp"
+#include "simpleorderbook.hpp"
 
 /* 
     The bulk of simpleorderbook is implemented via template code in:
@@ -33,7 +32,10 @@ along with this program. If not, see http://www.gnu.org/licenses.
         types.hpp  
  */
 
-namespace NativeLayer{
+namespace sob{
+
+std::unordered_map<unsigned long long, SimpleOrderbook::ResourceInfo>
+SimpleOrderbook::resources;
 
 std::string 
 order_type_str(const order_type& ot) /* types.hpp */
@@ -73,8 +75,6 @@ operator<<(std::ostream& out, const order_info_type& o) /* types.hpp */
 }
 
 
-namespace SimpleOrderbook{
-
 std::string 
 QueryInterface::timestamp_to_str(const time_stamp_type& tp) /* interfaces.hpp */
 { 
@@ -85,9 +85,8 @@ QueryInterface::timestamp_to_str(const time_stamp_type& tp) /* interfaces.hpp */
     return ts;
 }
 
-}; /* SimpleOrderbook */
 
-}; /* NativeLayer */
+}; /* sob */
 
 
 
