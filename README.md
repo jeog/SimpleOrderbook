@@ -132,14 +132,14 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
                            sob::pirce_type price,
                            sob::size_type size)
         {
-            // define (what happens when a trade occurs)
+            // define
         }
 
         void 
         insert_orders(sob::FullInterface *orderbook)
         {
-            /* buy 50 @ 49.92 or better */
-            auto id1 = orderbook->insert_limit_order(true, 49.92, 50, execution_callback);
+            /* buy 50 @ 49.75 or better */
+            auto id1 = orderbook->insert_limit_order(true, 49.75, 50, execution_callback);
             /* sell 10 @ market */
             auto id2 = orderbook->insert_market_order(false, 10, execution_callback);
             //...

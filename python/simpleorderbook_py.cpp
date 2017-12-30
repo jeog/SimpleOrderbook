@@ -93,51 +93,35 @@ CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_stops )
 
 class PyFuncWrap {
 protected:
-    PyObject* _callback;
+    PyObject* const cb;
 
-    PyFuncWrap(PyObject* callback = nullptr)
-        :
-            _callback(callback)
-        {
-            Py_XINCREF(callback);
-        }
+    explicit PyFuncWrap(PyObject* callback)
+        : cb(callback)
+        { Py_XINCREF(callback); }
 
     PyFuncWrap(const PyFuncWrap& obj)
-        :
-            _callback(obj._callback)
-        {
-            Py_XINCREF(obj._callback);
-        }
+        : cb(obj.cb)
+        { Py_XINCREF(obj.cb); }
 
 public:
     virtual
-    ~PyFuncWrap()
-        {
-            Py_XDECREF(_callback);
-        }
+    ~PyFuncWrap() { Py_XDECREF(cb); }
 
-    operator
-    bool()
-    {
-        return _callback;
-    }
+    inline operator
+    bool() { return cb; }
 };
 
 
 class ExecCallbackWrap
-    : public PyFuncWrap {
+        : public PyFuncWrap {
 public:
-    ExecCallbackWrap(PyObject* callback = nullptr)
-        :
-            PyFuncWrap(callback)
-        {
-        }
+    explicit ExecCallbackWrap(PyObject* callback)
+        : PyFuncWrap(callback)
+        {}
 
     ExecCallbackWrap(const ExecCallbackWrap& obj)
-        :
-            PyFuncWrap(obj)
-        {
-        }
+        : PyFuncWrap(obj)
+        {}
 
     void
     operator()(sob::callback_msg msg,
@@ -146,73 +130,60 @@ public:
                size_t size) const
     {
         PyObject* args = Py_BuildValue("kkdk", (int)msg, id, price, size);
-        PyObject_CallObject(_callback, args);
+        PyObject_CallObject(cb, args);
         Py_DECREF(args);
     }
 };
 
 
 class StartFuncWrap
-    : public PyFuncWrap {
+        : public PyFuncWrap {
 public:
-    StartFuncWrap(PyObject* callback = nullptr)
-        :
-            PyFuncWrap(callback)
-        {
-        }
+    explicit StartFuncWrap(PyObject* callback)
+        : PyFuncWrap(callback)
+        {}
 
     StartFuncWrap(const StartFuncWrap& obj)
-        :
-            PyFuncWrap(obj)
-        {
-        }
+        : PyFuncWrap(obj)
+        {}
 
     void
     operator()(double implied, double tick) const
     {
         PyObject* args = Py_BuildValue("dd", implied, tick);
-        PyObject_CallObject(_callback, args);
+        PyObject_CallObject(cb, args);
         Py_DECREF(args);
     }
 };
 
 
 class StopFuncWrap
-    : public PyFuncWrap {
+        : public PyFuncWrap {
 public:
-    StopFuncWrap(PyObject* callback = nullptr)
-        :
-            PyFuncWrap(callback)
-        {
-        }
+    explicit StopFuncWrap(PyObject* callback)
+        : PyFuncWrap(callback)
+        {}
 
     StopFuncWrap(const StopFuncWrap& obj)
-        :
-            PyFuncWrap(obj)
-        {
-        }
+        : PyFuncWrap(obj)
+        {}
 
-    void
-    operator()() const
-    {
-        PyObject_CallObject(_callback, NULL);
-    }
+    inline void
+    operator()() const { PyObject_CallObject(cb, NULL); }
 };
 
 
-template< typename T >
-std::pair<int, std::pair< std::string,
-                          typename sob::SimpleOrderbook::FactoryProxy<> >>
-sob_type_make_entry(int index, std::string name){
-    using namespace sob;
+template<typename T>
+std::pair<int, std::pair<std::string, sob::DefaultFactoryProxy>>
+sob_type_make_entry(int index, std::string name)
+{
     return std::make_pair(index,
-                std::make_pair(name, SimpleOrderbook::BuildFactoryProxy<T>() ));
+            std::make_pair(name, sob::SimpleOrderbook::BuildFactoryProxy<T>()) );
 }
 
 const auto SOB_TYPES = [](){
     using namespace sob;
-    return std::map<int, std::pair< std::string,
-                                    typename SimpleOrderbook::FactoryProxy<> >>
+    return std::map<int, std::pair<std::string, DefaultFactoryProxy>>
     {
         sob_type_make_entry<quarter_tick>(1, "SOB_QUARTER_TICK"),
         sob_type_make_entry<tenth_tick>(2, "SOB_TENTH_TICK"),
@@ -267,7 +238,6 @@ get_order_args(PyObject* args,
             return false;
         }
     }
-
     return true;
 }
 
@@ -296,7 +266,6 @@ SOB_trade_limit(pySOB* self, PyObject* args, PyObject* kwds)
     if(!ares){
         return NULL;
     }
-
     if(size <= 0){
         PyErr_SetString(PyExc_ValueError, "size must be > 0");
         return NULL;
@@ -344,7 +313,6 @@ SOB_trade_market(pySOB* self, PyObject* args, PyObject* kwds)
     if(!ares){
         return NULL;
     }
-
     if(size <= 0){
         PyErr_SetString(PyExc_ValueError, "size must be > 0");
         return NULL;
@@ -392,7 +360,6 @@ SOB_trade_stop(pySOB* self,PyObject* args,PyObject* kwds)
     if(!ares){
         return NULL;
     }
-
     if(size <= 0){
         PyErr_SetString(PyExc_ValueError, "size must be > 0");
         return NULL;
@@ -441,7 +408,6 @@ SOB_trade_stop_limit(pySOB* self, PyObject* args, PyObject* kwds)
     if(!ares){
         return NULL;
     }
-
     if(size <= 0){
         PyErr_SetString(PyExc_ValueError, "size must be > 0");
         return NULL;
@@ -509,16 +475,15 @@ SOB_time_and_sales(pySOB* self, PyObject* args)
 
         for(size_t i = 0; i < num && biter != eiter; ++i, ++biter)
         {
-            std::string s = FullInterface::timestamp_to_str(std::get<0>(*biter));
-            PyObject *tup = Py_BuildValue("(s,f,k)", s.c_str(),
-                                std::get<1>(*biter), std::get<2>(*biter));
+            std::string s = sob::to_string(std::get<0>(*biter));
+            PyObject *tup = Py_BuildValue( "(s,f,k)", s.c_str(),
+                                           std::get<1>(*biter),
+                                           std::get<2>(*biter) );
             PyList_SET_ITEM(list, i, tup);
         }
-
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
-
     return list;
 }
 
@@ -580,7 +545,6 @@ SOB_market_depth(pySOB* self, PyObject* args,PyObject* kwds)
             PyObject *tup = Py_BuildValue("(f,k)",elem.first,elem.second);
             PyList_SET_ITEM(list, --indx, tup);
         }
-
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
@@ -736,44 +700,45 @@ SOB_New(PyTypeObject* type, PyObject* args, PyObject* kwds)
     pySOB* self;
     double low, high;
     int sobty;
-    FullInterface* sob;
 
     static char* kwlist[] = {KW::sob_type, KW::low, KW::high, NULL};
-
     if(!PyArg_ParseTupleAndKeywords(args, kwds, "idd", kwlist, &sobty, &low, &high))
     {
         PyErr_SetString(PyExc_ValueError, "error parsing args to __new__");
         return NULL;
     }
 
+    if(low == 0){
+        PyErr_SetString(PyExc_ValueError, "low == 0");
+        return NULL;
+    }
+    if(low > high){ // not consistent with native checks
+        PyErr_SetString(PyExc_ValueError, "low > high");
+        return NULL;
+    }
+
+    // TODO look at this, has leak written all over it
     self = (pySOB*)type->tp_alloc(type,0);
-    self->sob_bndl = nullptr;
-
-    if(self != NULL){
+    if( self ){
+        self->sob_bndl = nullptr;
         try{
-            if(low == 0)
-                throw std::invalid_argument("low must be > 0");
-
             auto factory = SOB_TYPES.at(sobty).second;
-            sob = factory.create(low,high);
-            if(!sob){
+            FullInterface* sob = factory.create(low,high);
+            if( !sob ){
                 throw std::runtime_error("self->_sob was not constructed");
-            }else{
-                self->sob_bndl = (PyObject*)new pySOBBundle(sob, factory);
             }
-        }catch(const std::invalid_argument & e){
-            PyErr_SetString(PyExc_ValueError, e.what());
+            self->sob_bndl = (PyObject*)new pySOBBundle(sob, factory);
         }catch(const std::runtime_error & e){
             PyErr_SetString(PyExc_RuntimeError, e.what());
         }catch(const std::exception & e){
             PyErr_SetString(PyExc_Exception, e.what());
         }
         if(PyErr_Occurred()){
+            // DONT WE NEED TO FREE self ???
             Py_DECREF(self);
             return NULL;
         }
     }
-
     return (PyObject*)self;
 }
 
@@ -864,8 +829,10 @@ PyInit_simpleorderbook(void)
     PyModule_AddObject(mod, "SimpleOrderbook", (PyObject*)&pySOB_type);
 
     /* simple orderbook types */
-    for(auto& p : SOB_TYPES)
-        PyObject_SetAttrString(mod, p.second.first.c_str(), Py_BuildValue("i",p.first));
+    for( auto& p : SOB_TYPES ){
+        PyObject *indx = Py_BuildValue("i",p.first);
+        PyObject_SetAttrString( mod, p.second.first.c_str(), indx );
+    }
 
     return mod;
 }

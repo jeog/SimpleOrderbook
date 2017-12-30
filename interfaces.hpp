@@ -37,7 +37,7 @@ protected:
 
 public:
     typedef QueryInterface my_type;
-    typedef std::tuple<time_stamp_type,double,size_t> timesale_entry_type;
+    typedef std::tuple<clock_type::time_point,double,size_t> timesale_entry_type;
     typedef std::vector<timesale_entry_type> timesale_vector_type;
 
     virtual double
@@ -94,13 +94,8 @@ public:
     virtual const timesale_vector_type&
     time_and_sales() const = 0;
 
-    /* should be const ptr, locking mtx though */
     virtual order_info_type 
-    get_order_info(id_type id, bool search_limits_first=true) = 0;
-
-    /* convert time & sales chrono timepoint to str via ctime */
-    static std::string 
-    timestamp_to_str(const time_stamp_type& tp);
+    get_order_info(id_type id, bool search_limits_first=true) const = 0;
 };
 
 

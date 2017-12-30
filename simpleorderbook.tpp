@@ -1320,7 +1320,7 @@ SOB_CLASS::_total_depth() const
 SOB_TEMPLATE
 template<typename FirstChainTy, typename SecondChainTy>
 order_info_type 
-SOB_CLASS::_get_order_info(id_type id) 
+SOB_CLASS::_get_order_info(id_type id) const
 {
     _assert_valid_chain<FirstChainTy>();
     _assert_valid_chain<SecondChainTy>();
@@ -1410,8 +1410,9 @@ SOB_CLASS::_dump_limits() const
     for( ; h >= l; --h){    
         if( !h->first.empty() ){
             std::cout<< _itop(h);
-            for(const limit_chain_type::value_type& e : h->first)
+            for(const limit_chain_type::value_type& e : h->first){
                 std::cout<< " <" << e.second.first << " #" << e.first << "> ";
+            }
             std::cout<< std::endl;
         } 
     }
@@ -1578,7 +1579,7 @@ SOB_CLASS::pull_order(id_type id, bool search_limits_first)
 
 SOB_TEMPLATE
 order_info_type 
-SOB_CLASS::get_order_info(id_type id, bool search_limits_first) 
+SOB_CLASS::get_order_info(id_type id, bool search_limits_first) const
 {        
     std::lock_guard<std::mutex> lock(_master_mtx); 
     /* --- CRITICAL SECTION --- */

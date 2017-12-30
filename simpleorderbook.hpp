@@ -120,7 +120,7 @@ namespace sob {
  *       time_and_sales: a custom vector defined in QuertyInterface that returns
  *                       a pre-defined number of the most recent trades
  *
- *       ::timestamp_to_str: covert a time_stamp_type from to a readable string
+ *       ::timestamp_to_str: covert a clock_type::time_point from to a readable string
  *
  *       get_order_info: return a tuple of order type, side, price(s) and size for
  *                       an outstanding order
@@ -353,25 +353,34 @@ private:
         void
         _threaded_waker(int sleep);
 
-        /* chain utilities via specializations (in .tpp) */
+        /*
+         * structs below are used to get around member specialization restrictions
+         *
+         * TODO: replace some of the default beg/ends with cached extra
+         */
+
+        /* chain utilities */
         template<typename ChainTy, typename Dummy = void>
         struct _chain;
 
-        /* set/adjust high low plevels via specializations (in .tpp) */
+        /* adjust high/low plevels */
         template<side_of_market Side=side_of_market::both,
                  typename My=SimpleOrderbookImpl>
         struct _high_low;
 
-        /* generate order_info_type tuple via specializations (in .tpp) */
+        /* generate order_info_type tuples */
         template<typename ChainTy, typename My=SimpleOrderbookImpl>
         struct _order_info;
 
+        /* generic execution helpers */
         template<bool BidSide, bool Redirect = BidSide>
         struct _core_exec;
 
+        /* limit order execution helpers */
         template<bool BuyLimit, typename Dummy = void>
         struct _limit_exec;
 
+        /* stop order execution helpers */
         template<bool BuyStop, bool Redirect = BuyStop>
         struct _stop_exec;
 
@@ -441,7 +450,7 @@ private:
         /* return an order_info_type tuple for that order id */
         template<typename FirstChainTy, typename SecondChainTy>
         order_info_type
-        _get_order_info(id_type id);
+        _get_order_info(id_type id) const;
 
         /* remove a particular order */
         template<typename ChainTy,
@@ -561,9 +570,8 @@ private:
                            order_admin_cb_type admin_cb = nullptr);
 
     public:
-        /* should be const ptr, locking mtx though */
         order_info_type
-        get_order_info(id_type id, bool search_limits_first=true);
+        get_order_info(id_type id, bool search_limits_first=true) const;
 
         id_type
         insert_limit_order(bool buy,
@@ -799,17 +807,22 @@ private:
         create( TrimmedRational<TickRatio> min,
                 TrimmedRational<TickRatio> max )
         {
-            if( min.to_incr() == 0 ){
-               ++min;
-            }
-            // note: we may have adjusted min w/o client knowing
             if( min < 0 || min > max ){
                 throw std::invalid_argument("!(0 <= min <= max)");
             }
-            size_t incr = incrs_in_range(min, max) + 1; // inclusive
+            if( min.to_incr() == 0 ){
+               /* note: we adjust w/o client knowing */
+               ++min;
+            }
+
+            size_t incr = incrs_in_range(min, max) + 1; // make inclusive
+            if( incr < 3 ){
+                throw std::invalid_argument("need at least 3 increments");
+            }
             if( incr  > max_ticks ){
                 throw allocation_error("tick range would exceed MaxMemory");
             }
+
             FullInterface *tmp = new SimpleOrderbookImpl(min, incr);
             if( tmp ){
                 SimpleOrderbook::AddResource(tmp);
@@ -834,6 +847,8 @@ private:
     }; /* SimpleOrderbookImpl */
 
 }; /* SimpleOrderbook */
+
+typedef SimpleOrderbook::FactoryProxy<> DefaultFactoryProxy;
 
 }; /* sob */
 
