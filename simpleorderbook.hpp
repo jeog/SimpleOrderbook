@@ -767,7 +767,7 @@ private:
             return _last_id;
         }
 
-        inline const timesale_vector_type&
+        inline const timesale_vector_type& // TODO (no max, allow custom return)
         time_and_sales() const
         {
             return _timesales;

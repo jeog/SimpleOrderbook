@@ -101,33 +101,20 @@ SOB_CLASS::~SimpleOrderbookImpl()
         }        
     }
 
-
-/*
- * nested static calls used to get around member specialization restrictions
- * 
+/* 
  * _high_low::range_check : bounds check and reset plevels if necessary
+ * 
  * _high_low::set_using_depth : populate plevels using passed depth 
  *     from 'inside' bid/ask and internal bounds
+ *     
  * _high_low::set_using_cached : populate plevels using cached extremes
  * 
  * (note: _high_low specials inherit from non-special to access range_check())
- * 
- * _order_info::generate : generate specialized order_info_type tuples
- * 
- * _chain::get : get appropriate chain from plevel
- * _chain::size : get size of chain
- * _chain::find : find chain containing a particular order id
- * 
- * (note: the _chain specials inherit from non-special to access base find
- * 
- * TODO: replace some of the default beg/ends with cached extre
  */
-
 SOB_TEMPLATE
 template<side_of_market Side, typename My> 
 struct SOB_CLASS::_high_low {
     typedef typename SOB_CLASS::plevel plevel;
-
 private:
     template<typename DummyChainTY, typename Dummy=void> 
     struct _set_using_cached;    
@@ -194,7 +181,6 @@ template<typename My>
 struct SOB_CLASS::_high_low<side_of_market::bid,My>
         : public _high_low<side_of_market::both,My> {
     typedef typename SOB_CLASS::plevel plevel;
-
 private:
     template<typename DummyChainTY, typename Dummy=void> 
     struct _set_using_cached;    
@@ -247,7 +233,6 @@ template<typename My>
 struct SOB_CLASS::_high_low<side_of_market::ask,My>
         : public _high_low<side_of_market::both,My> {
     typedef typename SOB_CLASS::plevel plevel;
-
 private:
     template<typename DummyChainTY, typename Dummy=void> 
     struct _set_using_cached;    
@@ -294,7 +279,9 @@ public:
     }
 };
 
-
+/*
+ * _order_info::generate : generate specialized order_info_type tuples
+ */ 
 SOB_TEMPLATE
 template<typename ChainTy, typename My> 
 struct SOB_CLASS::_order_info{
@@ -350,7 +337,13 @@ struct SOB_CLASS::_order_info<typename SOB_CLASS::stop_chain_type, My>{
     }
 };
 
-
+/*
+ * _chain::get : get appropriate chain from plevel
+ * _chain::size : get size of chain
+ * _chain::find : find chain containing a particular order id
+ * 
+ * (note: the _chain specials inherit from non-special to access base find
+ */
 SOB_TEMPLATE
 template<typename ChainTy, typename Dummy> 
 struct SOB_CLASS::_chain { 
@@ -761,15 +754,10 @@ struct SOB_CLASS::_stop_exec<false,Redirect>
 
 /*
  *  _trade<bool> : the guts of order execution:
- *      match limit/market orders against the order book,
+ *      match orders against the order book,
  *      adjust internal state,
  *      check for overflows  
- *
- *  _hit_chain : handles all the trades at a particular plevel
- *               returns what it couldn't fill
- *               
  */
-
 SOB_TEMPLATE 
 template<bool BidSide>
 size_t 
@@ -795,6 +783,10 @@ SOB_CLASS::_trade( plevel plev,
 }
 
 
+/*
+ * _hit_chain : handles all the trades at a particular plevel
+ *              returns what it couldn't fill  
+ */
 SOB_TEMPLATE
 size_t
 SOB_CLASS::_hit_chain( plevel plev,
