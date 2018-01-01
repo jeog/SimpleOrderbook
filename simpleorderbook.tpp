@@ -60,9 +60,7 @@ SOB_CLASS::SimpleOrderbookImpl(TrimmedRational<TickRatio> min, size_t incr)
         /* internal trade stats */
         _total_volume(0),
         _last_id(0), 
-        _timesales(),
-        _timesales_max_entries(1000),
-        _timesales_is_full(false),               
+        _timesales(),                  
         /* trade callbacks */
         _deferred_callback_queue(), 
         _busy_with_callbacks(false),
@@ -75,8 +73,7 @@ SOB_CLASS::SimpleOrderbookImpl(TrimmedRational<TickRatio> min, size_t incr)
         /* core sync objects */
         _master_mtx(),  
         _master_run_flag(true)       
-    {                   
-        _timesales.reserve(_timesales_max_entries);         
+    {                               
         /*** DONT THROW AFTER THIS POINT ***/
         _order_dispatcher_thread = 
             std::thread(std::bind(&SOB_CLASS::_threaded_order_dispatcher,this));               
@@ -843,12 +840,7 @@ SOB_CLASS::_trade_has_occured( plevel plev,
     _deferred_callback_queue.push_back( 
         dfrd_cb_elem_type( callback_msg::fill, cbsell, idsell, p, size )
     );
-    
-    if( _timesales_is_full ){
-        _timesales.pop_back();
-    }else if( _timesales.size() >= (_timesales_max_entries - 1) ){
-        _timesales_is_full = true;
-    }
+
     _timesales.push_back( timesale_entry_type(clock_type::now(),p,size) );
     _last = plev;
     _total_volume += size;

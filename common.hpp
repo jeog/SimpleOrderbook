@@ -83,43 +83,31 @@ std::ostream& operator<<(std::ostream& out, const order_info_type& oi);
 
 
 class liquidity_exception
-    : public std::logic_error{
+        : public std::logic_error{
 public:
     liquidity_exception(const char* what)
-        : 
-            std::logic_error(what) 
-        { 
-        }
+        : std::logic_error(what) {}
 };
 
 class invalid_order
-    : public std::invalid_argument{
+        : public std::invalid_argument{
 public:
     invalid_order(const char* what)
-        : 
-            std::invalid_argument(what) 
-        { 
-        }
+        : std::invalid_argument(what) {}
 };
 
 class invalid_state
-    : public std::runtime_error{ /* logic_error? */
+        : public std::runtime_error{ /* logic_error? */
 public:
     invalid_state(const char* what)
-        : 
-            std::runtime_error(what) 
-        { 
-        }
+        : std::runtime_error(what) {}
 };
 
 class allocation_error
-    : public std::runtime_error{ /* not really a bad_alloc */
+        : public std::runtime_error{ /* not really a bad_alloc */
 public:
     allocation_error(const char* what)
-        :
-            std::runtime_error(what)
-        {
-        }
+        : std::runtime_error(what) {}
 };
 
 }; /* sob */
@@ -274,10 +262,6 @@ public:
     {
         return !(*this >= r);
     }
-
-
-    
-    // TODO other arithmetic overloads
 };
 
 #endif /* JO_0815_TYPES */

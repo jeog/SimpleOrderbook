@@ -72,11 +72,11 @@ namespace sob {
  *
  *   The insert calls are relatively self explanatory except for the two callbacks:
  *
- *   order_exec_cb_type: a functor defined in types.h that will be called
+ *   order_exec_cb_type: a functor defined in common.h that will be called
  *                       when a fill or cancelation occurs for the order, or
  *                       when a stop-limit is triggered.
  *
- *   order_admin_cb_type: a functor defined in types.h that is guaranteed
+ *   order_admin_cb_type: a functor defined in common.h that is guaranteed
  *                        to be called after the order is inserted internally
  *                        but before the insert/replace call returns and any
  *                        order_exec_cb_type callbacks are made.
@@ -315,8 +315,6 @@ private:
 
         /* time & sales */
         timesale_vector_type _timesales;
-        size_t _timesales_max_entries;
-        bool _timesales_is_full;
 
         /* store deferred callbacks info until we are clear to execute */
         std::deque<dfrd_cb_elem_type> _deferred_callback_queue;
@@ -767,7 +765,7 @@ private:
             return _last_id;
         }
 
-        inline const timesale_vector_type& // TODO (no max, allow custom return)
+        inline const timesale_vector_type&
         time_and_sales() const
         {
             return _timesales;

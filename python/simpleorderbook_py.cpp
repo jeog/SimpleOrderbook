@@ -56,8 +56,8 @@ do{ \
     static PyObject* SOB_ ## sobcall(pySOB *self){ \
         try{ \
             using namespace sob; \
-            FullInterface *sob = ((pySOBBundle*)(self->sob_bndl))->interface; \
-            return apicall(sob->sobcall()); \
+            FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface; \
+            return apicall(ob->sobcall()); \
         }catch(std::exception& e){ \
             THROW_PY_EXCEPTION_FROM_NATIVE(e); \
         } \
@@ -81,8 +81,8 @@ CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLongLong, volume )
     static PyObject* SOB_ ## sobcall(pySOB *self){ \
         try{ \
             using namespace sob; \
-            FullInterface *sob = ((pySOBBundle*)(self->sob_bndl))->interface; \
-            sob->sobcall(); \
+            FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface; \
+            ob->sobcall(); \
         }catch(std::exception& e){ \
             THROW_PY_EXCEPTION_FROM_NATIVE(e); \
         } \
@@ -419,11 +419,11 @@ SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
     }
 
     try{
-        FullInterface *sob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
         order_exec_cb_type cb = order_exec_cb_type(ExecCallbackWrap(py_cb));
         id = Replace
-           ? sob->replace_with_limit_order(id, BuyNotSell, limit, size, cb)
-           : sob->insert_limit_order(BuyNotSell, limit, size, cb);
+           ? ob->replace_with_limit_order(id, BuyNotSell, limit, size, cb)
+           : ob->insert_limit_order(BuyNotSell, limit, size, cb);
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
@@ -447,11 +447,11 @@ SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
     }
 
     try{
-        FullInterface *sob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
         order_exec_cb_type cb = order_exec_cb_type(ExecCallbackWrap(py_cb));
         id = Replace
-           ? sob->replace_with_market_order(id, BuyNotSell, size, cb)
-           : sob->insert_market_order(BuyNotSell, size, cb);
+           ? ob->replace_with_market_order(id, BuyNotSell, size, cb)
+           : ob->insert_market_order(BuyNotSell, size, cb);
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
@@ -474,11 +474,11 @@ SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
     }
 
     try{
-        FullInterface *sob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
         order_exec_cb_type cb = order_exec_cb_type(ExecCallbackWrap(py_cb));
         id = Replace
-           ? sob->replace_with_stop_order(id, BuyNotSell, stop, size, cb)
-           : sob->insert_stop_order(BuyNotSell, stop, size, cb);
+           ? ob->replace_with_stop_order(id, BuyNotSell, stop, size, cb)
+           : ob->insert_stop_order(BuyNotSell, stop, size, cb);
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
@@ -503,11 +503,11 @@ SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
     }
 
     try{
-        FullInterface *sob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
         order_exec_cb_type cb = order_exec_cb_type(ExecCallbackWrap(py_cb));
         id = Replace
-           ? sob->replace_with_stop_order(id, BuyNotSell, stop, limit, size, cb)
-           : sob->insert_stop_order(BuyNotSell, stop, limit, size, cb);
+           ? ob->replace_with_stop_order(id, BuyNotSell, stop, limit, size, cb)
+           : ob->insert_stop_order(BuyNotSell, stop, limit, size, cb);
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
@@ -541,25 +541,23 @@ static PyObject*
 SOB_time_and_sales(pySOB *self, PyObject *args)
 {
     using namespace sob;
-    long arg;
 
+    long arg;
     if( !MethodArgs::extract(args, "l", &arg) ){
         return NULL;
     }
 
     PyObject *list;
     try{
-        FullInterface *sob = ((pySOBBundle*)(self->sob_bndl))->interface;
-        const QueryInterface::timesale_vector_type& vec = sob->time_and_sales();
+        FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        const QueryInterface::timesale_vector_type& vec = ob->time_and_sales();
+        size_t num = arg <= 0 ? vec.size() : std::min(vec.size(),(size_t)arg);
+        list = PyList_New(num);
         auto biter = vec.cbegin();
-        auto eiter = vec.cend();
-        size_t num = arg <= 0 ? vec.size() : (size_t)arg;
-        list = PyList_New(std::min(vec.size(),(size_t)num));
-
-        for(size_t i = 0; i < num && biter != eiter; ++i, ++biter)
+        for(size_t i = 0; i < num; ++i, ++biter)
         {
             std::string s = sob::to_string(std::get<0>(*biter));
-            PyObject *tup = Py_BuildValue( "(s,f,k)", s.c_str(),
+            PyObject *tup = Py_BuildValue( "(s,d,k)", s.c_str(),
                                            std::get<1>(*biter),
                                            std::get<2>(*biter) );
             PyList_SET_ITEM(list, i, tup);
@@ -589,17 +587,17 @@ SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
 
     PyObject *list;
     try{
-        FullInterface *sob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
         std::map<double,size_t> md;
         switch(Side){
             case(side_of_market::bid): 
-                md = sob->bid_depth(depth);    
+                md = ob->bid_depth(depth);
                 break;
             case(side_of_market::ask): 
-                md = sob->ask_depth(depth); 
+                md = ob->ask_depth(depth);
                 break;
             case(side_of_market::both): 
-                md = sob->market_depth(depth); 
+                md = ob->market_depth(depth);
                 break;
         }
 
@@ -801,11 +799,11 @@ SOB_New(PyTypeObject *type, PyObject *args, PyObject *kwds)
         self->sob_bndl = nullptr;
         try{
             auto factory = SOB_TYPES.at(sobty).second;
-            FullInterface *sob = factory.create(low,high);
-            if( !sob ){
+            FullInterface *ob = factory.create(low,high);
+            if( !ob ){
                 throw std::runtime_error("self->_sob was not constructed");
             }
-            self->sob_bndl = (PyObject*)new pySOBBundle(sob, factory);
+            self->sob_bndl = (PyObject*)new pySOBBundle(ob, factory);
         }catch(const std::runtime_error & e){
             PyErr_SetString(PyExc_RuntimeError, e.what());
         }catch(const std::exception & e){
@@ -825,8 +823,8 @@ static void
 SOB_Delete(pySOB *self)
 {
     if(self->sob_bndl){
-        sob::FullInterface *sob = ((pySOBBundle*)(self->sob_bndl))->interface;
-        ((pySOBBundle*)(self->sob_bndl))->factory.destroy(sob);
+        sob::FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        ((pySOBBundle*)(self->sob_bndl))->factory.destroy(ob);
         delete ((pySOBBundle*)(self->sob_bndl));
     }
     Py_TYPE(self)->tp_free((PyObject*)self);
