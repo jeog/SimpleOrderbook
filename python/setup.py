@@ -29,7 +29,7 @@ _cpp_ext = Extension(
     "simpleorderbook",
     sources = cpp_sources,
     include_dirs = ["../"],
-    extra_compile_args=["-fPIC","-std=c++11"] # , "-g", "-O0"]
+    extra_compile_args=["-fPIC","-std=c++11", "-g", "-O0"]
  )
 
 setup( ext_modules=[_cpp_ext], **_setup_dict )    

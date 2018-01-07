@@ -1482,7 +1482,7 @@ SOB_CLASS::insert_limit_order( bool buy,
                                order_exec_cb_type exec_cb,
                                order_admin_cb_type admin_cb ) 
 {      
-    if(size <= 0){
+    if(size == 0){
         throw invalid_order("invalid order size");
     }
     
@@ -1505,7 +1505,7 @@ SOB_CLASS::insert_market_order( bool buy,
                                 order_exec_cb_type exec_cb,
                                 order_admin_cb_type admin_cb )
 {    
-    if(size <= 0){
+    if(size == 0){
         throw invalid_order("invalid order size");
     }
     return _push_order_and_wait(order_type::market, buy, nullptr, nullptr, 
@@ -1534,7 +1534,7 @@ SOB_CLASS::insert_stop_order( bool buy,
                               order_exec_cb_type exec_cb,
                               order_admin_cb_type admin_cb )
 {      
-    if(size <= 0){
+    if(size == 0){
         throw invalid_order("invalid order size");
     }
 
@@ -1556,6 +1556,9 @@ SOB_TEMPLATE
 bool 
 SOB_CLASS::pull_order(id_type id, bool search_limits_first)
 {
+    if(id == 0){
+        throw invalid_order("invalid order id(0)");
+    }
     return _push_order_and_wait(order_type::null, search_limits_first, 
                                 nullptr, nullptr, 0, nullptr, nullptr,id); 
 }
@@ -1659,6 +1662,7 @@ SOB_CLASS::dump_cached_plevels() const
     std::cout<< "_low_buy_limit: " << to_str(_low_buy_limit) << std::endl;
     /* --- CRITICAL SECTION --- */
 }
+
 
 };
 

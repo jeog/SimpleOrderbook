@@ -31,8 +31,28 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 namespace sob{
 
-std::unordered_map<unsigned long long, SimpleOrderbook::ResourceInfo>
-SimpleOrderbook::resources;
+SOB_RESOURCE_MANAGER<FullInterface, SimpleOrderbook::ImplDeleter>
+SimpleOrderbook::master_rmanager("master");
+
+SimpleOrderbook::ImplDeleter::ImplDeleter( std::string tag,
+                                           std::string msg,
+                                           std::ostream& out )
+    :
+        _tag(tag),
+        _msg(msg),
+        _out(out)
+    {
+    }
+
+void
+SimpleOrderbook::ImplDeleter::operator()(FullInterface *i) const
+{
+    delete i;
+    if( _msg.size() > 0 ){
+        _out << "ImplDeleter" << " :: " <<  _tag << " :: "
+             << std::hex << i << " :: " << _msg << std::endl;
+    }
+}
 
 std::string 
 to_string(const order_type& ot)

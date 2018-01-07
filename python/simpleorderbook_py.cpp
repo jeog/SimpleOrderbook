@@ -25,7 +25,6 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 namespace {
 
-
 struct pySOBBundle{
     sob::FullInterface *interface;
     sob::SimpleOrderbook::FactoryProxy<> factory;

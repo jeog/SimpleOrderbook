@@ -40,7 +40,13 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 #include <unordered_map>
 
 #include "interfaces.hpp"
+#include "resource_manager.hpp"
 
+#ifdef DEBUG
+#define SOB_RESOURCE_MANAGER ResourceManager_Debug
+#else
+#define SOB_RESOURCE_MANAGER ResourceManager
+#endif
 
 namespace sob {
 /*
@@ -132,6 +138,9 @@ namespace sob {
  */
 
 class SimpleOrderbook {
+    class ImplDeleter;
+    static SOB_RESOURCE_MANAGER<FullInterface, ImplDeleter> master_rmanager;
+
 public:
     template<typename... TArgs>
     struct create_func_varargs{
@@ -149,20 +158,24 @@ public:
     template< typename CTy=def_create_func_type>
     struct FactoryProxy{
         typedef CTy create_func_type;
-        typedef void(*destroy_func_type)(FullInterface*);
-        typedef std::vector<FullInterface*>(*get_all_func_type)();
+        typedef void(*destroy_func_type)(FullInterface *);
+        typedef bool(*is_managed_func_type)(FullInterface *);
+        typedef std::vector<FullInterface *>(*get_all_func_type)();
         typedef void(*destroy_all_func_type)();
         const create_func_type create;
         const destroy_func_type destroy;
+        const is_managed_func_type is_managed;
         const get_all_func_type get_all;
         const destroy_all_func_type destroy_all;
         explicit constexpr FactoryProxy( create_func_type create,
                                          destroy_func_type destroy,
+                                         is_managed_func_type is_managed,
                                          get_all_func_type get_all,
                                          destroy_all_func_type destroy_all)
             :
                 create(create),
                 destroy(destroy),
+                is_managed(is_managed),
                 get_all(get_all),
                 destroy_all(destroy_all)
             {
@@ -181,65 +194,34 @@ public:
          return FactoryProxy<CreatorTy>(
                  ImplTy::create,
                  ImplTy::destroy,
-                 GetAllResources,
-                 RemoveAllResources
+                 ImplTy::is_managed,
+                 ImplTy::get_all,
+                 ImplTy::destroy_all
                  );
     }
 
-private:
-    struct ResourceInfo{
-        FullInterface *interface;
-        /*
-         * TODO: add resource info
-         */
-        ResourceInfo(FullInterface *interface) : interface(interface) {}
-        ResourceInfo() : interface(nullptr) {}
-    };
-
-    static std::unordered_map<unsigned long long, ResourceInfo> resources;
+    static inline void
+    Destroy(FullInterface *interface)
+    {
+        if( interface ){
+            master_rmanager.remove(interface);
+        }
+    }
 
     static inline void
-    AddResource(FullInterface *resource) /* non-null */
-    {
-        resources[(unsigned long long)resource] = ResourceInfo(resource);
-    }
-
-    static std::vector<FullInterface*>
-    GetAllResources()
-    {
-        std::vector<FullInterface*> vec;
-        for( const auto& p : resources ){
-            vec.push_back(p.second.interface);
-        }
-        return vec;
-    }
-
-    static void
-    RemoveResource(FullInterface *resource) /* non-null */
-    {
-        unsigned long long k = (unsigned long long)resource;
-        try{
-            const ResourceInfo& r = resources.at(k);
-            try{
-                delete r.interface;
-            }catch(...){
-                resources.erase(k);
-                throw;
-            }
-            resources.erase(k);
-        }catch(std::out_of_range& e){
-        }
-    }
-
-    static void
-    RemoveAllResources()
-    {
-        for( const auto& r : GetAllResources() ){ // dont need copies
-            RemoveResource(r);
-        }
-    }
+    DestroyAll()
+    { master_rmanager.remove_all(); }
 
 
+    static inline std::vector<FullInterface *>
+    GetAll()
+    { return master_rmanager.get_all(); }
+
+    static inline bool
+    IsManaged(FullInterface *interface)
+    { return master_rmanager.is_managed(interface); }
+
+private:
     template<typename TickRatio, size_t MaxMemory>
     class SimpleOrderbookImpl
             : public FullInterface{
@@ -252,6 +234,9 @@ private:
         SimpleOrderbookImpl(SimpleOrderbookImpl&& sob);
         SimpleOrderbookImpl& operator==(const SimpleOrderbookImpl& sob);
         SimpleOrderbookImpl& operator==(SimpleOrderbookImpl&& sob);
+
+        /* manage instances created by factory proxy */
+        static SOB_RESOURCE_MANAGER<FullInterface, ImplDeleter> rmanager;
 
         /* how callback info is stored in the deferred callback queue */
         typedef std::tuple<callback_msg, order_exec_cb_type,
@@ -416,9 +401,7 @@ private:
         /* generate order ids; don't worry about overflow */
         inline unsigned long long
         _generate_id()
-        {
-            return ++_last_id;
-        }
+        { return ++_last_id; }
 
         /* price-to-index and index-to-price utilities  */
         plevel
@@ -461,22 +444,20 @@ private:
         _pull_order(bool limits_first, id_type id)
         {
             return limits_first
-                ? (_pull_order<limit_chain_type>(id) || _pull_order<stop_chain_type>(id))
-                : (_pull_order<stop_chain_type>(id) || _pull_order<limit_chain_type>(id));
+                ? (_pull_order<limit_chain_type>(id)
+                        || _pull_order<stop_chain_type>(id))
+                : (_pull_order<stop_chain_type>(id)
+                        || _pull_order<limit_chain_type>(id));
         }
 
         /* helper for getting exec callback (what about admin_cb specialization?) */
         inline order_exec_cb_type
         _get_cb_from_bndl(limit_bndl_type& b)
-        {
-            return b.second;
-        }
+        { return b.second; }
 
         inline order_exec_cb_type
         _get_cb_from_bndl(stop_bndl_type& b)
-        {
-            return std::get<3>(b);
-        }
+        { return std::get<3>(b); }
 
         /* called from _pull order to update cached pointers */
         template<bool BuyStop>
@@ -638,138 +619,94 @@ private:
 
         inline void
         dump_buy_limits() const
-        {
-            _dump_limits<true>();
-        }
+        { _dump_limits<true>(); }
 
         inline void
         dump_sell_limits() const
-        {
-            _dump_limits<false>();
-        }
+        { _dump_limits<false>(); }
 
         inline void
         dump_buy_stops() const
-        {
-            _dump_stops<true>();
-        }
+        { _dump_stops<true>(); }
 
         inline void
         dump_sell_stops() const
-        {
-            _dump_stops<false>();
-        }
+        { _dump_stops<false>(); }
 
         void
         dump_cached_plevels() const;
 
         inline std::map<double,size_t>
         bid_depth(size_t depth=8) const
-        {
-            return _market_depth<side_of_market::bid>(depth);
-        }
+        { return _market_depth<side_of_market::bid>(depth); }
 
         inline std::map<double,size_t>
         ask_depth(size_t depth=8) const
-        {
-            return _market_depth<side_of_market::ask>(depth);
-        }
+        { return _market_depth<side_of_market::ask>(depth); }
 
         inline std::map<double,size_t>
         market_depth(size_t depth=8) const
-        {
-            return _market_depth<side_of_market::both>(depth);
-        }
+        { return _market_depth<side_of_market::both>(depth); }
 
         inline double
         incr_size() const
-        {
-            return tick_size;
-        }
+        { return tick_size; }
 
         inline double
         bid_price() const
-        {
-            return _itop(_bid);
-        }
+        { return _itop(_bid); }
 
         inline double
         ask_price() const
-        {
-            return _itop(_ask);
-        }
+        { return _itop(_ask); }
 
         inline double
         last_price() const
-        {
-            return _itop(_last);
-        }
+        { return _itop(_last); }
 
         inline double
         min_price() const
-        {
-            return _itop(_beg);
-        }
+        { return _itop(_beg); }
 
         inline double
         max_price() const
-        {
-            return _itop(_end - 1);
-        }
+        { return _itop(_end - 1); }
 
         inline size_t
         bid_size() const
-        {
-            return _bid_size;
-        }
+        { return _bid_size; }
 
         inline size_t
         ask_size() const
-        {
-            return _ask_size;
-        }
+        { return _ask_size; }
 
         inline size_t
         total_bid_size() const
-        {
-            return _total_depth<side_of_market::bid>();
-        }
+        { return _total_depth<side_of_market::bid>(); }
 
         inline size_t
         total_ask_size() const
-        {
-            return _total_depth<side_of_market::ask>();
-        }
+        { return _total_depth<side_of_market::ask>(); }
 
         inline size_t
         total_size() const
-        {
-            return _total_depth<side_of_market::both>();
-        }
+        { return _total_depth<side_of_market::both>(); }
 
         inline size_t
         last_size() const
-        {
-            return _last_size;
-        }
+        { return _last_size; }
 
         inline unsigned long long
         volume() const
-        {
-            return _total_volume;
-        }
+        { return _total_volume; }
 
         inline unsigned long long
         last_id() const
-        {
-            return _last_id;
-        }
+        { return _last_id; }
 
         inline const timesale_vector_type&
         time_and_sales() const
-        {
-            return _timesales;
-        }
+        { return _timesales; }
 
         // check these (should ticks_per be int?)
         static constexpr double tick_size = (double)TickRatio::num / TickRatio::den;
@@ -794,7 +731,7 @@ private:
         }
 
 
-        static FullInterface*
+        static inline FullInterface*
         create(double min, double max)
         {
             return create( TrimmedRational<TickRatio>(min),
@@ -823,18 +760,34 @@ private:
 
             FullInterface *tmp = new SimpleOrderbookImpl(min, incr);
             if( tmp ){
-                SimpleOrderbook::AddResource(tmp);
+                if( !rmanager.add(tmp, master_rmanager) ){
+                    delete tmp;
+                    throw std::runtime_error("failed to add orderbook");
+                }
             }
             return tmp;
         }
 
-        static void
+        static inline void
         destroy(FullInterface *interface)
         {
             if( interface ){
-                SimpleOrderbook::RemoveResource(interface);
+                rmanager.remove(interface);
             }
         }
+
+        static inline void
+        destroy_all()
+        { rmanager.remove_all(); }
+
+
+        static inline std::vector<FullInterface *>
+        get_all()
+        { return rmanager.get_all(); }
+
+        static inline bool
+        is_managed(FullInterface *interface)
+        { return rmanager.is_managed(interface); }
 
         static_assert(!std::ratio_less<TickRatio,std::ratio<1,10000>>::value,
                       "Increment Ratio < ratio<1,10000> " );
@@ -844,12 +797,30 @@ private:
 
     }; /* SimpleOrderbookImpl */
 
+    class ImplDeleter{
+        std::string _tag;
+        std::string _msg;
+        std::ostream& _out;
+    public:
+        ImplDeleter(std::string tag="",
+                    std::string msg="",
+                    std::ostream& out=std::cout);
+        void
+        operator()(FullInterface * i) const;
+    };
+
 }; /* SimpleOrderbook */
 
 typedef SimpleOrderbook::FactoryProxy<> DefaultFactoryProxy;
 
-}; /* sob */
+template<typename TickRatio, size_t MaxMemory>
+SOB_RESOURCE_MANAGER<FullInterface, SimpleOrderbook::ImplDeleter>
+SimpleOrderbook::SimpleOrderbookImpl<TickRatio, MaxMemory>::rmanager(
+        typeid(TickRatio).name()
+        );
 
+
+}; /* sob */
 
 #include "simpleorderbook.tpp"
 
