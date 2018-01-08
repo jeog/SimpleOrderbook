@@ -24,6 +24,9 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #ifndef IGNORE_TO_DEBUG_NATIVE
 
+// TODO py version of callback msg enum
+//      a default callback function
+
 namespace {
 
 struct pySOBBundle{
@@ -633,103 +636,193 @@ SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
     return list;
 }
 
+struct MDef{
+    template<typename F>
+    static constexpr PyMethodDef
+    NoArgs( const char* name, F func, const char* desc )
+    { return {name, (PyCFunction)func, METH_NOARGS, desc}; }
+
+    template<typename F>
+    static constexpr PyMethodDef
+    KeyArgs( const char* name, F func, const char* desc )
+    { return {name, (PyCFunction)func, METH_VARARGS | METH_KEYWORDS, desc}; }
+
+    template<typename F>
+    static constexpr PyMethodDef
+    VarArgs( const char* name, F func, const char* desc )
+    { return {name, (PyCFunction)func, METH_VARARGS, desc}; }
+};
+
 
 static PyMethodDef pySOB_methods[] = {
-    {"min_price",(PyCFunction)SOB_min_price, METH_NOARGS, "() -> float"},
-    {"max_price",(PyCFunction)SOB_max_price, METH_NOARGS, "() -> float"},
-    {"incr_size",(PyCFunction)SOB_incr_size, METH_NOARGS, "() -> float"},
-    {"bid_price",(PyCFunction)SOB_bid_price, METH_NOARGS, "() -> float"},
-    {"ask_price",(PyCFunction)SOB_ask_price, METH_NOARGS, "() -> float"},
-    {"last_price",(PyCFunction)SOB_last_price, METH_NOARGS, "() -> float"},
-    {"bid_size",(PyCFunction)SOB_bid_size, METH_NOARGS, "() -> int"},
-    {"ask_size",(PyCFunction)SOB_ask_size, METH_NOARGS, "() -> int"},
-    {"total_bid_size",(PyCFunction)SOB_total_bid_size, METH_NOARGS, "() -> int"},
-    {"total_ask_size",(PyCFunction)SOB_total_ask_size, METH_NOARGS, "() -> int"},
-    {"total_size",(PyCFunction)SOB_total_size, METH_NOARGS, "() -> int"},
-    {"last_size",(PyCFunction)SOB_last_size, METH_NOARGS, "() -> int"},
-    {"volume",(PyCFunction)SOB_volume, METH_NOARGS, "() -> int"},
-    {"bid_depth",(PyCFunction)SOB_market_depth<sob::side_of_market::bid>,
-        METH_VARARGS | METH_KEYWORDS,
-        "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
-    {"ask_depth",(PyCFunction)SOB_market_depth<sob::side_of_market::ask>,
-        METH_VARARGS | METH_KEYWORDS,
-        "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
-    {"market_depth",(PyCFunction)SOB_market_depth<sob::side_of_market::both>,
-        METH_VARARGS | METH_KEYWORDS,
-        "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
-    {"dump_buy_limits",(PyCFunction)SOB_dump_buy_limits, METH_NOARGS,
-        "dump (to stdout) all active limit buy orders; () -> void"},
-    {"dump_sell_limits",(PyCFunction)SOB_dump_sell_limits, METH_NOARGS,
-        "dump (to stdout) all active limit sell orders; () -> void"},
-    {"dump_buy_stops",(PyCFunction)SOB_dump_buy_stops, METH_NOARGS,
-        "dump (to stdout) all active buy stop orders; () -> void"},
-    {"dump_sell_stops",(PyCFunction)SOB_dump_sell_stops, METH_NOARGS,
-        "dump (to stdout) all active sell stop orders; () -> void"},
-    {"buy_limit",(PyCFunction)SOB_trade_limit<true,false>,
-        METH_VARARGS | METH_KEYWORDS,
-        "buy limit order; (limit, size, callback) -> order ID"},
-    {"sell_limit",(PyCFunction)SOB_trade_limit<false,false>,
-        METH_VARARGS | METH_KEYWORDS,
-        "sell limit order; (limit, size, callback) -> order ID"},
-    {"buy_market",(PyCFunction)SOB_trade_market<true,false>,
-        METH_VARARGS | METH_KEYWORDS,
-        "buy market order; (size, callback) -> order ID"},
-    {"sell_market",(PyCFunction)SOB_trade_market<false,false>,
-        METH_VARARGS | METH_KEYWORDS,
-        "sell market order; (size, callback) -> order ID"},
-    {"buy_stop",(PyCFunction)SOB_trade_stop<true,false>, 
-        METH_VARARGS | METH_KEYWORDS,
-        "buy stop order; (stop, size, callback) -> order ID"},
-    {"sell_stop",(PyCFunction)SOB_trade_stop<false,false>, 
-        METH_VARARGS | METH_KEYWORDS,
-        "sell stop order; (stop, size, callback) -> order ID"},
-    {"buy_stop_limit",(PyCFunction)SOB_trade_stop_limit<true,false>,
-        METH_VARARGS | METH_KEYWORDS,
-        "buy stop limit order; (stop, limit, size, callback) -> order ID"},
-    {"sell_stop_limit",(PyCFunction)SOB_trade_stop_limit<false,false>,
-        METH_VARARGS | METH_KEYWORDS,
-        "sell stop limit order; (stop, limit, size, callback) -> order ID"},
-    {"pull_order",(PyCFunction)SOB_pull_order, 
-        METH_VARARGS | METH_KEYWORDS,
-        "remove order; (id) -> success/failure(boolean)"},
-    {"replace_with_buy_limit",(PyCFunction)SOB_trade_limit<true,true>,
-        METH_VARARGS | METH_KEYWORDS, 
-        "replace old order with new buy limit order; "
-        "(id, limit, size, callback) -> new order ID"},
-    {"replace_with_sell_limit",(PyCFunction)SOB_trade_limit<false,true>,
-        METH_VARARGS | METH_KEYWORDS, 
-        "replace old order with new sell limit order; "
-        "(id, limit, size, callback) -> new order ID"},
-    {"replace_with_buy_market",(PyCFunction)SOB_trade_market<true,true>,
-        METH_VARARGS | METH_KEYWORDS, 
-        "replace old order with new buy market order; "
-        "(id, size, callback) -> new order ID"},
-    {"replace_with_sell_market",(PyCFunction)SOB_trade_market<false,true>,
-        METH_VARARGS | METH_KEYWORDS, 
-        "replace old order with new sell market order; "
-        "(id, size, callback) -> new order ID"},
-    {"replace_with_buy_stop",(PyCFunction)SOB_trade_stop<true,true>,
-        METH_VARARGS | METH_KEYWORDS, 
-        "replace old order with new buy stop order; "
-        "(id, stop, size, callback) -> new order ID"},
-    {"replace_with_sell_stop",(PyCFunction)SOB_trade_stop<false,true>,
-        METH_VARARGS | METH_KEYWORDS, 
-        "replace old order with new sell stop order; "
-        "(id, stop, size, callback) -> new order ID"},
-    {"replace_with_buy_stop_limit",(PyCFunction)SOB_trade_stop_limit<true,true>,
-        METH_VARARGS | METH_KEYWORDS, 
-        "replace old order with new buy stop limit order; " 
-        "(id, stop, limit, size, callback) -> new order ID"},
-    {"replace_with_sell_stop_limit",(PyCFunction)SOB_trade_stop_limit<false,true>,
-        METH_VARARGS | METH_KEYWORDS, 
-        "replace old order with new sell stop limit order; "
-        "(id, stop, limit, size, callback) -> new order ID"},
-    {"time_and_sales",(PyCFunction)SOB_time_and_sales, 
-        METH_VARARGS,
-        "(size) -> list of 3-tuples [(str,float,int),(str,float,int),..] "},
+    MDef::NoArgs("min_price", SOB_min_price, "() -> float"),
+    MDef::NoArgs("max_price",SOB_max_price, "() -> float"),
+    MDef::NoArgs("incr_size",SOB_incr_size, "() -> float"),
+    MDef::NoArgs("bid_price",SOB_bid_price, "() -> float"),
+    MDef::NoArgs("ask_price",SOB_ask_price, "() -> float"),
+    MDef::NoArgs("last_price",SOB_last_price, "() -> float"),
+    MDef::NoArgs("bid_size",SOB_bid_size, "() -> int"),
+    MDef::NoArgs("ask_size",SOB_ask_size, "() -> int"),
+    MDef::NoArgs("total_bid_size",SOB_total_bid_size, "() -> int"),
+    MDef::NoArgs("total_ask_size",SOB_total_ask_size, "() -> int"),
+    MDef::NoArgs("total_size",SOB_total_size, "() -> int"),
+    MDef::NoArgs("last_size",SOB_last_size, "() -> int"),
+    MDef::NoArgs("volume",SOB_volume, "() -> int"),
+
+    MDef::NoArgs("dump_buy_limits",SOB_dump_buy_limits,
+                 "print to stdout all active limit buy orders"),
+    MDef::NoArgs("dump_sell_limits",SOB_dump_sell_limits,
+                 "print to stdout all active limit sell orders"),
+    MDef::NoArgs("dump_buy_stops",SOB_dump_buy_stops,
+                 "print to stdout all active buy stop orders"),
+    MDef::NoArgs("dump_sell_stops",SOB_dump_sell_stops,
+                 "print to stdout all active sell stop orders"),
+
+
+#define DOCS_MARKET_DEPTH(arg1) \
+" get total outstanding order size at each " arg1 " price level \n\n" \
+"    def " arg1 "_depth(depth) -> [(price level, total size), ...] \n\n" \
+"    depth :: int :: number of price levels to return \n\n" \
+"    returns -> list of (float,int) \n"
+
+    MDef::KeyArgs("bid_depth", SOB_market_depth<sob::side_of_market::bid>,
+        DOCS_MARKET_DEPTH("bid")),
+
+    MDef::KeyArgs("ask_depth",SOB_market_depth<sob::side_of_market::ask>,
+        DOCS_MARKET_DEPTH("ask")),
+
+    MDef::KeyArgs("market_depth",SOB_market_depth<sob::side_of_market::both>,
+        DOCS_MARKET_DEPTH("market")),
+
+
+#define DOCS_TRADE_MARKET(arg1) \
+" insert " arg1 " market order \n\n" \
+"    def " arg1 "_market(size, callback) -> order ID \n\n" \
+"    size     :: int   :: number of shares/contracts \n" \
+"    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
+"    returns -> int \n"
+
+    MDef::KeyArgs("buy_market",SOB_trade_market<true,false>,
+        DOCS_TRADE_MARKET("buy")),
+
+    MDef::KeyArgs("sell_market",SOB_trade_market<false,false>,
+        DOCS_TRADE_MARKET("sell")),
+
+
+#define DOCS_TRADE_STOP_OR_LIMIT(arg1, arg2) \
+    " insert " arg1 " " arg2 " order \n\n" \
+    "    def " arg1 "_" arg2 "(" arg2 ", size, callback) -> order ID \n\n" \
+    "    " arg2 "    :: float :: " arg2 " price \n" \
+    "    size     :: int   :: number of shares/contracts \n" \
+    "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
+    "    returns -> int \n"
+
+    MDef::KeyArgs("buy_limit",SOB_trade_limit<true,false>,
+        DOCS_TRADE_STOP_OR_LIMIT("buy", "limit")),
+
+    MDef::KeyArgs("sell_limit",SOB_trade_limit<false,false>,
+        DOCS_TRADE_STOP_OR_LIMIT("sell", "limit")),
+
+    MDef::KeyArgs("buy_stop",SOB_trade_stop<true,false>,
+        DOCS_TRADE_STOP_OR_LIMIT("buy", "stop")),
+
+    MDef::KeyArgs("sell_stop",SOB_trade_stop<false,false>,
+        DOCS_TRADE_STOP_OR_LIMIT("sell", "stop")),
+
+
+#define DOCS_TRADE_STOP_AND_LIMIT(arg1) \
+    " insert " arg1 " stop-limit order \n\n" \
+    "    def " arg1 "_stop_limit(stop, limit, size, callback) -> order ID \n\n" \
+    "    stop     :: float :: stop price \n" \
+    "    limit    :: float :: limit price \n" \
+    "    size     :: int   :: number of shares/contracts \n" \
+    "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
+    "    returns -> int \n"
+
+    MDef::KeyArgs("buy_stop_limit",SOB_trade_stop_limit<true,false>,
+        DOCS_TRADE_STOP_AND_LIMIT("buy")),
+
+    MDef::KeyArgs("sell_stop_limit",SOB_trade_stop_limit<false,false>,
+        DOCS_TRADE_STOP_AND_LIMIT("sell")),
+
+
+    MDef::KeyArgs("pull_order",SOB_pull_order,
+        " pull(remove) order \n\n"
+        "    def pull_order(id) -> success \n\n"
+        "    id :: int :: order ID \n\n"
+        "    returns -> bool \n"),
+
+
+#define DOCS_REPLACE_WITH_MARKET(arg1) \
+    " replace old order with new " arg1 " market order \n\n" \
+    "    def replace_with_" arg1 "_market(id, size, callback) -> new order ID \n\n" \
+    "    id       :: int   :: old order ID \n" \
+    "    size     :: int   :: number of shares/contracts \n" \
+    "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
+    "    returns -> int \n"
+
+    MDef::KeyArgs("replace_with_buy_market",SOB_trade_market<true,true>,
+        DOCS_REPLACE_WITH_MARKET("buy")),
+
+    MDef::KeyArgs("replace_with_sell_market",SOB_trade_market<false,true>,
+        DOCS_REPLACE_WITH_MARKET("sell")),
+
+
+#define DOCS_REPLACE_WITH_STOP_OR_LIMIT(arg1, arg2) \
+    " replace old order with new " arg1 " " arg2 " order \n\n" \
+    "    def replace_with_" arg1 "_" arg2 "(id," arg2 ", size, callback) -> new order ID \n\n" \
+    "    id       :: int   :: old order ID \n" \
+    "    " arg2 "    :: float :: " arg2 " price \n" \
+    "    size     :: int   :: number of shares/contracts \n" \
+    "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
+    "    returns -> int \n"
+
+    MDef::KeyArgs("replace_with_buy_limit",SOB_trade_limit<true,true>,
+        DOCS_REPLACE_WITH_STOP_OR_LIMIT("buy","limit")),
+
+    MDef::KeyArgs("replace_with_sell_limit",SOB_trade_limit<false,true>,
+            DOCS_REPLACE_WITH_STOP_OR_LIMIT("sell","limit")),
+
+    MDef::KeyArgs("replace_with_buy_stop",SOB_trade_stop<true,true>,
+            DOCS_REPLACE_WITH_STOP_OR_LIMIT("buy","stop")),
+
+    MDef::KeyArgs("replace_with_sell_stop",SOB_trade_stop<false,true>,
+            DOCS_REPLACE_WITH_STOP_OR_LIMIT("sell","stop")),
+
+
+#define DOCS_REPLACE_WITH_STOP_AND_LIMIT(arg1) \
+    " replace old order with new " arg1 " stop-limit order \n\n" \
+    "    def replace_with_" arg1 "_stop_limit(id, stop, limit, size, callback) -> new order ID \n\n" \
+    "    id       :: int   :: old order ID \n" \
+    "    stop     :: float :: stop price \n" \
+    "    limit    :: float :: limit price \n" \
+    "    size     :: int   :: number of shares/contracts \n" \
+    "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
+    "    returns -> int \n"
+
+    MDef::KeyArgs("replace_with_buy_stop_limit",SOB_trade_stop_limit<true,true>,
+        DOCS_REPLACE_WITH_STOP_AND_LIMIT("buy")),
+
+    MDef::KeyArgs("replace_with_sell_stop_limit",SOB_trade_stop_limit<false,true>,
+        DOCS_REPLACE_WITH_STOP_AND_LIMIT("sell")),
+
+
+    MDef::VarArgs("time_and_sales",SOB_time_and_sales,
+        " get list of time & sales information \n\n"
+        "    def time_and_sales(size) -> [(time,price,size),...] \n\n"
+        "    size  ::  int  :: (optional) number of t&s tuples to return \n\n"
+        "    returns -> list of (str,float,int)"),
+
     {NULL}
 };
 
+#undef DOCS_MARKET_DEPTH
+#undef DOCS_TRADE_MARKET
+#undef DOCS_TRADE_STOP_OR_LIMIT
+#undef DOCS_TRADE_STOP_AND_LIMIT
+#undef DOCS_REPLACE_WITH_MARKET
+#undef DOCS_REPLACE_WITH_STOP_OR_LIMIT
+#undef DOCS_REPLACE_WITH_STOP_AND_LIMIT
 
 static PyObject* 
 SOB_New(PyTypeObject *type, PyObject *args, PyObject *kwds)

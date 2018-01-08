@@ -126,8 +126,6 @@ namespace sob {
  *       time_and_sales: a custom vector defined in QuertyInterface that returns
  *                       a pre-defined number of the most recent trades
  *
- *       ::timestamp_to_str: covert a clock_type::time_point from to a readable string
- *
  *       get_order_info: return a tuple of order type, side, price(s) and size for
  *                       an outstanding order
  *
@@ -211,7 +209,6 @@ public:
     static inline void
     DestroyAll()
     { master_rmanager.remove_all(); }
-
 
     static inline std::vector<FullInterface *>
     GetAll()
@@ -413,9 +410,6 @@ private:
         size_t
         _incrs_in_range( TrimmedRational<TickRatio> lprice,
                          TrimmedRational<TickRatio> hprice );
-
-        size_t
-        _generate_and_check_total_incr();
 
         /* calculate chain_size of orders at each price level
          * use depth increments on each side of last  */

@@ -39,8 +39,8 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
         void 
         execution_callback(sob::callback_msg msg, 
                            sob::id_type id,
-                           sob::pirce_type price,
-                           sob::size_type size);
+                           double price,
+                           size_t size);
 
         void 
         insert_orders(sob::FullInterface *orderbook);
@@ -166,8 +166,8 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
         void 
         execution_callback(sob::callback_msg msg, 
                            sob::id_type id,
-                           sob::pirce_type price,
-                           sob::size_type size)
+                           double price,
+                           size_t size)
         {
             // define
         }

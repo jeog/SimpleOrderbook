@@ -285,9 +285,7 @@ template<typename ChainTy, typename My>
 struct SOB_CLASS::_order_info{
     static inline order_info_type 
     generate()
-    { 
-        return order_info_type(order_type::null,false,0,0,0);
-    }
+    { return order_info_type(order_type::null,false,0,0,0); }
 };
 
 
@@ -375,9 +373,7 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::limit_chain_type, Dummy>
 
     static inline chain_type* 
     get(typename SOB_CLASS::plevel p)
-    { 
-        return &(p->first); 
-    } 
+    { return &(p->first); } 
 
     static size_t 
     size(chain_type* c)
@@ -392,9 +388,7 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::limit_chain_type, Dummy>
     template<typename My>
     static inline std::pair<typename SOB_CLASS::plevel,chain_type*>    
     find(const My* sob, id_type id)
-    {        
-        return _chain<void>::template find<chain_type>(sob,id); 
-    }
+    { return _chain<void>::template find<chain_type>(sob,id); }
 };
 
 
@@ -406,9 +400,7 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>
 
     static inline chain_type* 
     get(typename SOB_CLASS::plevel p)
-    { 
-        return &(p->second); 
-    }
+    { return &(p->second); }
 
     static size_t 
     size(chain_type* c)
@@ -423,9 +415,7 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>
     template<typename My>
     static inline std::pair<typename SOB_CLASS::plevel,chain_type*> 
     find(const My* sob, id_type id)
-    {        
-        return _chain<void>::template find<chain_type>(sob,id); 
-    }
+    { return _chain<void>::template find<chain_type>(sob,id); }
 };
 
 
@@ -444,16 +434,12 @@ struct SOB_CLASS::_core_exec {
     template<typename My>
     static inline bool
     is_executable_chain(const My* sob, typename SOB_CLASS::plevel p) 
-    {
-        return (p <= sob->_bid || !p) && (sob->_bid >= sob->_beg);
-    }
+    { return (p <= sob->_bid || !p) && (sob->_bid >= sob->_beg); }
 
     template<typename My>
     static inline typename SOB_CLASS::plevel
     get_inside(const My* sob) 
-    {
-        return sob->_bid;
-    }
+    { return sob->_bid; }
 
     /* THIS WILL GET IMPORTED BY THE <false> specialization */
     template<typename My>
@@ -492,7 +478,7 @@ private:
             return false;
         }        
         sob->_bid_size = SOB_CLASS::_chain<SOB_CLASS::limit_chain_type>
-                                  ::size(&sob->_bid->first);             
+                         ::size(&sob->_bid->first);             
         return true;
     }
 
@@ -517,16 +503,12 @@ struct SOB_CLASS::_core_exec<false,Redirect>
     template<typename My>
     static inline bool
     is_executable_chain(const My* sob, typename SOB_CLASS::plevel p) 
-    {
-        return (p >= sob->_ask || !p) && (sob->_ask < sob->_end);
-    }
+    { return (p >= sob->_ask || !p) && (sob->_ask < sob->_end); }
 
     template<typename My>
     static inline typename SOB_CLASS::plevel
     get_inside(const My* sob) 
-    {
-        return sob->_ask;
-    }
+    { return sob->_ask; }
 
 private:
     template<typename My>
@@ -550,7 +532,7 @@ private:
             return false;
         }
         sob->_ask_size = SOB_CLASS::_chain<SOB_CLASS::limit_chain_type>
-                                  ::size(&sob->_ask->first);                     
+                         ::size(&sob->_ask->first);                     
         return true;
     }
 
@@ -592,7 +574,7 @@ struct SOB_CLASS::_limit_exec {
         if( limit >= sob->_bid ){
             sob->_bid = limit;
             sob->_bid_size = SOB_CLASS::_chain<SOB_CLASS::limit_chain_type>
-                                      ::size(orders);
+                             ::size(orders);
         }
 
         if( limit < sob->_low_buy_limit ){
@@ -629,7 +611,7 @@ struct SOB_CLASS::_limit_exec<false, Dummy> {
         if( limit <= sob->_ask) {
             sob->_ask = limit;
             sob->_ask_size = SOB_CLASS::_chain<SOB_CLASS::limit_chain_type>
-                                      ::size(orders);
+                             ::size(orders);
         }
         if( limit > sob->_high_sell_limit ){
             sob->_high_sell_limit = limit; 
