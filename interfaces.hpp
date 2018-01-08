@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015 Jonathon Ogden         < jeog.dev@gmail.com >
+Copyright (C) 2017 Jonathon Ogden < jeog.dev@gmail.com >
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -12,11 +12,11 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.    See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with this program.    If not, see http://www.gnu.org/licenses.
+along with this program. If not, see http://www.gnu.org/licenses.
 */
 
-#ifndef JO_0815_INTERFACES
-#define JO_0815_INTERFACES
+#ifndef JO_SOB_INTERFACES
+#define JO_SOB_INTERFACES
 
 #include <vector>
 #include <map>
@@ -24,10 +24,6 @@ along with this program.    If not, see http://www.gnu.org/licenses.
 #include "common.hpp"
 
 namespace sob{
-
-/*
- * (see simple_orderbook.hpp for a complete description)
- */
 
 class QueryInterface{
     friend SimpleOrderbook;
@@ -200,9 +196,8 @@ public:
 
 };
 
-
 }; /* sob */
 
-#endif /* JO_0815_INTERFACES */
+#endif 
 
 

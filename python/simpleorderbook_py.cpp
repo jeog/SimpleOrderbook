@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015 Jonathon Ogden < jeog.dev@gmail.com >
+Copyright (C) 2017 Jonathon Ogden < jeog.dev@gmail.com >
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -18,6 +18,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <Python.h>
 #include <structmember.h>
 #include <sstream>
+
 #include "../common.hpp"
 #include "../simpleorderbook.hpp"
 
@@ -108,10 +109,12 @@ protected:
 
 public:
     virtual
-    ~PyFuncWrap() { Py_XDECREF(cb); }
+    ~PyFuncWrap() 
+    { Py_XDECREF(cb); }
 
     inline operator
-    bool() { return cb; }
+    bool() 
+    { return cb; }
 };
 
 
@@ -172,7 +175,8 @@ public:
         {}
 
     inline void
-    operator()() const { PyObject_CallObject(cb, NULL); }
+    operator()() const 
+    { PyObject_CallObject(cb, NULL); }
 };
 
 
@@ -206,6 +210,7 @@ to_string(PyObject *arg)
     ss<< std::hex << static_cast<void*>(arg);
     return ss.str();
 }
+
 using std::to_string;
 
 
@@ -629,142 +634,99 @@ SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
 }
 
 
-
 static PyMethodDef pySOB_methods[] = {
-    /* GET STATE */
     {"min_price",(PyCFunction)SOB_min_price, METH_NOARGS, "() -> float"},
-
     {"max_price",(PyCFunction)SOB_max_price, METH_NOARGS, "() -> float"},
-
     {"incr_size",(PyCFunction)SOB_incr_size, METH_NOARGS, "() -> float"},
-
     {"bid_price",(PyCFunction)SOB_bid_price, METH_NOARGS, "() -> float"},
-
     {"ask_price",(PyCFunction)SOB_ask_price, METH_NOARGS, "() -> float"},
-
     {"last_price",(PyCFunction)SOB_last_price, METH_NOARGS, "() -> float"},
-
     {"bid_size",(PyCFunction)SOB_bid_size, METH_NOARGS, "() -> int"},
-
     {"ask_size",(PyCFunction)SOB_ask_size, METH_NOARGS, "() -> int"},
-
     {"total_bid_size",(PyCFunction)SOB_total_bid_size, METH_NOARGS, "() -> int"},
-
     {"total_ask_size",(PyCFunction)SOB_total_ask_size, METH_NOARGS, "() -> int"},
-
     {"total_size",(PyCFunction)SOB_total_size, METH_NOARGS, "() -> int"},
-
     {"last_size",(PyCFunction)SOB_last_size, METH_NOARGS, "() -> int"},
-
     {"volume",(PyCFunction)SOB_volume, METH_NOARGS, "() -> int"},
-
     {"bid_depth",(PyCFunction)SOB_market_depth<sob::side_of_market::bid>,
-     METH_VARARGS | METH_KEYWORDS,
-     "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
-
+        METH_VARARGS | METH_KEYWORDS,
+        "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
     {"ask_depth",(PyCFunction)SOB_market_depth<sob::side_of_market::ask>,
-     METH_VARARGS | METH_KEYWORDS,
-     "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
-
+        METH_VARARGS | METH_KEYWORDS,
+        "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
     {"market_depth",(PyCFunction)SOB_market_depth<sob::side_of_market::both>,
-     METH_VARARGS | METH_KEYWORDS,
-     "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
-
-    /* DUMP */
+        METH_VARARGS | METH_KEYWORDS,
+        "(int depth) -> list of 2-tuples [(float,int),(float,int),..]"},
     {"dump_buy_limits",(PyCFunction)SOB_dump_buy_limits, METH_NOARGS,
-     "dump (to stdout) all active limit buy orders; () -> void"},
-
+        "dump (to stdout) all active limit buy orders; () -> void"},
     {"dump_sell_limits",(PyCFunction)SOB_dump_sell_limits, METH_NOARGS,
-     "dump (to stdout) all active limit sell orders; () -> void"},
-
+        "dump (to stdout) all active limit sell orders; () -> void"},
     {"dump_buy_stops",(PyCFunction)SOB_dump_buy_stops, METH_NOARGS,
-     "dump (to stdout) all active buy stop orders; () -> void"},
-
+        "dump (to stdout) all active buy stop orders; () -> void"},
     {"dump_sell_stops",(PyCFunction)SOB_dump_sell_stops, METH_NOARGS,
-     "dump (to stdout) all active sell stop orders; () -> void"},
-
-    /* INSERT */
+        "dump (to stdout) all active sell stop orders; () -> void"},
     {"buy_limit",(PyCFunction)SOB_trade_limit<true,false>,
-     METH_VARARGS | METH_KEYWORDS,
-     "buy limit order; (limit, size, callback) -> order ID"},
-
+        METH_VARARGS | METH_KEYWORDS,
+        "buy limit order; (limit, size, callback) -> order ID"},
     {"sell_limit",(PyCFunction)SOB_trade_limit<false,false>,
-     METH_VARARGS | METH_KEYWORDS,
-     "sell limit order; (limit, size, callback) -> order ID"},
-
+        METH_VARARGS | METH_KEYWORDS,
+        "sell limit order; (limit, size, callback) -> order ID"},
     {"buy_market",(PyCFunction)SOB_trade_market<true,false>,
-     METH_VARARGS | METH_KEYWORDS,
-     "buy market order; (size, callback) -> order ID"},
-
+        METH_VARARGS | METH_KEYWORDS,
+        "buy market order; (size, callback) -> order ID"},
     {"sell_market",(PyCFunction)SOB_trade_market<false,false>,
-     METH_VARARGS | METH_KEYWORDS,
-     "sell market order; (size, callback) -> order ID"},
-
+        METH_VARARGS | METH_KEYWORDS,
+        "sell market order; (size, callback) -> order ID"},
     {"buy_stop",(PyCFunction)SOB_trade_stop<true,false>, 
-     METH_VARARGS | METH_KEYWORDS,
-     "buy stop order; (stop, size, callback) -> order ID"},
-
+        METH_VARARGS | METH_KEYWORDS,
+        "buy stop order; (stop, size, callback) -> order ID"},
     {"sell_stop",(PyCFunction)SOB_trade_stop<false,false>, 
-     METH_VARARGS | METH_KEYWORDS,
-     "sell stop order; (stop, size, callback) -> order ID"},
-
+        METH_VARARGS | METH_KEYWORDS,
+        "sell stop order; (stop, size, callback) -> order ID"},
     {"buy_stop_limit",(PyCFunction)SOB_trade_stop_limit<true,false>,
-     METH_VARARGS | METH_KEYWORDS,
-     "buy stop limit order; (stop, limit, size, callback) -> order ID"},
-
+        METH_VARARGS | METH_KEYWORDS,
+        "buy stop limit order; (stop, limit, size, callback) -> order ID"},
     {"sell_stop_limit",(PyCFunction)SOB_trade_stop_limit<false,false>,
-     METH_VARARGS | METH_KEYWORDS,
-     "sell stop limit order; (stop, limit, size, callback) -> order ID"},
-
-    /* PULL */
-    {"pull_order",(PyCFunction)SOB_pull_order, METH_VARARGS | METH_KEYWORDS,
-     "remove order; (id) -> success/failure(boolean)"},
-
-    /* REPLACE */
+        METH_VARARGS | METH_KEYWORDS,
+        "sell stop limit order; (stop, limit, size, callback) -> order ID"},
+    {"pull_order",(PyCFunction)SOB_pull_order, 
+        METH_VARARGS | METH_KEYWORDS,
+        "remove order; (id) -> success/failure(boolean)"},
     {"replace_with_buy_limit",(PyCFunction)SOB_trade_limit<true,true>,
-     METH_VARARGS | METH_KEYWORDS, 
-     "replace old order with new buy limit order; "
-     "(id, limit, size, callback) -> new order ID"},
-
+        METH_VARARGS | METH_KEYWORDS, 
+        "replace old order with new buy limit order; "
+        "(id, limit, size, callback) -> new order ID"},
     {"replace_with_sell_limit",(PyCFunction)SOB_trade_limit<false,true>,
-     METH_VARARGS | METH_KEYWORDS, 
-     "replace old order with new sell limit order; "
-     "(id, limit, size, callback) -> new order ID"},
-
+        METH_VARARGS | METH_KEYWORDS, 
+        "replace old order with new sell limit order; "
+        "(id, limit, size, callback) -> new order ID"},
     {"replace_with_buy_market",(PyCFunction)SOB_trade_market<true,true>,
-     METH_VARARGS | METH_KEYWORDS, 
-     "replace old order with new buy market order; "
-     "(id, size, callback) -> new order ID"},
-
+        METH_VARARGS | METH_KEYWORDS, 
+        "replace old order with new buy market order; "
+        "(id, size, callback) -> new order ID"},
     {"replace_with_sell_market",(PyCFunction)SOB_trade_market<false,true>,
-     METH_VARARGS | METH_KEYWORDS, 
-     "replace old order with new sell market order; "
-     "(id, size, callback) -> new order ID"},
-
+        METH_VARARGS | METH_KEYWORDS, 
+        "replace old order with new sell market order; "
+        "(id, size, callback) -> new order ID"},
     {"replace_with_buy_stop",(PyCFunction)SOB_trade_stop<true,true>,
-     METH_VARARGS | METH_KEYWORDS, 
-     "replace old order with new buy stop order; "
-     "(id, stop, size, callback) -> new order ID"},
-
+        METH_VARARGS | METH_KEYWORDS, 
+        "replace old order with new buy stop order; "
+        "(id, stop, size, callback) -> new order ID"},
     {"replace_with_sell_stop",(PyCFunction)SOB_trade_stop<false,true>,
-     METH_VARARGS | METH_KEYWORDS, 
-     "replace old order with new sell stop order; "
-     "(id, stop, size, callback) -> new order ID"},
-
+        METH_VARARGS | METH_KEYWORDS, 
+        "replace old order with new sell stop order; "
+        "(id, stop, size, callback) -> new order ID"},
     {"replace_with_buy_stop_limit",(PyCFunction)SOB_trade_stop_limit<true,true>,
-     METH_VARARGS | METH_KEYWORDS, 
-     "replace old order with new buy stop limit order; " 
-     "(id, stop, limit, size, callback) -> new order ID"},
-
+        METH_VARARGS | METH_KEYWORDS, 
+        "replace old order with new buy stop limit order; " 
+        "(id, stop, limit, size, callback) -> new order ID"},
     {"replace_with_sell_stop_limit",(PyCFunction)SOB_trade_stop_limit<false,true>,
-     METH_VARARGS | METH_KEYWORDS, 
-     "replace old order with new sell stop limit order; "
-     "(id, stop, limit, size, callback) -> new order ID"},
-
-    /* TIME & SALES */
-    {"time_and_sales",(PyCFunction)SOB_time_and_sales, METH_VARARGS,
-     "(size) -> list of 3-tuples [(str,float,int),(str,float,int),..] "},
-
+        METH_VARARGS | METH_KEYWORDS, 
+        "replace old order with new sell stop limit order; "
+        "(id, stop, limit, size, callback) -> new order ID"},
+    {"time_and_sales",(PyCFunction)SOB_time_and_sales, 
+        METH_VARARGS,
+        "(size) -> list of 3-tuples [(str,float,int),(str,float,int),..] "},
     {NULL}
 };
 
@@ -874,7 +836,6 @@ static PyTypeObject pySOB_type = {
     SOB_New,
 };
 
-
 static struct PyModuleDef pySOB_mod_def = {
     PyModuleDef_HEAD_INIT,
     "simpleorderbook",
@@ -892,14 +853,14 @@ static struct PyModuleDef pySOB_mod_def = {
 PyMODINIT_FUNC 
 PyInit_simpleorderbook(void)
 {
-    PyObject *mod;
-
-    if(PyType_Ready(&pySOB_type) < 0)
+    if( PyType_Ready(&pySOB_type) < 0 ){
         return NULL;
+    }
 
-    mod = PyModule_Create(&pySOB_mod_def);
-    if(!mod)
+    PyObject *mod = PyModule_Create(&pySOB_mod_def);
+    if( !mod ){
         return NULL;
+    }
 
     Py_INCREF(&pySOB_type);
     PyModule_AddObject(mod, "SimpleOrderbook", (PyObject*)&pySOB_type);

@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015 Jonathon Ogden     < jeog.dev@gmail.com >
+Copyright (C) 2017 Jonathon Ogden < jeog.dev@gmail.com >
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -12,11 +12,11 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with this program.  If not, see http://www.gnu.org/licenses.
+along with this program. If not, see http://www.gnu.org/licenses.
 */
 
-#ifndef JO_0815_TYPES
-#define JO_0815_TYPES
+#ifndef JO_SOB_COMMON
+#define JO_SOB_COMMON
 
 #include <stdexcept>
 #include <exception>
@@ -34,7 +34,6 @@ along with this program.  If not, see http://www.gnu.org/licenses.
 
 namespace sob{
 
-/* fwrd decl */
 class SimpleOrderbook;
 
 typedef unsigned long       id_type;
@@ -264,6 +263,6 @@ public:
     }
 };
 
-#endif /* JO_0815_TYPES */
+#endif 
 
 

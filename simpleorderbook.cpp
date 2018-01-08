@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015 Jonathon Ogden < jeog.dev@gmail.com >
+Copyright (C) 2017 Jonathon Ogden < jeog.dev@gmail.com >
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -24,9 +24,9 @@ along with this program. If not, see http://www.gnu.org/licenses.
  *      simpleorderbook.hpp,
  *      simpleorderbook.tpp
  *
- *  Interfaces are declared in: interfaces.hpp
+ *  Interfaces are declared in: 
  *
- *  Common types/declarations can be found in: common.hpp
+ *      interfaces.hpp
  */
 
 namespace sob{
@@ -79,7 +79,6 @@ to_string(const callback_msg& cm)
     }
 }
 
-
 std::string
 to_string(const clock_type::time_point& tp)
 {
@@ -89,7 +88,6 @@ to_string(const clock_type::time_point& tp)
     ts.resize(ts.size() -1);
     return ts;
 }
-
 
 std::string
 to_string(const order_info_type& oi)
@@ -106,15 +104,12 @@ to_string(const order_info_type& oi)
     return ss.str();
 }
 
-
 std::ostream& 
 operator<<(std::ostream& out, const order_info_type& oi)
 {  
     std::cout<< to_string(oi);
     return out;
 }
-
-
 
 }; /* sob */
 

@@ -3,7 +3,7 @@
 
 An experimental C++(11) financial-market orderbook and matching engine w/ a Python extension module.
 
-*** **v0.3 is currently undergoing a complete refactoring** 
+\* **v0.3 is currently undergoing a complete refactoring** 
 
 
 #### Features 
@@ -55,15 +55,15 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 
             /* 
              * First, we need to create a factory proxy. To support different 
-             * create/constructor types in a single factory we provide different
-             * factory interfaces(proxies).
+             * orderbook types and different constructor types, in a single factory, 
+             * we provide different factory interfaces(proxies).
              *
              * The following will be used for managing orderbooks of (implementation) type:
              *     SimpleOrderbook::SimpleOrderbookImpl< std::ratio<1,4>, 1024 * 1024 * 8>
              *
-             * - uses the default factory 'create' function
+             * - uses the default factory 'create' function via (double,double) constructor
              * - with .25 price intervals
-             * - and a max 8MB of pre-allocated (internal) storage
+             * - and a max 8MB of pre-allocated (internal) storage (see source comments)
              * 
              * NOTICE the use of the copy constructor. Factory Proxies RESTRICT 
              * DEFAULT CONSTRUCTION to insure non-null function pointer fields
@@ -74,12 +74,12 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
             );
 
            /*
-            * This approach - assuming we use the default 'create' function -
-            * provides factory interfaces - for each and *any* type of 
+            * This approach(assuming we use the default FactoryProxy) 
+            * provides factory interfaces - for each and ANY type of 
             * orderbook - all of the same type; allowing for:
-            */
-            typedef SimpleOrderbook::FactoryProxy<> def_proxy_ty;
-            std::map<std::string, def_proxy_ty> my_factory_proxies = { 
+            */           
+            std::map<std::string, SimpleOrderbook::FactoryProxy<>> 
+            my_factory_proxies = { 
                 {"QT", qt8_def_proxy},
                 {"TT", SimpleOrderbook::BuildFactoryProxy<tenth_tick, MAX_MEM * 4>()}
                 {"HT", SimpleOrderbook::BuildFactoryProxy<std::ratio<1,2>, MAX_MEM >()}
@@ -87,57 +87,64 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 
             /*  
              * Use the factory proxy to create an orderbook that operates 
-             * between .25 and 100.00 in .25 increments and return a pointer
-             * to its full interface (create_orderbook defined below) 
-             */                                          
-            FullInterface *orderbook;
-            try{
-                // notice we don't use .operator[] because no default constructor
-                orderbook = my_factory_proxies.at("QT").create(.25, 100.00);
-            }catch(std::out_of_range& e){
-                // no proxy in map
-                return 1;
-            }           
+             * between .25 and 100.00 in .25 increments, returning a pointer
+             * to its full interface 
+             *
+             * NOTE: .create() is built to throw: logic and runtime errors (handle accordingly)
+             */ 
+            FullInterface *orderbook = my_factory_proxies.at("QT").create(.25, 100.00);                  
             if( !orderbook ){
-                // error
+                // error (this *shouldn't* happen)
                 return 1;
             }
 
             /* 
-             * Internally, each orderbook is managed by a 'resource manager' for 
-             * each proxy AND a global one for ALL proxies/orderbooks. This allows 
-             * for the use of that type's proxy member functions OR the global
+             * IMPORTANT: internally, each orderbook is managed by a 'resource manager' 
+             * behind each proxy AND a global one for ALL proxies/orderbooks. This 
+             * allows for the use of that type's proxy member functions OR the global
              * static methods of the SimpleOrderbook container class. (see below)
              */
 
-            /* check if orderbook is being managed (by THIS proxy) - OPTION #1 */
-            if( !my_factory_proxies.at("QT").is_managed(orderbook) ){
-                // error
-                return 1;
-            }
- 
-            /* check if orderbook is being managed (by ANY proxy) - OPTION #2 */
-            if( !SimpleOrderbook::IsManaged(orderbook) ){
-                // error
-                return 1;
-            }           
+            /* check if orderbook is being managed by ANY proxy */
+            if( !SimpleOrderbook::IsManaged(orderbook) )
+            {
+                /* get orderbooks being managed by ALL proxies */
+                std::vector<FullInterface*> actives = SimpleOrderbook::GetAll();
 
-            /* use the interface(s) */
+                std::cerr<< "error: active orderbooks for ALL proxies" << std::endl;
+                for( FullInterface *i : actives ){
+                    std::cerr<< std::hex << reinterpret_cast<void*>(i) << std::endl;
+                }
+                return 1;
+            }       
+
+            /* check if orderbook is being managed by THIS proxy */
+            if( !my_factory_proxies.at("QT").is_managed(orderbook) )
+            {
+                /* get all orderbooks being managed by THIS proxy */
+                std::vector<FullInterface*> actives = my_factory_proxies.at("QT").get_all();
+
+                std::cerr<< "error: active orderbooks for 'QT' proxy" << std::endl;
+                for( FullInterface *i : actives ){
+                    std::cerr<< std::hex << reinterpret_cast<void*>(i) << std::endl;
+                }
+                return 1;
+            }    
+
+            /* use the full interface (defined below) */
             insert_orders(orderbook);            
+
+            /* use the query interface (defined below) */
             print_inside_market(orderbook);
 
-            /* get all orderbooks being managed (by THIS proxy) - OPTION #1 */
-            std::vector<FullInterface const*> objs_qt = my_factory_proxies.at("QT").get_all()
-
-            /* get all orderbooks being managed (by ALL proxies) - OPTION #2 */
-            std::vector<FullInterface const*> objs_all = SimpleOrderbook::GetAll();
-
-            /* WHEN DONE */
+            /* 
+             * WHEN DONE...
+             */
           
-            /* use the proxy(for that type) to destroy the object - OPTION #1 */
+            /* use the proxy to destroy the orderbook it created */
             bool success1 = my_factory_proxies.at("QT").destroy(orderbook);
 
-            /* use the global version for any type - OPTION #2 */
+            /* (or) use the global version to destroy ANY orderbook */
             bool success2 = SimpleOrderbook::Destroy(orderbook);
 
             /* 
@@ -145,10 +152,10 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
              *       success1 == true, success2 == false
              */  
        
-            /* (or) destroy them all - OPTION #1 */
+            /* use the proxy to destroy all the orderbooks it created */
             my_factory_proxies.at("QT").destroy_all()
 
-            /* (or) destroy them - OPTION #2 */
+            /* (or) use the global version to destroy ALL orderbooks */
             SimpleOrderbook::DestroyAll();
 
             //...
