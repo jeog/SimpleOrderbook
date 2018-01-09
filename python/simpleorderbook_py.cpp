@@ -24,8 +24,9 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #ifndef IGNORE_TO_DEBUG_NATIVE
 
-// TODO py version of callback msg enum
-//      a default callback function
+// TODO debug inline lambda callback -> segfault
+//
+//      check callback for right signature
 
 namespace {
 
@@ -120,89 +121,65 @@ public:
     { return cb; }
 };
 
-
 class ExecCallbackWrap
         : public PyFuncWrap {
 public:
     explicit ExecCallbackWrap(PyObject *callback)
-        : PyFuncWrap(callback)
-        {}
+        : PyFuncWrap(callback) {}
 
     ExecCallbackWrap(const ExecCallbackWrap& obj)
-        : PyFuncWrap(obj)
-        {}
+        : PyFuncWrap(obj) {}
 
     void
     operator()(sob::callback_msg msg,
                sob::id_type id,
                double price,
                size_t size) const
-    {
+    {   /*
+         * currently we simply no-op if wrapper is built on a null PyObject;
+         * if, in the future, we allow option of no callback to the C++ interface
+         * and ignore the cb from within the engine WE SHOULD RE-DO THIS
+         */
+        if( !cb ){
+            return;
+        }
         PyObject *args = Py_BuildValue("kkdk", (int)msg, id, price, size);
-        PyObject_CallObject(cb, args);
+        PyObject* res = PyObject_CallObject(cb, args);
+        if( PyErr_Occurred() ){
+            std::cerr<< "* callback(" << std::hex << reinterpret_cast<void*>(cb)
+                     <<  ") error * " << std::endl;
+            PyErr_Print();
+        }
+        Py_XDECREF(res);
         Py_DECREF(args);
     }
 };
-
-
-class StartFuncWrap
-        : public PyFuncWrap {
-public:
-    explicit StartFuncWrap(PyObject *callback)
-        : PyFuncWrap(callback)
-        {}
-
-    StartFuncWrap(const StartFuncWrap& obj)
-        : PyFuncWrap(obj)
-        {}
-
-    void
-    operator()(double implied, double tick) const
-    {
-        PyObject *args = Py_BuildValue("dd", implied, tick);
-        PyObject_CallObject(cb, args);
-        Py_DECREF(args);
-    }
-};
-
-
-class StopFuncWrap
-        : public PyFuncWrap {
-public:
-    explicit StopFuncWrap(PyObject *callback)
-        : PyFuncWrap(callback)
-        {}
-
-    StopFuncWrap(const StopFuncWrap& obj)
-        : PyFuncWrap(obj)
-        {}
-
-    inline void
-    operator()() const 
-    { PyObject_CallObject(cb, NULL); }
-};
-
 
 template<typename T>
-std::pair<int, std::pair<std::string, sob::DefaultFactoryProxy>>
+constexpr std::pair<int, std::pair<std::string, sob::DefaultFactoryProxy>>
 sob_type_make_entry(int index, std::string name)
 {
     return std::make_pair(index,
-            std::make_pair(name, sob::SimpleOrderbook::BuildFactoryProxy<T>()) );
+               std::make_pair(name,
+                   sob::SimpleOrderbook::BuildFactoryProxy<T>()) );
 }
 
-const auto SOB_TYPES = [](){
-    using namespace sob;
-    return std::map<int, std::pair<std::string, DefaultFactoryProxy>>
-    {
-        sob_type_make_entry<quarter_tick>(1, "SOB_QUARTER_TICK"),
-        sob_type_make_entry<tenth_tick>(2, "SOB_TENTH_TICK"),
-        sob_type_make_entry<thirty_secondth_tick>(3, "SOB_THIRTY_SECONDTH_TICK"),
-        sob_type_make_entry<hundredth_tick>(4, "SOB_HUNDREDTH_TICK"),
-        sob_type_make_entry<thousandth_tick>(5, "SOB_THOUSANDTH_TICK"),
-        sob_type_make_entry<ten_thousandth_tick>(6, "SOB_TEN_THOUSANDTH_TICK")
-    };
-}();
+const std::map<int, std::pair<std::string, sob::DefaultFactoryProxy>>
+SOB_TYPES = {
+    sob_type_make_entry<sob::quarter_tick>(1, "SOB_QUARTER_TICK"),
+    sob_type_make_entry<sob::tenth_tick>(2, "SOB_TENTH_TICK"),
+    sob_type_make_entry<sob::thirty_secondth_tick>(3, "SOB_THIRTY_SECONDTH_TICK"),
+    sob_type_make_entry<sob::hundredth_tick>(4, "SOB_HUNDREDTH_TICK"),
+    sob_type_make_entry<sob::thousandth_tick>(5, "SOB_THOUSANDTH_TICK"),
+    sob_type_make_entry<sob::ten_thousandth_tick>(6, "SOB_TEN_THOUSANDTH_TICK")
+};
+
+const std::map<int, std::string>
+CALLBACK_MESSAGES = {
+    {static_cast<int>(sob::callback_msg::cancel), "MSG_CANCEL"},
+    {static_cast<int>(sob::callback_msg::fill), "MSG_FILL"},
+    {static_cast<int>(sob::callback_msg::stop_to_limit), "MSG_STOP_TO_LIMIT"}
+};
 
 
 std::string
@@ -326,7 +303,7 @@ protected:
     static bool
     check_args(long *size, PyObject **cb)
     {
-        if( !PyCallable_Check(*cb) ){
+        if( *cb && !PyCallable_Check(*cb) ){
             PyErr_SetString(PyExc_TypeError,"callback must be callable");
             return false;
         }
@@ -403,12 +380,11 @@ OrderMethodArgs<Replace>::keywords = {
 template<bool Replace>
 const std::map<sob::order_type, std::string>
 OrderMethodArgs<Replace>::format_strs = {
-    {sob::order_type::limit, "kdlO:callback"},
-    {sob::order_type::market, "klO:callback"},
-    {sob::order_type::stop, "kdlO:callback"},
-    {sob::order_type::stop_limit, "kddlO:callback"}
+    {sob::order_type::limit, "kdl|O"},
+    {sob::order_type::market, "kl|O"},
+    {sob::order_type::stop, "kdl|O"},
+    {sob::order_type::stop_limit, "kddl|O"}
 };
-
 
 
 template<bool BuyNotSell, bool Replace, typename X=OrderMethodArgs<Replace>>
@@ -419,7 +395,7 @@ SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
     double limit;
     long size;
     id_type id = 0;
-    PyObject *py_cb = PyLong_FromLong(1); //dummy
+    PyObject *py_cb = nullptr;
 
     if( !X::extract(args, kwds, order_type::limit, &id, &limit, &size, &py_cb) ){
         return NULL;
@@ -439,7 +415,6 @@ SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
 }
 
 
-
 template<bool BuyNotSell, bool Replace, typename X=OrderMethodArgs<Replace>>
 PyObject* 
 SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
@@ -447,7 +422,7 @@ SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
     using namespace sob;
     long size;
     id_type id = 0;
-    PyObject *py_cb = PyLong_FromLong(1); //dummy
+    PyObject *py_cb = nullptr;
 
     if( !X::extract(args, kwds, order_type::market, &id, &size, &py_cb) ){
         return NULL;
@@ -474,7 +449,7 @@ SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
     double stop;
     long size;
     id_type id = 0;
-    PyObject *py_cb = PyLong_FromLong(1); //dummy
+    PyObject *py_cb = nullptr;
 
     if( !X::extract(args, kwds, order_type::stop, &id, &stop, &size, &py_cb) ){
         return NULL;
@@ -502,7 +477,7 @@ SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
     double limit;
     long size;
     id_type id = 0;
-    PyObject *py_cb = PyLong_FromLong(1); //dummy
+    PyObject *py_cb = nullptr;
 
     if( !X::extract(args, kwds, order_type::stop_limit, &id, &stop, &limit,
                     &size, &py_cb) ){
@@ -636,6 +611,7 @@ SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
     return list;
 }
 
+
 struct MDef{
     template<typename F>
     static constexpr PyMethodDef
@@ -670,9 +646,9 @@ static PyMethodDef pySOB_methods[] = {
     MDef::NoArgs("volume",SOB_volume, "() -> int"),
 
     MDef::NoArgs("dump_buy_limits",SOB_dump_buy_limits,
-                 "print to stdout all active limit buy orders"),
+                 "print to stdout all active buy limit orders"),
     MDef::NoArgs("dump_sell_limits",SOB_dump_sell_limits,
-                 "print to stdout all active limit sell orders"),
+                 "print to stdout all active sell limit orders"),
     MDef::NoArgs("dump_buy_stops",SOB_dump_buy_stops,
                  "print to stdout all active buy stop orders"),
     MDef::NoArgs("dump_sell_stops",SOB_dump_sell_stops,
@@ -697,7 +673,7 @@ static PyMethodDef pySOB_methods[] = {
 
 #define DOCS_TRADE_MARKET(arg1) \
 " insert " arg1 " market order \n\n" \
-"    def " arg1 "_market(size, callback) -> order ID \n\n" \
+"    def " arg1 "_market(size, callback=None) -> order ID \n\n" \
 "    size     :: int   :: number of shares/contracts \n" \
 "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
 "    returns -> int \n"
@@ -711,8 +687,8 @@ static PyMethodDef pySOB_methods[] = {
 
 #define DOCS_TRADE_STOP_OR_LIMIT(arg1, arg2) \
     " insert " arg1 " " arg2 " order \n\n" \
-    "    def " arg1 "_" arg2 "(" arg2 ", size, callback) -> order ID \n\n" \
-    "    " arg2 "    :: float :: " arg2 " price \n" \
+    "    def " arg1 "_" arg2 "(" arg2 ", size, callback=None) -> order ID \n\n" \
+    "    " arg2 "     :: float :: " arg2 " price \n" \
     "    size     :: int   :: number of shares/contracts \n" \
     "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
     "    returns -> int \n"
@@ -732,7 +708,8 @@ static PyMethodDef pySOB_methods[] = {
 
 #define DOCS_TRADE_STOP_AND_LIMIT(arg1) \
     " insert " arg1 " stop-limit order \n\n" \
-    "    def " arg1 "_stop_limit(stop, limit, size, callback) -> order ID \n\n" \
+    "    def " arg1 "_stop_limit(stop, limit, size, callback=None)" \
+    " -> order ID \n\n" \
     "    stop     :: float :: stop price \n" \
     "    limit    :: float :: limit price \n" \
     "    size     :: int   :: number of shares/contracts \n" \
@@ -755,7 +732,8 @@ static PyMethodDef pySOB_methods[] = {
 
 #define DOCS_REPLACE_WITH_MARKET(arg1) \
     " replace old order with new " arg1 " market order \n\n" \
-    "    def replace_with_" arg1 "_market(id, size, callback) -> new order ID \n\n" \
+    "    def replace_with_" arg1 "_market(id, size, callback=None)"\
+    " -> new order ID \n\n" \
     "    id       :: int   :: old order ID \n" \
     "    size     :: int   :: number of shares/contracts \n" \
     "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
@@ -770,7 +748,8 @@ static PyMethodDef pySOB_methods[] = {
 
 #define DOCS_REPLACE_WITH_STOP_OR_LIMIT(arg1, arg2) \
     " replace old order with new " arg1 " " arg2 " order \n\n" \
-    "    def replace_with_" arg1 "_" arg2 "(id," arg2 ", size, callback) -> new order ID \n\n" \
+    "    def replace_with_" arg1 "_" arg2 "(id, " arg2 ", size, callback=None)" \
+    " -> new order ID \n\n" \
     "    id       :: int   :: old order ID \n" \
     "    " arg2 "    :: float :: " arg2 " price \n" \
     "    size     :: int   :: number of shares/contracts \n" \
@@ -792,7 +771,8 @@ static PyMethodDef pySOB_methods[] = {
 
 #define DOCS_REPLACE_WITH_STOP_AND_LIMIT(arg1) \
     " replace old order with new " arg1 " stop-limit order \n\n" \
-    "    def replace_with_" arg1 "_stop_limit(id, stop, limit, size, callback) -> new order ID \n\n" \
+    "    def replace_with_" arg1 "_stop_limit(id, stop, limit, size, callback=None)" \
+    " -> new order ID \n\n" \
     "    id       :: int   :: old order ID \n" \
     "    stop     :: float :: stop price \n" \
     "    limit    :: float :: limit price \n" \
@@ -961,7 +941,13 @@ PyInit_simpleorderbook(void)
     /* simple orderbook types */
     for( auto& p : SOB_TYPES ){
         PyObject *indx = Py_BuildValue("i",p.first);
-        PyObject_SetAttrString( mod, p.second.first.c_str(), indx );
+        PyObject_SetAttrString(mod, p.second.first.c_str(), indx);
+    }
+
+    /* callback_msg types */
+    for( auto& p : CALLBACK_MESSAGES ){
+        PyObject *indx = Py_BuildValue("i", p.first);
+        PyObject_SetAttrString(mod, p.second.c_str(), indx);
     }
 
     return mod;

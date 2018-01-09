@@ -774,7 +774,6 @@ private:
         destroy_all()
         { rmanager.remove_all(); }
 
-
         static inline std::vector<FullInterface *>
         get_all()
         { return rmanager.get_all(); }

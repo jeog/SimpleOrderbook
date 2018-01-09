@@ -134,10 +134,7 @@ public:
     static constexpr double incr_per_unit = (double)incr_ratio::den / incr_ratio::num;
 
     explicit TrimmedRational(long long incr)
-        :
-           TrimmedRational(0, incr)
-        {
-        }
+        : TrimmedRational(0, incr) {}
 
     TrimmedRational(long long whole, long long incr)
         {
@@ -155,39 +152,27 @@ public:
 
     inline long long
     to_incr() const
-    {
-        return _whole * incr_per_unit + _incr;
-    }
+    { return _whole * incr_per_unit + _incr; }
 
     inline operator 
     double() const
-    {
-        return RoundFunc((_whole + _incr * incr_size) * round_adj) / round_adj;
-    }
+    { return RoundFunc((_whole + _incr * incr_size) * round_adj) / round_adj; }
 
     inline my_type
     operator+(const my_type& r) const
-    {
-        return my_type(_whole + r._whole, _incr + r._incr);
-    }
+    { return my_type(_whole + r._whole, _incr + r._incr); }
 
     inline my_type
     operator-(const my_type& r) const
-    {
-        return my_type(_whole - r._whole, _incr - r._incr);
-    }
+    { return my_type(_whole - r._whole, _incr - r._incr); }
 
     inline my_type
     operator+(int i) const
-    {
-        return my_type(_whole, _incr + i);
-    }
+    { return my_type(_whole, _incr + i); }
 
     inline my_type
     operator-(int i) const
-    {
-        return my_type(_whole, _incr - i);
-    }
+    { return my_type(_whole, _incr - i); }
 
     inline my_type
     operator++() // TODO, create a utility function for setting whole/incr
@@ -225,15 +210,11 @@ public:
 
     inline bool
     operator==(const my_type& r)
-    {
-        return (this->_whole == r._whole) && (this->_incr == r._incr);
-    }
+    { return (this->_whole == r._whole) && (this->_incr == r._incr); }
 
     inline bool
     operator!=(const my_type& r)
-    {
-        return (*this != r);
-    }
+    { return (*this != r); }
 
     inline bool
     operator>(const my_type& r)
@@ -246,21 +227,15 @@ public:
 
     inline bool
     operator<=(const my_type& r)
-    {
-        return !(*this > r);
-    }
+    { return !(*this > r); }
 
     inline bool
     operator>=(const my_type& r)
-    {
-        return (*this > r) || (*this == r);
-    }
+    { return (*this > r) || (*this == r); }
 
     inline bool
     operator<(const my_type& r)
-    {
-        return !(*this >= r);
-    }
+    { return !(*this >= r); }
 };
 
 #endif 
