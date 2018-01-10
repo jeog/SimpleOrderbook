@@ -306,17 +306,38 @@ char MethodArgs::sob_type[] = "sob_type";
 char MethodArgs::low[] = "low";
 char MethodArgs::high[] = "high";
 
-template<bool Replace>
-class OrderMethodArgs
+class OrderMethodArgsBase
         : protected MethodArgs {
-    static_assert( std::is_same<sob::id_type, unsigned long>::value,
-                   "id_type != unsigned long (change frmt strings)" );
+protected:
     static const std::map<sob::order_type, std::array<char*,6>> keywords;
     static const std::map<sob::order_type, std::string> format_strs;
+};
+
+const std::map<sob::order_type, std::array<char*,6>>
+OrderMethodArgsBase::keywords = {
+    {sob::order_type::limit, {id, limit, size, callback}},
+    {sob::order_type::market, {id, size, callback}},
+    {sob::order_type::stop, {id, stop, size, callback}},
+    {sob::order_type::stop_limit, {id, stop, limit, size, callback}}
+};
+
+const std::map<sob::order_type, std::string>
+OrderMethodArgsBase::format_strs = {
+    {sob::order_type::limit, "kdl|O"},
+    {sob::order_type::market, "kl|O"},
+    {sob::order_type::stop, "kdl|O"},
+    {sob::order_type::stop_limit, "kddl|O"}
+};
+
+template<bool Replace>
+class OrderMethodArgs
+        : protected OrderMethodArgsBase {
+    static_assert( std::is_same<sob::id_type, unsigned long>::value,
+                   "id_type != unsigned long (change frmt strings)" );
 
 protected:
-    /* IF 'error: no matching function for ... check_args()'
-       CHECK ORDER of (id_arg + targs) IN CALLER */
+    /* IF compiler gives 'error: no matching function for ... check_args()'
+       check order of (id_arg + targs) in caller */
     template<typename T, typename T2, typename ...TArgs>
     static bool
     check_args(T arg1, T2 arg2, TArgs... args)
@@ -390,26 +411,8 @@ public:
     }
 };
 
-template<bool Replace>
-const std::map<sob::order_type, std::array<char*,6>>
-OrderMethodArgs<Replace>::keywords = {
-    {sob::order_type::limit, {id, limit, size, callback}},
-    {sob::order_type::market, {id, size, callback}},
-    {sob::order_type::stop, {id, stop, size, callback}},
-    {sob::order_type::stop_limit, {id, stop, limit, size, callback}}
-};
 
-template<bool Replace>
-const std::map<sob::order_type, std::string>
-OrderMethodArgs<Replace>::format_strs = {
-    {sob::order_type::limit, "kdl|O"},
-    {sob::order_type::market, "kl|O"},
-    {sob::order_type::stop, "kdl|O"},
-    {sob::order_type::stop_limit, "kddl|O"}
-};
-
-
-template<bool BuyNotSell, bool Replace, typename X=OrderMethodArgs<Replace>>
+template<bool BuyOrder, bool Replace, typename X=OrderMethodArgs<Replace>>
 PyObject* 
 SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
 {
@@ -427,8 +430,8 @@ SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
         FullInterface *ob = to_interface(self);
         order_exec_cb_type cb = ExecCallbackWrap(py_cb);
         id = Replace
-           ? ob->replace_with_limit_order(id, BuyNotSell, limit, size, cb)
-           : ob->insert_limit_order(BuyNotSell, limit, size, cb);
+           ? ob->replace_with_limit_order(id, BuyOrder, limit, size, cb)
+           : ob->insert_limit_order(BuyOrder, limit, size, cb);
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
@@ -437,7 +440,7 @@ SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
 }
 
 
-template<bool BuyNotSell, bool Replace, typename X=OrderMethodArgs<Replace>>
+template<bool BuyOrder, bool Replace, typename X=OrderMethodArgs<Replace>>
 PyObject* 
 SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
 {
@@ -454,8 +457,8 @@ SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
         FullInterface *ob = to_interface(self);
         order_exec_cb_type cb = ExecCallbackWrap(py_cb);
         id = Replace
-           ? ob->replace_with_market_order(id, BuyNotSell, size, cb)
-           : ob->insert_market_order(BuyNotSell, size, cb);
+           ? ob->replace_with_market_order(id, BuyOrder, size, cb)
+           : ob->insert_market_order(BuyOrder, size, cb);
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
@@ -463,7 +466,7 @@ SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
 }
 
 
-template<bool BuyNotSell, bool Replace, typename X=OrderMethodArgs<Replace>>
+template<bool BuyOrder, bool Replace, typename X=OrderMethodArgs<Replace>>
 PyObject* 
 SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
 {
@@ -481,8 +484,8 @@ SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
         FullInterface *ob = to_interface(self);
         order_exec_cb_type cb = ExecCallbackWrap(py_cb);
         id = Replace
-           ? ob->replace_with_stop_order(id, BuyNotSell, stop, size, cb)
-           : ob->insert_stop_order(BuyNotSell, stop, size, cb);
+           ? ob->replace_with_stop_order(id, BuyOrder, stop, size, cb)
+           : ob->insert_stop_order(BuyOrder, stop, size, cb);
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
@@ -490,7 +493,7 @@ SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
 }
 
 
-template<bool BuyNotSell, bool Replace, typename X=OrderMethodArgs<Replace>>
+template<bool BuyOrder, bool Replace, typename X=OrderMethodArgs<Replace>>
 PyObject* 
 SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
 {
@@ -510,8 +513,8 @@ SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
         FullInterface *ob = to_interface(self);
         order_exec_cb_type cb = ExecCallbackWrap(py_cb);
         id = Replace
-           ? ob->replace_with_stop_order(id, BuyNotSell, stop, limit, size, cb)
-           : ob->insert_stop_order(BuyNotSell, stop, limit, size, cb);
+           ? ob->replace_with_stop_order(id, BuyOrder, stop, limit, size, cb)
+           : ob->insert_stop_order(BuyOrder, stop, limit, size, cb);
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
@@ -540,7 +543,6 @@ SOB_pull_order(pySOB *self, PyObject *args, PyObject *kwds)
 }
 
 
-// TODO fix custom length (optional arg?)
 static PyObject* 
 SOB_time_and_sales(pySOB *self, PyObject *args)
 {
