@@ -229,8 +229,8 @@ private:
     private:
         SimpleOrderbookImpl(const SimpleOrderbookImpl& sob);
         SimpleOrderbookImpl(SimpleOrderbookImpl&& sob);
-        SimpleOrderbookImpl& operator==(const SimpleOrderbookImpl& sob);
-        SimpleOrderbookImpl& operator==(SimpleOrderbookImpl&& sob);
+        SimpleOrderbookImpl& operator=(const SimpleOrderbookImpl& sob);
+        SimpleOrderbookImpl& operator=(SimpleOrderbookImpl&& sob);
 
         /* manage instances created by factory proxy */
         static SOB_RESOURCE_MANAGER<FullInterface, ImplDeleter> rmanager;

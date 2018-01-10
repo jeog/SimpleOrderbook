@@ -142,8 +142,12 @@ public:
     { return cb; }
 };
 
+
 class ExecCallbackWrap
         : public PyFuncWrap {
+    ExecCallbackWrap& operator=(const ExecCallbackWrap&);
+    ExecCallbackWrap& operator=(ExecCallbackWrap&&);
+
 public:
     explicit ExecCallbackWrap(PyObject *callback)
         : PyFuncWrap(callback) {}
@@ -421,7 +425,7 @@ SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
 
     try{
         FullInterface *ob = to_interface(self);
-        order_exec_cb_type cb = order_exec_cb_type(ExecCallbackWrap(py_cb));
+        order_exec_cb_type cb = ExecCallbackWrap(py_cb);
         id = Replace
            ? ob->replace_with_limit_order(id, BuyNotSell, limit, size, cb)
            : ob->insert_limit_order(BuyNotSell, limit, size, cb);
@@ -448,7 +452,7 @@ SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
 
     try{
         FullInterface *ob = to_interface(self);
-        order_exec_cb_type cb = order_exec_cb_type(ExecCallbackWrap(py_cb));
+        order_exec_cb_type cb = ExecCallbackWrap(py_cb);
         id = Replace
            ? ob->replace_with_market_order(id, BuyNotSell, size, cb)
            : ob->insert_market_order(BuyNotSell, size, cb);
@@ -475,7 +479,7 @@ SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
 
     try{
         FullInterface *ob = to_interface(self);
-        order_exec_cb_type cb = order_exec_cb_type(ExecCallbackWrap(py_cb));
+        order_exec_cb_type cb = ExecCallbackWrap(py_cb);
         id = Replace
            ? ob->replace_with_stop_order(id, BuyNotSell, stop, size, cb)
            : ob->insert_stop_order(BuyNotSell, stop, size, cb);
@@ -504,7 +508,7 @@ SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
 
     try{
         FullInterface *ob = to_interface(self);
-        order_exec_cb_type cb = order_exec_cb_type(ExecCallbackWrap(py_cb));
+        order_exec_cb_type cb = ExecCallbackWrap(py_cb);
         id = Replace
            ? ob->replace_with_stop_order(id, BuyNotSell, stop, limit, size, cb)
            : ob->insert_stop_order(BuyNotSell, stop, limit, size, cb);
