@@ -18,26 +18,26 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <Python.h>
 #include <structmember.h>
 #include <sstream>
+#include <iomanip>
 
 #include "../common.hpp"
 #include "../simpleorderbook.hpp"
 
 #ifndef IGNORE_TO_DEBUG_NATIVE
 
-// TODO debug inline lambda callback -> segfault
-//
+// TODO market_depth default to max size
 //      check callback for right signature
 
 namespace {
 
 struct pySOBBundle{
     sob::FullInterface *interface;
-    sob::SimpleOrderbook::FactoryProxy<> factory;
+    sob::SimpleOrderbook::FactoryProxy<> proxy;
     pySOBBundle( sob::FullInterface *interface,
-                 sob::SimpleOrderbook::FactoryProxy<> factory)
+                 sob::SimpleOrderbook::FactoryProxy<> proxy)
         :
             interface(interface),
-            factory(factory)
+            proxy(proxy)
         {
         }
 };
@@ -46,6 +46,10 @@ typedef struct {
     PyObject_HEAD
     PyObject *sob_bndl;
 } pySOB;
+
+constexpr sob::FullInterface*
+to_interface(const pySOB *sob)
+{ return ((pySOBBundle*)(sob->sob_bndl))->interface; }
 
 /* type string + what() from native exception */
 #define THROW_PY_EXCEPTION_FROM_NATIVE(e) \
@@ -60,7 +64,7 @@ do{ \
     static PyObject* SOB_ ## sobcall(pySOB *self){ \
         try{ \
             using namespace sob; \
-            FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface; \
+            FullInterface *ob = to_interface(self); \
             return apicall(ob->sobcall()); \
         }catch(std::exception& e){ \
             THROW_PY_EXCEPTION_FROM_NATIVE(e); \
@@ -85,7 +89,7 @@ CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLongLong, volume )
     static PyObject* SOB_ ## sobcall(pySOB *self){ \
         try{ \
             using namespace sob; \
-            FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface; \
+            FullInterface *ob = to_interface(self); \
             ob->sobcall(); \
         }catch(std::exception& e){ \
             THROW_PY_EXCEPTION_FROM_NATIVE(e); \
@@ -113,11 +117,28 @@ protected:
 
 public:
     virtual
-    ~PyFuncWrap() 
-    { Py_XDECREF(cb); }
+    ~PyFuncWrap()
+    {
+        if( !cb ){
+            return;
+        }
+        /*
+         * This is getting called too late on exit(). A dealloc of cb
+         * causes a seg fault when Py_TRASHCAN_SAFE_BEGIN tries to access the
+         * NULL result of PyThreadState_GET(). PyThreadState_GetDict() will
+         * return NULL in this case WITHOUT throwing a fatal error.
+         */
+        if( !PyThreadState_GetDict() && (Py_REFCNT(cb) == 1) ){
+            std::cerr<< "* callback(" << std::hex << reinterpret_cast<void*>(cb)
+                     << ") was not deallocated; invalid thread state *"
+                     << std::endl;
+        }else{
+            Py_DECREF(cb);
+        }
+    }
 
     inline operator
-    bool() 
+    bool() const
     { return cb; }
 };
 
@@ -140,7 +161,7 @@ public:
          * if, in the future, we allow option of no callback to the C++ interface
          * and ignore the cb from within the engine WE SHOULD RE-DO THIS
          */
-        if( !cb ){
+        if( !(*this) ){
             return;
         }
         PyObject *args = Py_BuildValue("kkdk", (int)msg, id, price, size);
@@ -151,7 +172,7 @@ public:
             PyErr_Print();
         }
         Py_XDECREF(res);
-        Py_DECREF(args);
+        Py_XDECREF(args);
     }
 };
 
@@ -181,7 +202,6 @@ CALLBACK_MESSAGES = {
     {static_cast<int>(sob::callback_msg::stop_to_limit), "MSG_STOP_TO_LIMIT"}
 };
 
-
 std::string
 to_string(PyObject *arg)
 {
@@ -192,7 +212,6 @@ to_string(PyObject *arg)
 }
 
 using std::to_string;
-
 
 class MethodArgs {
     template<typename T, typename... TArgs>
@@ -271,7 +290,6 @@ public:
         out << "* format: " << frmt << std::endl
             << "* values: " << build_arg_values_str(targs...) << std::endl;
     }
-
 };
 
 char MethodArgs::id[] = "id";
@@ -402,7 +420,7 @@ SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
     }
 
     try{
-        FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        FullInterface *ob = to_interface(self);
         order_exec_cb_type cb = order_exec_cb_type(ExecCallbackWrap(py_cb));
         id = Replace
            ? ob->replace_with_limit_order(id, BuyNotSell, limit, size, cb)
@@ -429,7 +447,7 @@ SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
     }
 
     try{
-        FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        FullInterface *ob = to_interface(self);
         order_exec_cb_type cb = order_exec_cb_type(ExecCallbackWrap(py_cb));
         id = Replace
            ? ob->replace_with_market_order(id, BuyNotSell, size, cb)
@@ -456,7 +474,7 @@ SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
     }
 
     try{
-        FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        FullInterface *ob = to_interface(self);
         order_exec_cb_type cb = order_exec_cb_type(ExecCallbackWrap(py_cb));
         id = Replace
            ? ob->replace_with_stop_order(id, BuyNotSell, stop, size, cb)
@@ -485,7 +503,7 @@ SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
     }
 
     try{
-        FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        FullInterface *ob = to_interface(self);
         order_exec_cb_type cb = order_exec_cb_type(ExecCallbackWrap(py_cb));
         id = Replace
            ? ob->replace_with_stop_order(id, BuyNotSell, stop, limit, size, cb)
@@ -510,7 +528,7 @@ SOB_pull_order(pySOB *self, PyObject *args, PyObject *kwds)
     }
 
     try{
-        rval = ((pySOBBundle*)(self->sob_bndl))->interface->pull_order(id);
+        rval = to_interface(self)->pull_order(id);
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
@@ -524,14 +542,14 @@ SOB_time_and_sales(pySOB *self, PyObject *args)
 {
     using namespace sob;
 
-    long arg;
-    if( !MethodArgs::extract(args, "l", &arg) ){
+    long arg = -1;
+    if( !MethodArgs::extract(args, "|l", &arg) ){
         return NULL;
     }
 
     PyObject *list;
     try{
-        FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        FullInterface *ob = to_interface(self);
         const QueryInterface::timesale_vector_type& vec = ob->time_and_sales();
         size_t num = arg <= 0 ? vec.size() : std::min(vec.size(),(size_t)arg);
         list = PyList_New(num);
@@ -569,7 +587,7 @@ SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
 
     PyObject *list;
     try{
-        FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
+        FullInterface *ob = to_interface(self);
         std::map<double,size_t> md;
         switch(Side){
             case(side_of_market::bid): 
@@ -827,28 +845,41 @@ SOB_New(PyTypeObject *type, PyObject *args, PyObject *kwds)
         return NULL;
     }
 
-    // TODO look at this, has leak written all over it
-    self = (pySOB*)type->tp_alloc(type,0);
-    if( self ){
-        self->sob_bndl = nullptr;
-        try{
-            auto factory = SOB_TYPES.at(sobty).second;
-            FullInterface *ob = factory.create(low,high);
-            if( !ob ){
-                throw std::runtime_error("self->_sob was not constructed");
-            }
-            self->sob_bndl = (PyObject*)new pySOBBundle(ob, factory);
-        }catch(const std::runtime_error & e){
-            PyErr_SetString(PyExc_RuntimeError, e.what());
-        }catch(const std::exception & e){
-            PyErr_SetString(PyExc_Exception, e.what());
-        }
-        if(PyErr_Occurred()){
-            // DONT WE NEED TO FREE self ???
-            Py_DECREF(self);
-            return NULL;
-        }
+    if( SOB_TYPES.find(sobty) == SOB_TYPES.end() ){
+        PyErr_SetString(PyExc_ValueError, "invalid orderbook type");
+        return NULL;
     }
+    DefaultFactoryProxy proxy(SOB_TYPES.at(sobty).second);
+
+    self = (pySOB*)type->tp_alloc(type,0);
+    if( !self ){
+        PyErr_SetString(PyExc_MemoryError, "pySOB_type->tp_alloc failed");
+        return NULL;
+    }
+
+    FullInterface *ob = nullptr;
+    pySOBBundle *bndl = nullptr;
+    try{
+        FullInterface *ob = proxy.create(low,high);
+        bndl = new pySOBBundle(ob, proxy);
+    }catch(const std::runtime_error & e){
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+    }catch(const std::exception & e){
+        PyErr_SetString(PyExc_Exception, e.what());
+    }catch(...){
+        Py_FatalError("fatal error creating orderbook");
+    }
+    if( PyErr_Occurred() ){
+        if( bndl ){
+            delete bndl;
+        }
+        if( ob ){
+            proxy.destroy(ob);
+        }
+        Py_DECREF(self);
+        return NULL;
+    }
+    self->sob_bndl = (PyObject*)bndl;
     return (PyObject*)self;
 }
 
@@ -856,10 +887,11 @@ SOB_New(PyTypeObject *type, PyObject *args, PyObject *kwds)
 static void 
 SOB_Delete(pySOB *self)
 {
-    if(self->sob_bndl){
-        sob::FullInterface *ob = ((pySOBBundle*)(self->sob_bndl))->interface;
-        ((pySOBBundle*)(self->sob_bndl))->factory.destroy(ob);
-        delete ((pySOBBundle*)(self->sob_bndl));
+    if( self->sob_bndl ){
+        pySOBBundle *bndl = ((pySOBBundle*)(self->sob_bndl));
+        bndl->proxy.destroy( bndl->interface );
+        self->sob_bndl = nullptr;
+        delete bndl;
     }
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
@@ -904,7 +936,7 @@ static PyTypeObject pySOB_type = {
     0,
     0,
     0,
-    0, //(initproc)SOB_Init,
+    0,
     0,
     SOB_New,
 };
