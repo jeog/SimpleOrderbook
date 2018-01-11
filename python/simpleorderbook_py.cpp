@@ -26,7 +26,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #ifndef IGNORE_TO_DEBUG_NATIVE
 
 // TODO market_depth default to max size
-//      check callback for right signature
+//      fix timesales copy vs ref
 
 namespace {
 
@@ -60,60 +60,96 @@ do{ \
     return NULL; \
 }while(0) 
 
-#define CALLDOWN_FOR_STATE_WITH_TRY_BLOCK(apicall,sobcall) \
+#define CALLDOWN_FOR_STATE(apicall, rtype, sobcall) \
     static PyObject* SOB_ ## sobcall(pySOB *self){ \
+        rtype ret; \
+        Py_BEGIN_ALLOW_THREADS \
         try{ \
-            using namespace sob; \
-            FullInterface *ob = to_interface(self); \
-            return apicall(ob->sobcall()); \
+            sob::FullInterface *ob = to_interface(self); \
+            ret = ob->sobcall(); \
         }catch(std::exception& e){ \
+            Py_BLOCK_THREADS \
             THROW_PY_EXCEPTION_FROM_NATIVE(e); \
+            Py_UNBLOCK_THREADS \
         } \
+        Py_END_ALLOW_THREADS \
+        return apicall(ret); \
     }
 
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, min_price )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, max_price )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, incr_size )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, bid_price )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, ask_price )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyFloat_FromDouble, last_price )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, ask_size )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, bid_size )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, total_ask_size )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, total_bid_size )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, total_size )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLong, last_size )
-CALLDOWN_FOR_STATE_WITH_TRY_BLOCK( PyLong_FromUnsignedLongLong, volume )
+#define CALLDOWN_FOR_STATE_DOUBLE(sobcall) \
+        CALLDOWN_FOR_STATE(PyFloat_FromDouble, double, sobcall)
 
-#define CALLDOWN_TO_DUMP_WITH_TRY_BLOCK(sobcall) \
+#define CALLDOWN_FOR_STATE_ULONG(sobcall) \
+        CALLDOWN_FOR_STATE(PyLong_FromUnsignedLong, unsigned long, sobcall)
+
+#define CALLDOWN_FOR_STATE_ULONGLONG(sobcall) \
+        CALLDOWN_FOR_STATE(PyLong_FromUnsignedLongLong, unsigned long long, sobcall)
+
+CALLDOWN_FOR_STATE_DOUBLE( min_price )
+CALLDOWN_FOR_STATE_DOUBLE( max_price )
+CALLDOWN_FOR_STATE_DOUBLE( incr_size )
+CALLDOWN_FOR_STATE_DOUBLE( bid_price )
+CALLDOWN_FOR_STATE_DOUBLE( ask_price )
+CALLDOWN_FOR_STATE_DOUBLE( last_price )
+CALLDOWN_FOR_STATE_ULONG( ask_size )
+CALLDOWN_FOR_STATE_ULONG( bid_size )
+CALLDOWN_FOR_STATE_ULONG( total_ask_size )
+CALLDOWN_FOR_STATE_ULONG( total_bid_size )
+CALLDOWN_FOR_STATE_ULONG( total_size )
+CALLDOWN_FOR_STATE_ULONG( last_size )
+CALLDOWN_FOR_STATE_ULONGLONG( volume )
+
+#define CALLDOWN_TO_DUMP(sobcall) \
     static PyObject* SOB_ ## sobcall(pySOB *self){ \
+        Py_BEGIN_ALLOW_THREADS \
         try{ \
-            using namespace sob; \
-            FullInterface *ob = to_interface(self); \
+            sob::FullInterface *ob = to_interface(self); \
             ob->sobcall(); \
         }catch(std::exception& e){ \
+            Py_BLOCK_THREADS \
             THROW_PY_EXCEPTION_FROM_NATIVE(e); \
+            Py_UNBLOCK_THREADS \
         } \
+        Py_END_ALLOW_THREADS \
         Py_RETURN_NONE; \
     }
 
-CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_buy_limits )
-CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_limits )
-CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_buy_stops )
-CALLDOWN_TO_DUMP_WITH_TRY_BLOCK( dump_sell_stops )
+CALLDOWN_TO_DUMP( dump_buy_limits )
+CALLDOWN_TO_DUMP( dump_sell_limits )
+CALLDOWN_TO_DUMP( dump_buy_stops )
+CALLDOWN_TO_DUMP( dump_sell_stops )
 
+bool exiting_pre_finalize = false;
 
 class PyFuncWrap {
 protected:
     PyObject *const cb;
 
     explicit PyFuncWrap(PyObject *callback)
-        : cb(callback)
-        { Py_XINCREF(callback); }
+        :
+            cb(callback)
+        {
+            if( valid_interpreter_state() ){
+                PyGILState_STATE gs = PyGILState_Ensure();
+                Py_XINCREF(callback);
+                PyGILState_Release(gs);
+            }
+        }
 
     PyFuncWrap(const PyFuncWrap& obj)
-        : cb(obj.cb)
-        { Py_XINCREF(obj.cb); }
+        :
+            cb(obj.cb)
+        {
+            if( valid_interpreter_state() ){
+                PyGILState_STATE gs = PyGILState_Ensure();
+                Py_XINCREF(obj.cb);
+                PyGILState_Release(gs);
+            }
+        }
+
+    inline bool
+    valid_interpreter_state() const
+    { return !exiting_pre_finalize; }
 
 public:
     virtual
@@ -123,17 +159,20 @@ public:
             return;
         }
         /*
-         * This is getting called too late on exit(). A dealloc of cb
-         * causes a seg fault when Py_TRASHCAN_SAFE_BEGIN tries to access the
-         * NULL result of PyThreadState_GET(). PyThreadState_GetDict() will
-         * return NULL in this case WITHOUT throwing a fatal error.
+         * PyGILState_Ensure() is getting called too late on exit().
+         * _PyRuntime.gilstate.autoInterpreterState == 0 fails assert.
+         * We register atexit_callee w/ atexit mod to set 'exiting_pre_finalize'
+         * after Py_Finalize() but BEFORE _PyGILState_Fini() is called;
          */
-        if( !PyThreadState_GetDict() && (Py_REFCNT(cb) == 1) ){
-            std::cerr<< "* callback(" << std::hex << reinterpret_cast<void*>(cb)
-                     << ") was not deallocated; invalid thread state *"
-                     << std::endl;
-        }else{
+        if( valid_interpreter_state() ){
+            /*
+             * race condition if main thread sets exiting_pre_finalize to true
+             * between valid_interpeter_state() and PyGILState_Ensure()
+             * (leave for now because it only happens on exit)
+             */
+            PyGILState_STATE gs = PyGILState_Ensure();
             Py_DECREF(cb);
+            PyGILState_Release(gs);
         }
     }
 
@@ -168,15 +207,26 @@ public:
         if( !(*this) ){
             return;
         }
+        /* see notes in destructor about this check */
+        if( !valid_interpreter_state() ){
+            std::cerr<< "* callback(" << std::hex << reinterpret_cast<void*>(cb)
+                     << ") not called; invalid interpreter state *"
+                     << std::endl;
+            return;
+        }
+        /* ignore race condition here for same reason as in destructor */
+        PyGILState_STATE gs = PyGILState_Ensure();
         PyObject *args = Py_BuildValue("kkdk", (int)msg, id, price, size);
         PyObject* res = PyObject_CallObject(cb, args);
         if( PyErr_Occurred() ){
-            std::cerr<< "* callback(" << std::hex << reinterpret_cast<void*>(cb)
+            std::cerr<< "* callback(" << std::hex
+                     << reinterpret_cast<void*>(cb)
                      <<  ") error * " << std::endl;
             PyErr_Print();
         }
         Py_XDECREF(res);
         Py_XDECREF(args);
+        PyGILState_Release(gs);
     }
 };
 
@@ -426,6 +476,7 @@ SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
         return NULL;
     }
 
+    Py_BEGIN_ALLOW_THREADS
     try{
         FullInterface *ob = to_interface(self);
         order_exec_cb_type cb = ExecCallbackWrap(py_cb);
@@ -433,8 +484,11 @@ SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
            ? ob->replace_with_limit_order(id, BuyOrder, limit, size, cb)
            : ob->insert_limit_order(BuyOrder, limit, size, cb);
     }catch(std::exception& e){
+        Py_BLOCK_THREADS
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        Py_UNBLOCK_THREADS // unnecessary, unless we change THROW...NATIVE()
     }
+    Py_END_ALLOW_THREADS
 
     return PyLong_FromUnsignedLong(id);
 }
@@ -453,6 +507,7 @@ SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
         return NULL;
     }
 
+    Py_BEGIN_ALLOW_THREADS
     try{
         FullInterface *ob = to_interface(self);
         order_exec_cb_type cb = ExecCallbackWrap(py_cb);
@@ -460,8 +515,12 @@ SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
            ? ob->replace_with_market_order(id, BuyOrder, size, cb)
            : ob->insert_market_order(BuyOrder, size, cb);
     }catch(std::exception& e){
+        Py_BLOCK_THREADS
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        Py_UNBLOCK_THREADS
     }
+    Py_END_ALLOW_THREADS
+
     return PyLong_FromUnsignedLong(id);
 }
 
@@ -480,6 +539,7 @@ SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
         return NULL;
     }
 
+    Py_BEGIN_ALLOW_THREADS
     try{
         FullInterface *ob = to_interface(self);
         order_exec_cb_type cb = ExecCallbackWrap(py_cb);
@@ -487,8 +547,12 @@ SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
            ? ob->replace_with_stop_order(id, BuyOrder, stop, size, cb)
            : ob->insert_stop_order(BuyOrder, stop, size, cb);
     }catch(std::exception& e){
+        Py_BLOCK_THREADS
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        Py_UNBLOCK_THREADS
     }
+    Py_END_ALLOW_THREADS
+
     return PyLong_FromUnsignedLong(id);
 }
 
@@ -509,6 +573,7 @@ SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
         return NULL;
     }
 
+    Py_BEGIN_ALLOW_THREADS
     try{
         FullInterface *ob = to_interface(self);
         order_exec_cb_type cb = ExecCallbackWrap(py_cb);
@@ -516,8 +581,12 @@ SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
            ? ob->replace_with_stop_order(id, BuyOrder, stop, limit, size, cb)
            : ob->insert_stop_order(BuyOrder, stop, limit, size, cb);
     }catch(std::exception& e){
+        Py_BLOCK_THREADS
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        Py_UNBLOCK_THREADS
     }
+    Py_END_ALLOW_THREADS
+
     return PyLong_FromUnsignedLong(id);
 }
 
@@ -534,16 +603,21 @@ SOB_pull_order(pySOB *self, PyObject *args, PyObject *kwds)
         return false;
     }
 
+    Py_BEGIN_ALLOW_THREADS
     try{
         rval = to_interface(self)->pull_order(id);
     }catch(std::exception& e){
+        Py_BLOCK_THREADS
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        Py_UNBLOCK_THREADS
     }
+    Py_END_ALLOW_THREADS
+
     return PyBool_FromLong((unsigned long)rval);
 }
 
 
-static PyObject* 
+PyObject*
 SOB_time_and_sales(pySOB *self, PyObject *args)
 {
     using namespace sob;
@@ -553,10 +627,20 @@ SOB_time_and_sales(pySOB *self, PyObject *args)
         return NULL;
     }
 
-    PyObject *list;
+    QueryInterface::timesale_vector_type vec;
+    Py_BEGIN_ALLOW_THREADS
     try{
         FullInterface *ob = to_interface(self);
-        const QueryInterface::timesale_vector_type& vec = ob->time_and_sales();
+        vec = ob->time_and_sales();
+    }catch(std::exception& e){
+        Py_BLOCK_THREADS
+        THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        Py_UNBLOCK_THREADS
+    }
+    Py_END_ALLOW_THREADS
+
+    PyObject *list;
+    try{
         size_t num = arg <= 0 ? vec.size() : std::min(vec.size(),(size_t)arg);
         list = PyList_New(num);
         auto biter = vec.cbegin();
@@ -576,7 +660,7 @@ SOB_time_and_sales(pySOB *self, PyObject *args)
 
 
 template<sob::side_of_market Side>
-static PyObject* 
+PyObject*
 SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
 {
     using namespace sob;
@@ -591,10 +675,10 @@ SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
         return NULL;
     }
 
-    PyObject *list;
+    std::map<double,size_t> md;
+    Py_BEGIN_ALLOW_THREADS
     try{
         FullInterface *ob = to_interface(self);
-        std::map<double,size_t> md;
         switch(Side){
             case(side_of_market::bid): 
                 md = ob->bid_depth(depth);
@@ -606,7 +690,15 @@ SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
                 md = ob->market_depth(depth);
                 break;
         }
+    }catch(std::exception& e){
+        Py_BLOCK_THREADS
+        THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        Py_UNBLOCK_THREADS
+    }
+    Py_END_ALLOW_THREADS
 
+    PyObject *list;
+    try{
         size_t indx = md.size();
         bool size_error;
         switch(Side){
@@ -632,6 +724,7 @@ SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
     }catch(std::exception& e){
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
     }
+
     return list;
 }
 
@@ -654,7 +747,7 @@ struct MDef{
 };
 
 
-static PyMethodDef pySOB_methods[] = {
+PyMethodDef pySOB_methods[] = {
     MDef::NoArgs("min_price", SOB_min_price, "() -> float"),
     MDef::NoArgs("max_price",SOB_max_price, "() -> float"),
     MDef::NoArgs("incr_size",SOB_incr_size, "() -> float"),
@@ -828,7 +921,7 @@ static PyMethodDef pySOB_methods[] = {
 #undef DOCS_REPLACE_WITH_STOP_OR_LIMIT
 #undef DOCS_REPLACE_WITH_STOP_AND_LIMIT
 
-static PyObject* 
+PyObject*
 SOB_New(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
     using namespace sob;
@@ -865,37 +958,51 @@ SOB_New(PyTypeObject *type, PyObject *args, PyObject *kwds)
 
     FullInterface *ob = nullptr;
     pySOBBundle *bndl = nullptr;
+    Py_BEGIN_ALLOW_THREADS
     try{
         FullInterface *ob = proxy.create(low,high);
         bndl = new pySOBBundle(ob, proxy);
     }catch(const std::runtime_error & e){
+        Py_BLOCK_THREADS
         PyErr_SetString(PyExc_RuntimeError, e.what());
+        Py_UNBLOCK_THREADS
     }catch(const std::exception & e){
+        Py_BLOCK_THREADS
         PyErr_SetString(PyExc_Exception, e.what());
+        Py_UNBLOCK_THREADS
     }catch(...){
+        Py_BLOCK_THREADS
         Py_FatalError("fatal error creating orderbook");
+        Py_UNBLOCK_THREADS // unnecessary
     }
+    Py_END_ALLOW_THREADS
+
     if( PyErr_Occurred() ){
         if( bndl ){
             delete bndl;
         }
         if( ob ){
+            Py_BEGIN_ALLOW_THREADS
             proxy.destroy(ob);
+            Py_END_ALLOW_THREADS
         }
         Py_DECREF(self);
         return NULL;
     }
+
     self->sob_bndl = (PyObject*)bndl;
     return (PyObject*)self;
 }
 
 
-static void 
+void
 SOB_Delete(pySOB *self)
 {
     if( self->sob_bndl ){
         pySOBBundle *bndl = ((pySOBBundle*)(self->sob_bndl));
+        Py_BEGIN_ALLOW_THREADS
         bndl->proxy.destroy( bndl->interface );
+        Py_END_ALLOW_THREADS
         self->sob_bndl = nullptr;
         delete bndl;
     }
@@ -903,7 +1010,7 @@ SOB_Delete(pySOB *self)
 }
 
 
-static PyTypeObject pySOB_type = {
+PyTypeObject pySOB_type = {
     PyVarObject_HEAD_INIT(NULL,0)
     "simpleorderbook.SimpleOrderbook",
     sizeof(pySOB),
@@ -947,19 +1054,62 @@ static PyTypeObject pySOB_type = {
     SOB_New,
 };
 
-static struct PyModuleDef pySOB_mod_def = {
+PyObject*
+atexit_callee(PyObject *self, PyObject *args)
+{
+    exiting_pre_finalize = true;
+    Py_RETURN_NONE;
+}
+
+PyObject *atexit_callee_func = NULL;
+const char* atexit_callee_pyname = "__atexit_callee";
+
+PyMethodDef global_methods[] = {
+    {atexit_callee_pyname, atexit_callee, METH_NOARGS,""},
+    {NULL, NULL, 0, NULL}
+};
+
+struct PyModuleDef module_def= {
     PyModuleDef_HEAD_INIT,
     "simpleorderbook",
     NULL,
     -1,
-    NULL,
+    global_methods,
     NULL,
     NULL,
     NULL,
     NULL
 };
 
+
+void
+register_atexit_callee(PyObject* mod)
+{
+    PyObject *mod_atexit = PyImport_ImportModule("atexit");
+    if( !mod_atexit ){
+        std::cerr << "warn: failed to import 'atexit'" << std::endl;
+        return;
+    }
+
+    PyObject *mod_dict = PyModule_GetDict(mod);
+    PyObject *key = Py_BuildValue("s", atexit_callee_pyname);
+    atexit_callee_func = PyDict_GetItem(mod_dict, key);
+    Py_XINCREF(atexit_callee_func); // no need to decr on exit
+    PyDict_DelItem(mod_dict, key);
+    Py_DECREF(key);
+
+    PyObject *ret_atexit = PyObject_CallMethod(mod_atexit, "register", "O",
+                                               atexit_callee_func);
+    Py_DECREF(mod_atexit);
+    if( ret_atexit ){
+        Py_DECREF(ret_atexit);
+    }else{
+        std::cerr<< "warn: failed to register atexit_callee" << std::endl;
+    }
+}
+
 }; /* namespace */
+
 
 PyMODINIT_FUNC 
 PyInit_simpleorderbook(void)
@@ -968,10 +1118,11 @@ PyInit_simpleorderbook(void)
         return NULL;
     }
 
-    PyObject *mod = PyModule_Create(&pySOB_mod_def);
+    PyObject *mod = PyModule_Create(&module_def);
     if( !mod ){
         return NULL;
     }
+    register_atexit_callee(mod);
 
     Py_INCREF(&pySOB_type);
     PyModule_AddObject(mod, "SimpleOrderbook", (PyObject*)&pySOB_type);
@@ -988,6 +1139,7 @@ PyInit_simpleorderbook(void)
         PyObject_SetAttrString(mod, p.second.c_str(), indx);
     }
 
+    PyEval_InitThreads();
     return mod;
 }
 
