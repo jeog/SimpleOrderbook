@@ -616,6 +616,30 @@ SOB_pull_order(pySOB *self, PyObject *args, PyObject *kwds)
     return PyBool_FromLong((unsigned long)rval);
 }
 
+PyObject*
+timesales_to_list(const sob::QueryInterface::timesale_vector_type& vec, size_t n)
+{
+    PyObject *list;
+    try{
+        list = PyList_New(n);
+        if( n == 0 ){
+            return list;
+        }
+        /* reverse the order */
+        auto eiter = vec.cend() - 1;
+        for(size_t i = 0; i < n; ++i, --eiter)
+        {
+            std::string s = sob::to_string(std::get<0>(*eiter));
+            PyObject *tup = Py_BuildValue( "(s,d,k)", s.c_str(),
+                                           std::get<1>(*eiter),
+                                           std::get<2>(*eiter) );
+            PyList_SET_ITEM(list, i, tup);
+        }
+    }catch(std::exception& e){
+        THROW_PY_EXCEPTION_FROM_NATIVE(e); // sets Err, returns NULL
+    }
+    return list;
+}
 
 PyObject*
 SOB_time_and_sales(pySOB *self, PyObject *args)
@@ -627,34 +651,22 @@ SOB_time_and_sales(pySOB *self, PyObject *args)
         return NULL;
     }
 
-    QueryInterface::timesale_vector_type vec;
+    PyObject *list;
     Py_BEGIN_ALLOW_THREADS
     try{
         FullInterface *ob = to_interface(self);
-        vec = ob->time_and_sales();
+        auto vec = ob->time_and_sales();
+        size_t vsz = vec.size();
+        size_t n = (arg <= 0) ? vsz : std::min(vsz,(size_t)arg);
+        Py_BLOCK_THREADS
+        list = timesales_to_list(vec, n);
+        Py_UNBLOCK_THREADS
     }catch(std::exception& e){
         Py_BLOCK_THREADS
         THROW_PY_EXCEPTION_FROM_NATIVE(e);
         Py_UNBLOCK_THREADS
     }
     Py_END_ALLOW_THREADS
-
-    PyObject *list;
-    try{
-        size_t num = arg <= 0 ? vec.size() : std::min(vec.size(),(size_t)arg);
-        list = PyList_New(num);
-        auto biter = vec.cbegin();
-        for(size_t i = 0; i < num; ++i, ++biter)
-        {
-            std::string s = sob::to_string(std::get<0>(*biter));
-            PyObject *tup = Py_BuildValue( "(s,d,k)", s.c_str(),
-                                           std::get<1>(*biter),
-                                           std::get<2>(*biter) );
-            PyList_SET_ITEM(list, i, tup);
-        }
-    }catch(std::exception& e){
-        THROW_PY_EXCEPTION_FROM_NATIVE(e);
-    }
     return list;
 }
 

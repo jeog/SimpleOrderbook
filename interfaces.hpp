@@ -87,6 +87,7 @@ public:
     virtual std::map<double,size_t> 
     market_depth(size_t depth=8) const = 0;
 
+    /* new elems get put on back i.e beg() == oldest, end() == newest */
     virtual const timesale_vector_type&
     time_and_sales() const = 0;
 
