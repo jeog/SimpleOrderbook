@@ -119,7 +119,7 @@ CALLDOWN_TO_DUMP( dump_sell_limits )
 CALLDOWN_TO_DUMP( dump_buy_stops )
 CALLDOWN_TO_DUMP( dump_sell_stops )
 
-bool exiting_pre_finalize = false;
+volatile bool exiting_pre_finalize = false;
 
 class PyFuncWrap {
 protected:
@@ -1054,27 +1054,13 @@ PyTypeObject pySOB_type = {
     SOB_New,
 };
 
-PyObject*
-atexit_callee(PyObject *self, PyObject *args)
-{
-    exiting_pre_finalize = true;
-    Py_RETURN_NONE;
-}
-
-PyObject *atexit_callee_func = NULL;
-const char* atexit_callee_pyname = "__atexit_callee";
-
-PyMethodDef global_methods[] = {
-    {atexit_callee_pyname, atexit_callee, METH_NOARGS,""},
-    {NULL, NULL, 0, NULL}
-};
 
 struct PyModuleDef module_def= {
     PyModuleDef_HEAD_INIT,
     "simpleorderbook",
     NULL,
     -1,
-    global_methods,
+    NULL,
     NULL,
     NULL,
     NULL,
@@ -1082,27 +1068,38 @@ struct PyModuleDef module_def= {
 };
 
 
-void
-register_atexit_callee(PyObject* mod)
+PyObject*
+atexit_callee(PyObject *self, PyObject *args)
 {
-    PyObject *mod_atexit = PyImport_ImportModule("atexit");
-    if( !mod_atexit ){
-        std::cerr << "warn: failed to import 'atexit'" << std::endl;
+    exiting_pre_finalize = true;
+    Py_RETURN_NONE;
+}
+
+void
+register_atexit_callee()
+{
+    static PyMethodDef def = {
+            "__atexit_callee", atexit_callee, METH_NOARGS, ""
+    };
+    PyCFunctionObject *func = (PyCFunctionObject *)PyCFunction_New(&def, NULL);
+    if( func == NULL ){
+        std::cerr << "warn: failed to create atexit_callee function object"
+                  << std::endl;
         return;
     }
 
-    PyObject *mod_dict = PyModule_GetDict(mod);
-    PyObject *key = Py_BuildValue("s", atexit_callee_pyname);
-    atexit_callee_func = PyDict_GetItem(mod_dict, key);
-    Py_XINCREF(atexit_callee_func); // no need to decr on exit
-    PyDict_DelItem(mod_dict, key);
-    Py_DECREF(key);
+    PyObject *mod = PyImport_ImportModule("atexit");
+    if( !mod ){
+        std::cerr << "warn: failed to import 'atexit'" << std::endl;
+        Py_DECREF(func);
+        return;
+    }
 
-    PyObject *ret_atexit = PyObject_CallMethod(mod_atexit, "register", "O",
-                                               atexit_callee_func);
-    Py_DECREF(mod_atexit);
-    if( ret_atexit ){
-        Py_DECREF(ret_atexit);
+    PyObject *ret = PyObject_CallMethod(mod, "register", "O", func);
+    Py_DECREF(func);
+    Py_DECREF(mod);
+    if( ret ){
+        Py_DECREF(ret);
     }else{
         std::cerr<< "warn: failed to register atexit_callee" << std::endl;
     }
@@ -1122,7 +1119,6 @@ PyInit_simpleorderbook(void)
     if( !mod ){
         return NULL;
     }
-    register_atexit_callee(mod);
 
     Py_INCREF(&pySOB_type);
     PyModule_AddObject(mod, "SimpleOrderbook", (PyObject*)&pySOB_type);
@@ -1139,6 +1135,7 @@ PyInit_simpleorderbook(void)
         PyObject_SetAttrString(mod, p.second.c_str(), indx);
     }
 
+    register_atexit_callee();
     PyEval_InitThreads();
     return mod;
 }
