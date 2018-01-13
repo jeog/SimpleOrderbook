@@ -20,10 +20,15 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <sstream>
 #include <iomanip>
 
-#include "../common.hpp"
-#include "../simpleorderbook.hpp"
+#include "../../include/common.hpp"
+#include "../../include/simpleorderbook.hpp"
+#include "../include/common_py.hpp"
+#include "../include/argparse_py.hpp"
+#include "../include/callback_py.hpp"
 
 #ifndef IGNORE_TO_DEBUG_NATIVE
+
+// TODO  dump ALL limits/stops
 
 namespace {
 
@@ -48,14 +53,38 @@ constexpr sob::FullInterface*
 to_interface(const pySOB *sob)
 { return ((pySOBBundle*)(sob->sob_bndl))->interface; }
 
-/* type string + what() from native exception */
-#define THROW_PY_EXCEPTION_FROM_NATIVE(e) \
-do{ \
-    std::string msg; \
-    msg.append(typeid(e).name()).append(": ").append(e.what()); \
-    PyErr_SetString(PyExc_Exception, msg.c_str()); \
-    return NULL; \
-}while(0) 
+template<typename T>
+constexpr std::pair<int, std::pair<std::string, sob::DefaultFactoryProxy>>
+sob_type_make_entry(int index, std::string name)
+{
+    return std::make_pair(index,
+               std::make_pair(name,
+                   sob::SimpleOrderbook::BuildFactoryProxy<T>()) );
+}
+
+const std::map<int, std::pair<std::string, sob::DefaultFactoryProxy>>
+SOB_TYPES = {
+    sob_type_make_entry<sob::quarter_tick>(1, "SOB_QUARTER_TICK"),
+    sob_type_make_entry<sob::tenth_tick>(2, "SOB_TENTH_TICK"),
+    sob_type_make_entry<sob::thirty_secondth_tick>(3, "SOB_THIRTY_SECONDTH_TICK"),
+    sob_type_make_entry<sob::hundredth_tick>(4, "SOB_HUNDREDTH_TICK"),
+    sob_type_make_entry<sob::thousandth_tick>(5, "SOB_THOUSANDTH_TICK"),
+    sob_type_make_entry<sob::ten_thousandth_tick>(6, "SOB_TEN_THOUSANDTH_TICK")
+};
+
+const std::map<int, std::string>
+CALLBACK_MESSAGES = {
+    {static_cast<int>(sob::callback_msg::cancel), "MSG_CANCEL"},
+    {static_cast<int>(sob::callback_msg::fill), "MSG_FILL"},
+    {static_cast<int>(sob::callback_msg::stop_to_limit), "MSG_STOP_TO_LIMIT"}
+};
+
+const std::map<int, std::string>
+SIDES_OF_MARKET = {
+    {static_cast<int>(sob::side_of_market::bid), "SIDE_BID"},
+    {static_cast<int>(sob::side_of_market::ask), "SIDE_ASK"},
+    {static_cast<int>(sob::side_of_market::both), "SIDE_BOTH"}
+};
 
 #define CALLDOWN_FOR_STATE(apicall, rtype, sobcall) \
     static PyObject* SOB_ ## sobcall(pySOB *self){ \
@@ -66,7 +95,7 @@ do{ \
             ret = ob->sobcall(); \
         }catch(std::exception& e){ \
             Py_BLOCK_THREADS \
-            THROW_PY_EXCEPTION_FROM_NATIVE(e); \
+            CONVERT_AND_THROW_NATIVE_EXCEPTION(e); \
             Py_UNBLOCK_THREADS \
         } \
         Py_END_ALLOW_THREADS \
@@ -104,7 +133,7 @@ CALLDOWN_FOR_STATE_ULONGLONG( volume )
             ob->sobcall(); \
         }catch(std::exception& e){ \
             Py_BLOCK_THREADS \
-            THROW_PY_EXCEPTION_FROM_NATIVE(e); \
+            CONVERT_AND_THROW_NATIVE_EXCEPTION(e); \
             Py_UNBLOCK_THREADS \
         } \
         Py_END_ALLOW_THREADS \
@@ -122,348 +151,6 @@ CALLDOWN_TO_DUMP( dump_sell_stops )
 #undef CALLDOWN_FOR_STATE_ULONGLONG
 #undef CALLDOWN_TO_DUMP
 
-volatile bool exiting_pre_finalize = false;
-
-class PyFuncWrap {
-protected:
-    PyObject *const cb;
-
-    explicit PyFuncWrap(PyObject *callback)
-        :
-            cb(callback)
-        {
-            if( valid_interpreter_state() ){
-                PyGILState_STATE gs = PyGILState_Ensure();
-                Py_XINCREF(callback);
-                PyGILState_Release(gs);
-            }
-        }
-
-    PyFuncWrap(const PyFuncWrap& obj)
-        :
-            cb(obj.cb)
-        {
-            if( valid_interpreter_state() ){
-                PyGILState_STATE gs = PyGILState_Ensure();
-                Py_XINCREF(obj.cb);
-                PyGILState_Release(gs);
-            }
-        }
-
-    inline bool
-    valid_interpreter_state() const
-    { return !exiting_pre_finalize; }
-
-public:
-    virtual
-    ~PyFuncWrap()
-    {
-        if( !cb ){
-            return;
-        }
-        /*
-         * PyGILState_Ensure() is getting called too late on exit().
-         * _PyRuntime.gilstate.autoInterpreterState == 0 fails assert.
-         * We register atexit_callee w/ atexit mod to set 'exiting_pre_finalize'
-         * after Py_Finalize() but BEFORE _PyGILState_Fini() is called;
-         */
-        if( valid_interpreter_state() ){
-            /*
-             * race condition if main thread sets exiting_pre_finalize to true
-             * between valid_interpeter_state() and PyGILState_Ensure()
-             * (leave for now because it only happens on exit)
-             */
-            PyGILState_STATE gs = PyGILState_Ensure();
-            Py_DECREF(cb);
-            PyGILState_Release(gs);
-        }
-    }
-
-    inline operator
-    bool() const
-    { return cb; }
-};
-
-
-class ExecCallbackWrap
-        : public PyFuncWrap {
-    ExecCallbackWrap& operator=(const ExecCallbackWrap&);
-    ExecCallbackWrap& operator=(ExecCallbackWrap&&);
-
-public:
-    explicit ExecCallbackWrap(PyObject *callback)
-        : PyFuncWrap(callback) {}
-
-    ExecCallbackWrap(const ExecCallbackWrap& obj)
-        : PyFuncWrap(obj) {}
-
-    void
-    operator()(sob::callback_msg msg,
-               sob::id_type id,
-               double price,
-               size_t size) const
-    {
-        if( !(*this) ){
-            return;
-        }
-        /* see notes in destructor about this check */
-        if( !valid_interpreter_state() ){
-            std::cerr<< "* callback(" << std::hex << reinterpret_cast<void*>(cb)
-                     << ") not called; invalid interpreter state *"
-                     << std::endl;
-            return;
-        }
-        /* ignore race condition here for same reason as in destructor */
-        PyGILState_STATE gs = PyGILState_Ensure();
-        PyObject *args = Py_BuildValue("kkdk", (int)msg, id, price, size);
-        PyObject* res = PyObject_CallObject(cb, args);
-        if( PyErr_Occurred() ){
-            std::cerr<< "* callback(" << std::hex << reinterpret_cast<void*>(cb)
-                     <<  ") error * " << std::endl;
-            PyErr_Print();
-        }
-        Py_XDECREF(res);
-        Py_XDECREF(args);
-        PyGILState_Release(gs);
-    }
-};
-
-template<typename T>
-constexpr std::pair<int, std::pair<std::string, sob::DefaultFactoryProxy>>
-sob_type_make_entry(int index, std::string name)
-{
-    return std::make_pair(index,
-               std::make_pair(name,
-                   sob::SimpleOrderbook::BuildFactoryProxy<T>()) );
-}
-
-const std::map<int, std::pair<std::string, sob::DefaultFactoryProxy>>
-SOB_TYPES = {
-    sob_type_make_entry<sob::quarter_tick>(1, "SOB_QUARTER_TICK"),
-    sob_type_make_entry<sob::tenth_tick>(2, "SOB_TENTH_TICK"),
-    sob_type_make_entry<sob::thirty_secondth_tick>(3, "SOB_THIRTY_SECONDTH_TICK"),
-    sob_type_make_entry<sob::hundredth_tick>(4, "SOB_HUNDREDTH_TICK"),
-    sob_type_make_entry<sob::thousandth_tick>(5, "SOB_THOUSANDTH_TICK"),
-    sob_type_make_entry<sob::ten_thousandth_tick>(6, "SOB_TEN_THOUSANDTH_TICK")
-};
-
-const std::map<int, std::string>
-CALLBACK_MESSAGES = {
-    {static_cast<int>(sob::callback_msg::cancel), "MSG_CANCEL"},
-    {static_cast<int>(sob::callback_msg::fill), "MSG_FILL"},
-    {static_cast<int>(sob::callback_msg::stop_to_limit), "MSG_STOP_TO_LIMIT"}
-};
-
-std::string
-to_string(PyObject *arg)
-{
-    // TODO inspect the PyObject
-    std::stringstream ss;
-    ss<< std::hex << static_cast<void*>(arg);
-    return ss.str();
-}
-
-using std::to_string;
-
-class MethodArgs {
-    template<typename T, typename... TArgs>
-    static std::string
-    build_arg_values_str(T *arg1, TArgs... targs)
-    { return to_string(*arg1) + " " + build_arg_values_str(targs...); }
-
-    template<typename T>
-    static std::string
-    build_arg_values_str(T *arg1)
-    { return to_string(*arg1); }
-
-    static std::string
-    build_keywords_str(char **kwds){
-        std::string s;
-        for(int i = 0; kwds[i] != NULL; ++i){
-            s += kwds[i];
-            s += " ";
-        }
-        if( !s.empty() ){
-            s.pop_back();
-        }
-        return s;
-    }
-
-public:
-    static char id[], stop[], limit[], size[], callback[], depth[],
-                sob_type[], low[], high[];
-
-    template<typename ...TArgs>
-    static bool
-    extract( PyObject *args,
-             PyObject *kwds,
-             const char* frmt,
-             char **kwlist,
-             TArgs... targs )
-    {
-        if( !PyArg_ParseTupleAndKeywords(args, kwds, frmt, kwlist, targs...) ){
-            PyErr_SetString(PyExc_ValueError, "error parsing args");
-            std::cerr<< "*** parse error ***" << std::endl;
-            print(std::cerr, frmt, kwlist, targs...);
-            std::cerr<< "*** parse error ***" << std::endl;
-            return false;
-        }
-        return true;
-    }
-
-    template<typename ...TArgs>
-    static bool
-    extract(PyObject *args, const char* frmt, TArgs... targs)
-    {
-        if( !PyArg_ParseTuple(args, frmt, targs...) ){
-            PyErr_SetString(PyExc_ValueError, "error parsing args");
-            std::cerr<< "*** parse error ***" << std::endl;
-            print(std::cerr, frmt, targs...);
-            std::cerr<< "*** parse error ***" << std::endl;
-            return false;
-        }
-        return true;
-    }
-
-    template<typename... TArgs>
-    static void
-    print(std::ostream& out, std::string frmt, char **kw, TArgs... targs)
-    {
-        out << "format: " << frmt << std::endl
-            << "keywords: " << build_keywords_str(kw) << std::endl
-            << "values: " << build_arg_values_str(targs...) << std::endl;
-    }
-
-
-    template<typename... TArgs>
-    static void
-    print(std::ostream& out, std::string frmt, TArgs... targs)
-    {
-        out << "* format: " << frmt << std::endl
-            << "* values: " << build_arg_values_str(targs...) << std::endl;
-    }
-};
-
-char MethodArgs::id[] = "id";
-char MethodArgs::stop[] = "stop";
-char MethodArgs::limit[] = "limit";
-char MethodArgs::size[] = "size";
-char MethodArgs::callback[] = "callback";
-char MethodArgs::depth[] = "depth";
-char MethodArgs::sob_type[] = "sob_type";
-char MethodArgs::low[] = "low";
-char MethodArgs::high[] = "high";
-
-class OrderMethodArgsBase
-        : protected MethodArgs {
-protected:
-    static const std::map<sob::order_type, std::array<char*,6>> keywords;
-    static const std::map<sob::order_type, std::string> format_strs;
-};
-
-const std::map<sob::order_type, std::array<char*,6>>
-OrderMethodArgsBase::keywords = {
-    {sob::order_type::limit, {id, limit, size, callback}},
-    {sob::order_type::market, {id, size, callback}},
-    {sob::order_type::stop, {id, stop, size, callback}},
-    {sob::order_type::stop_limit, {id, stop, limit, size, callback}}
-};
-
-const std::map<sob::order_type, std::string>
-OrderMethodArgsBase::format_strs = {
-    {sob::order_type::limit, "kdl|O"},
-    {sob::order_type::market, "kl|O"},
-    {sob::order_type::stop, "kdl|O"},
-    {sob::order_type::stop_limit, "kddl|O"}
-};
-
-template<bool Replace>
-class OrderMethodArgs
-        : protected OrderMethodArgsBase {
-    static_assert( std::is_same<sob::id_type, unsigned long>::value,
-                   "id_type != unsigned long (change frmt strings)" );
-
-protected:
-    /* IF compiler gives 'error: no matching function for ... check_args()'
-       check order of (id_arg + targs) in caller */
-    template<typename T, typename T2, typename ...TArgs>
-    static bool
-    check_args(T arg1, T2 arg2, TArgs... args)
-    { return check_args(arg2, args...); }
-
-    static bool
-    check_args(long *size, PyObject **cb)
-    {
-        if( *cb && !PyCallable_Check(*cb) ){
-            PyErr_SetString(PyExc_TypeError,"callback must be callable");
-            return false;
-        }
-        if( *size <= 0 ){
-            PyErr_SetString(PyExc_ValueError, "size must be > 0");
-            return false;
-        }
-        return true;
-    }
-
-    using MethodArgs::extract;
-
-public:
-    template<typename IdTy, typename ...TArgs>
-    static bool
-    extract( PyObject *args,
-             PyObject *kwds,
-             sob::order_type ot,
-             IdTy id_arg,
-             TArgs... targs)
-    {
-        const char *frmt = format_strs.at(ot).c_str();
-        char **kptr = const_cast<char**>(keywords.at(ot).data());
-        if( !extract(args, kwds, frmt, kptr, id_arg, targs...) ){
-            return false;
-        }
-        if( !check_args(id_arg, targs...) ){
-            std::cerr<< "*** parse error ***" << std::endl;
-            print(std::cerr, frmt, kptr, targs...);
-            std::cerr<< "*** parse error ***" << std::endl;
-            return false;
-        }
-        return true;
-    }
-};
-
-template<>
-class OrderMethodArgs<false>
-        : public OrderMethodArgs<true>{
-    using OrderMethodArgs<true>::extract;
-public:
-    template<typename IdTy, typename ...TArgs>
-    static bool
-    extract( PyObject *args,
-             PyObject *kwds,
-             sob::order_type ot,
-             IdTy id_arg,
-             TArgs... targs )
-    {
-        const char *frmt = format_strs.at(ot).c_str() + 1;
-        char **kptr = const_cast<char**>(keywords.at(ot).data()) + 1;
-        if( !extract(args, kwds, frmt, kptr, targs...) ){
-            return false;
-        }
-        if( !check_args(targs...) ){
-            std::cerr<< "*** parse error ***" << std::endl;
-            print(std::cerr, frmt, kptr, targs...);
-            std::cerr<< "*** parse error ***" << std::endl;
-            return false;
-        }
-        return true;
-    }
-};
-
-inline sob::order_exec_cb_type
-wrap_cb(PyObject *cb)
-{ return cb ? sob::order_exec_cb_type(ExecCallbackWrap(cb))
-            : sob::order_exec_cb_type(); }
-
 template<bool BuyOrder, bool ReplaceOrder>
 PyObject* 
 SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
@@ -473,7 +160,7 @@ SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
     sob::id_type id = 0;
     PyObject *cb = nullptr;
 
-    if( !OrderMethodArgs<ReplaceOrder>::extract(args, kwds,
+    if( !OrderMethodArgs<ReplaceOrder>::parse(args, kwds,
             sob::order_type::limit, &id, &limit, &size, &cb) )
     {
         return NULL;
@@ -487,7 +174,7 @@ SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
            : ob->insert_limit_order(BuyOrder, limit, size, wrap_cb(cb));
     }catch(std::exception& e){
         Py_BLOCK_THREADS
-        THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
         Py_UNBLOCK_THREADS // unnecessary, unless we change THROW...NATIVE()
     }
     Py_END_ALLOW_THREADS
@@ -503,7 +190,7 @@ SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
     sob::id_type id = 0;
     PyObject *cb = nullptr;
 
-    if( !OrderMethodArgs<ReplaceOrder>::extract(args, kwds,
+    if( !OrderMethodArgs<ReplaceOrder>::parse(args, kwds,
             sob::order_type::market, &id, &size, &cb) )
     {
         return NULL;
@@ -517,7 +204,7 @@ SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
            : ob->insert_market_order(BuyOrder, size, wrap_cb(cb));
     }catch(std::exception& e){
         Py_BLOCK_THREADS
-        THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
         Py_UNBLOCK_THREADS
     }
     Py_END_ALLOW_THREADS
@@ -534,7 +221,7 @@ SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
     sob::id_type id = 0;
     PyObject *cb = nullptr;
 
-    if( !OrderMethodArgs<ReplaceOrder>::extract(args, kwds,
+    if( !OrderMethodArgs<ReplaceOrder>::parse(args, kwds,
             sob::order_type::stop, &id, &stop, &size, &cb) )
     {
         return NULL;
@@ -548,7 +235,7 @@ SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
            : ob->insert_stop_order(BuyOrder, stop, size, wrap_cb(cb));
     }catch(std::exception& e){
         Py_BLOCK_THREADS
-        THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
         Py_UNBLOCK_THREADS
     }
     Py_END_ALLOW_THREADS
@@ -566,7 +253,7 @@ SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
     sob::id_type id = 0;
     PyObject *cb = nullptr;
 
-    if( !OrderMethodArgs<ReplaceOrder>::extract(args, kwds,
+    if( !OrderMethodArgs<ReplaceOrder>::parse(args, kwds,
             sob::order_type::stop_limit, &id, &stop, &limit, &size, &cb) )
     {
         return NULL;
@@ -580,7 +267,7 @@ SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
            : ob->insert_stop_order(BuyOrder, stop, limit, size, wrap_cb(cb));
     }catch(std::exception& e){
         Py_BLOCK_THREADS
-        THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
         Py_UNBLOCK_THREADS
     }
     Py_END_ALLOW_THREADS
@@ -596,7 +283,7 @@ SOB_pull_order(pySOB *self, PyObject *args, PyObject *kwds)
     sob::id_type id;
 
     static char* kwlist[] = {MethodArgs::id,NULL};
-    if( !MethodArgs::extract(args, kwds, "k", kwlist, &id) ){
+    if( !MethodArgs::parse(args, kwds, "k", kwlist, &id) ){
         return false;
     }
 
@@ -605,7 +292,7 @@ SOB_pull_order(pySOB *self, PyObject *args, PyObject *kwds)
         rval = to_interface(self)->pull_order(id);
     }catch(std::exception& e){
         Py_BLOCK_THREADS
-        THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
         Py_UNBLOCK_THREADS
     }
     Py_END_ALLOW_THREADS
@@ -633,7 +320,7 @@ timesales_to_list(const sob::QueryInterface::timesale_vector_type& vec, size_t n
         }
     }catch(std::exception& e){
         Py_XDECREF(list);
-        THROW_PY_EXCEPTION_FROM_NATIVE(e); // sets Err, returns NULL
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e); // sets Err, returns NULL
     }
     return list;
 }
@@ -642,7 +329,7 @@ PyObject*
 SOB_time_and_sales(pySOB *self, PyObject *args)
 {
     long arg = -1;
-    if( !MethodArgs::extract(args, "|l", &arg) ){
+    if( !MethodArgs::parse(args, "|l", &arg) ){
         return NULL;
     }
 
@@ -658,7 +345,7 @@ SOB_time_and_sales(pySOB *self, PyObject *args)
         Py_UNBLOCK_THREADS
     }catch(std::exception& e){
         Py_BLOCK_THREADS
-        THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
         Py_UNBLOCK_THREADS
     }
     Py_END_ALLOW_THREADS
@@ -683,7 +370,7 @@ struct DepthHelper{
             }
         }catch(std::exception& e){
             Py_XDECREF(dict);
-            THROW_PY_EXCEPTION_FROM_NATIVE(e); // set err, return NULL
+            CONVERT_AND_THROW_NATIVE_EXCEPTION(e); // set err, return NULL
         }
         return dict;
     }
@@ -730,7 +417,7 @@ SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
     long depth;
 
     static char* kwlist[] = {MethodArgs::depth, NULL};
-    if( !MethodArgs::extract(args, kwds, "l", kwlist, &depth) ){
+    if( !MethodArgs::parse(args, kwds, "l", kwlist, &depth) ){
         return NULL;
     }
     if(depth <= 0){
@@ -748,7 +435,7 @@ SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
         Py_UNBLOCK_THREADS
     }catch(std::exception& e){
         Py_BLOCK_THREADS
-        THROW_PY_EXCEPTION_FROM_NATIVE(e);
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
         Py_UNBLOCK_THREADS
     }
     Py_END_ALLOW_THREADS
@@ -958,7 +645,7 @@ SOB_New(PyTypeObject *type, PyObject *args, PyObject *kwds)
 
     static char* kwlist[] = { MethodArgs::sob_type, MethodArgs::low,
                               MethodArgs::high, NULL };
-    if( !MethodArgs::extract(args, kwds, "idd", kwlist, &sobty, &low, &high) ){
+    if( !MethodArgs::parse(args, kwds, "idd", kwlist, &sobty, &low, &high) ){
         return NULL;
     }
     if(low == 0){
@@ -1131,8 +818,30 @@ register_atexit_callee()
     }
 }
 
+template<typename T>
+inline std::string
+attr_str(T val)
+{ return val; }
+
+template<typename T>
+inline std::string
+attr_str(const std::pair<std::string, T>& val)
+{ return val.first; }
+
+template<typename T>
+void
+set_const_attributes(PyObject *mod, const std::map<int, T>& m)
+{
+    for( const auto& p : m ){
+        PyObject *indx = Py_BuildValue("i",p.first);
+        PyObject_SetAttrString(mod, attr_str(p.second).c_str(), indx);
+    }
+}
+
+
 }; /* namespace */
 
+volatile bool exiting_pre_finalize = false;
 
 PyMODINIT_FUNC 
 PyInit_simpleorderbook(void)
@@ -1149,21 +858,22 @@ PyInit_simpleorderbook(void)
     Py_INCREF(&pySOB_type);
     PyModule_AddObject(mod, "SimpleOrderbook", (PyObject*)&pySOB_type);
 
-    /* simple orderbook types */
-    for( auto& p : SOB_TYPES ){
-        PyObject *indx = Py_BuildValue("i",p.first);
-        PyObject_SetAttrString(mod, p.second.first.c_str(), indx);
-    }
-
-    /* callback_msg types */
-    for( auto& p : CALLBACK_MESSAGES ){
-        PyObject *indx = Py_BuildValue("i", p.first);
-        PyObject_SetAttrString(mod, p.second.c_str(), indx);
-    }
-
+    set_const_attributes(mod, SOB_TYPES);
+    set_const_attributes(mod, CALLBACK_MESSAGES);
+    set_const_attributes(mod, SIDES_OF_MARKET);
     register_atexit_callee();
+
     PyEval_InitThreads();
     return mod;
+}
+
+std::string
+to_string(PyObject *arg)
+{
+    // TODO inspect the PyObject
+    std::stringstream ss;
+    ss<< std::hex << static_cast<void*>(arg);
+    return ss.str();
 }
 
 #endif /* IGNORE_TO_DEBUG_NATIVE */

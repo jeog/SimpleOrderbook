@@ -16,7 +16,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 */
 
 #include <iterator>
-#include "simpleorderbook.hpp"
+#include "../include/simpleorderbook.hpp"
 
 /* readability macros - #undef'd at the end of file */
 #define T_(tuple,i) std::get<i>(tuple)

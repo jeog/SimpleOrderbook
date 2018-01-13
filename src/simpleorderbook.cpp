@@ -16,7 +16,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 */
 
 #include <sstream>
-#include "simpleorderbook.hpp"
+#include "../include/simpleorderbook.hpp"
 
 /* 
  *  The bulk of simpleorderbook is implemented via template code in:

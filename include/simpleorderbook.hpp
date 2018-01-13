@@ -821,6 +821,6 @@ SimpleOrderbook::SimpleOrderbookImpl<TickRatio, MaxMemory>::rmanager(
 
 }; /* sob */
 
-#include "simpleorderbook.tpp"
+#include "../src/simpleorderbook.tpp"
 
 #endif

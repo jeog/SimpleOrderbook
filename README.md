@@ -21,7 +21,7 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 
 - **C++** 
 
-        user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -lpthread simpleorderbook.cpp example_code.cpp -o example_code.out
+        user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -lpthread src/simpleorderbook.cpp example_code.cpp -o example_code.out
         user@host:/usr/local/SimpleOrderbook$ ./example_code.out  
 
 - **python**
