@@ -418,9 +418,7 @@ private:
         /* calculate chain_size of orders at each price level
          * use depth increments on each side of last  */
         template<side_of_market Side, typename ChainTy = limit_chain_type>
-        std::map<double, typename std::conditional<Side == side_of_market::both,
-                                        std::pair<size_t, side_of_market>,
-                                        size_t>::type >
+        std::map<double, typename _depth<Side>::mapped_type >
         _market_depth(size_t depth) const;
 
         /* total size of bid or ask limits */

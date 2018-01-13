@@ -280,6 +280,8 @@ public:
 SOB_TEMPLATE
 template<side_of_market Side, typename My>
 struct SOB_CLASS::_depth{
+    typedef size_t mapped_type;
+    
     static inline 
     size_t 
     build_value(const My* sob, typename SOB_CLASS::plevel p, size_t d){
@@ -290,8 +292,10 @@ struct SOB_CLASS::_depth{
 SOB_TEMPLATE
 template<typename My>
 struct SOB_CLASS::_depth<side_of_market::both, My>{
+    typedef std::pair<size_t, side_of_market> mapped_type;
+    
     static inline 
-    std::pair<size_t, side_of_market> 
+    mapped_type 
     build_value(const My* sob, typename SOB_CLASS::plevel p, size_t d){
         auto s = (p >= sob->_ask) ? side_of_market::ask : side_of_market::bid;
         return std::make_pair(d,s);          
@@ -1263,19 +1267,14 @@ SOB_CLASS::_insert_stop_order( plevel stop,
 
 
 SOB_TEMPLATE
-template<side_of_market Side, typename ChainTy> 
-std::map<double, 
-         typename std::conditional<Side == side_of_market::both, 
-                                   std::pair<size_t, side_of_market>,
-                                   size_t>::type >
+template<side_of_market Side, typename ChainTy>
+std::map<double, typename SOB_CLASS::template _depth<Side>::mapped_type>
 SOB_CLASS::_market_depth(size_t depth) const
 {
     plevel h;
     plevel l;    
     size_t d;
-    std::map<double, typename std::conditional<Side == side_of_market::both, 
-                                    std::pair<size_t, side_of_market>,
-                                    size_t>::type > md;
+    std::map<double, typename _depth<Side>::mapped_type> md;
     
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */      
