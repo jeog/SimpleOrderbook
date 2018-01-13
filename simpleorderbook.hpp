@@ -348,6 +348,10 @@ private:
                  typename My=SimpleOrderbookImpl>
         struct _high_low;
 
+        /* build value_types for depth map's */
+        template<side_of_market Side, typename My=SimpleOrderbookImpl>
+        struct _depth;
+
         /* generate order_info_type tuples */
         template<typename ChainTy, typename My=SimpleOrderbookImpl>
         struct _order_info;
@@ -414,7 +418,9 @@ private:
         /* calculate chain_size of orders at each price level
          * use depth increments on each side of last  */
         template<side_of_market Side, typename ChainTy = limit_chain_type>
-        std::map<double,size_t>
+        std::map<double, typename std::conditional<Side == side_of_market::both,
+                                        std::pair<size_t, side_of_market>,
+                                        size_t>::type >
         _market_depth(size_t depth) const;
 
         /* total size of bid or ask limits */
@@ -630,7 +636,7 @@ private:
         void
         dump_cached_plevels() const;
 
-        inline std::map<double,size_t>
+        inline std::map<double, size_t>
         bid_depth(size_t depth=8) const
         { return _market_depth<side_of_market::bid>(depth); }
 
@@ -638,7 +644,7 @@ private:
         ask_depth(size_t depth=8) const
         { return _market_depth<side_of_market::ask>(depth); }
 
-        inline std::map<double,size_t>
+        inline std::map<double,std::pair<size_t, side_of_market>>
         market_depth(size_t depth=8) const
         { return _market_depth<side_of_market::both>(depth); }
 

@@ -277,6 +277,28 @@ public:
     }
 };
 
+SOB_TEMPLATE
+template<side_of_market Side, typename My>
+struct SOB_CLASS::_depth{
+    static inline 
+    size_t 
+    build_value(const My* sob, typename SOB_CLASS::plevel p, size_t d){
+        return d;
+    }    
+};
+
+SOB_TEMPLATE
+template<typename My>
+struct SOB_CLASS::_depth<side_of_market::both, My>{
+    static inline 
+    std::pair<size_t, side_of_market> 
+    build_value(const My* sob, typename SOB_CLASS::plevel p, size_t d){
+        auto s = (p >= sob->_ask) ? side_of_market::ask : side_of_market::bid;
+        return std::make_pair(d,s);          
+    }
+};
+
+
 /*
  * _order_info::generate : generate specialized order_info_type tuples
  */ 
@@ -835,9 +857,9 @@ SOB_CLASS::_trade_has_occured( plevel plev,
 SOB_TEMPLATE
 void 
 SOB_CLASS::_threaded_order_dispatcher()
-{    
-    order_queue_elem_type e;          
+{                 
     for( ; ; ){
+        order_queue_elem_type e;
         {
             std::unique_lock<std::mutex> lock(_order_queue_mtx);      
             _order_queue_cond.wait( 
@@ -1242,21 +1264,27 @@ SOB_CLASS::_insert_stop_order( plevel stop,
 
 SOB_TEMPLATE
 template<side_of_market Side, typename ChainTy> 
-std::map<double,size_t> 
+std::map<double, 
+         typename std::conditional<Side == side_of_market::both, 
+                                   std::pair<size_t, side_of_market>,
+                                   size_t>::type >
 SOB_CLASS::_market_depth(size_t depth) const
 {
     plevel h;
     plevel l;    
     size_t d;
-    std::map<double,size_t> md;
+    std::map<double, typename std::conditional<Side == side_of_market::both, 
+                                    std::pair<size_t, side_of_market>,
+                                    size_t>::type > md;
     
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */      
     _high_low<Side>::template set_using_depth<ChainTy>(this,&h,&l,depth);
     for( ; h >= l; --h){
         if( !h->first.empty() ){
-            d = _chain<limit_chain_type>::size(&h->first);
-            md.insert( std::map<double,size_t>::value_type(_itop(h),d) );
+            d = _chain<limit_chain_type>::size(&h->first);   
+            auto v = _depth<Side>::build_value(this,h,d);
+            md.insert( std::make_pair(_itop(h), v) );          
         }
     }
     return md;

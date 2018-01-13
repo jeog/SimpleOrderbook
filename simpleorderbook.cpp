@@ -80,6 +80,18 @@ to_string(const callback_msg& cm)
 }
 
 std::string
+to_string(const side_of_market& s)
+{
+    switch(s){
+    case side_of_market::bid: return "bid";
+    case side_of_market::ask: return "ask";
+    case side_of_market::both: return "both";
+    default:
+        throw std::logic_error("bad side_of_market: " + std::to_string((int)s));
+    }
+}
+
+std::string
 to_string(const clock_type::time_point& tp)
 {
     auto sys_tp = std::chrono::system_clock::now() + (tp - clock_type::now());
@@ -104,12 +116,43 @@ to_string(const order_info_type& oi)
     return ss.str();
 }
 
-std::ostream& 
-operator<<(std::ostream& out, const order_info_type& oi)
-{  
-    std::cout<< to_string(oi);
+std::ostream&
+operator<<(std::ostream& out, const order_type& ot)
+{
+    out << to_string(ot);
     return out;
 }
+
+std::ostream&
+operator<<(std::ostream& out, const callback_msg& cm)
+{
+    out << to_string(cm);
+    return out;
+}
+
+std::ostream&
+operator<<(std::ostream& out, const side_of_market& s)
+{
+    out << to_string(s);
+    return out;
+}
+
+std::ostream&
+operator<<(std::ostream& out, const clock_type::time_point& tp)
+{
+    out << to_string(tp);
+    return out;
+}
+std::ostream&
+operator<<(std::ostream& out, const order_info_type& oi)
+{
+    out << to_string(oi);
+    return out;
+}
+
+
+
+
 
 }; /* sob */
 

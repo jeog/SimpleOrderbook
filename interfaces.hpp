@@ -84,7 +84,7 @@ public:
     virtual std::map<double,size_t> 
     ask_depth(size_t depth=8) const = 0;
 
-    virtual std::map<double,size_t> 
+    virtual std::map<double,std::pair<size_t, side_of_market>>
     market_depth(size_t depth=8) const = 0;
 
     /* new elems get put on back i.e beg() == oldest, end() == newest */
@@ -111,7 +111,7 @@ public:
     insert_limit_order(bool buy, 
                        double limit, 
                        size_t size,
-                       order_exec_cb_type exec_cb,
+                       order_exec_cb_type exec_cb = nullptr,
                        order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
@@ -119,7 +119,7 @@ public:
                              bool buy, 
                              double limit,
                              size_t size, 
-                             order_exec_cb_type exec_cb,
+                             order_exec_cb_type exec_cb = nullptr,
                              order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual bool 
@@ -141,14 +141,14 @@ public:
     virtual id_type
     insert_market_order(bool buy, 
                         size_t size, 
-                        order_exec_cb_type exec_cb,
+                        order_exec_cb_type exec_cb = nullptr,
                         order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
     insert_stop_order(bool buy, 
                       double stop, 
                       size_t size,
-                      order_exec_cb_type exec_cb,
+                      order_exec_cb_type exec_cb = nullptr,
                       order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
@@ -156,14 +156,14 @@ public:
                       double stop, 
                       double limit,
                       size_t size, 
-                      order_exec_cb_type exec_cb,
+                      order_exec_cb_type exec_cb = nullptr,
                       order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
     replace_with_market_order(id_type id, 
                               bool buy, 
                               size_t size,
-                              order_exec_cb_type exec_cb,
+                              order_exec_cb_type exec_cb = nullptr,
                               order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
@@ -171,7 +171,7 @@ public:
                             bool buy, 
                             double stop, 
                             size_t size,
-                            order_exec_cb_type exec_cb,
+                            order_exec_cb_type exec_cb = nullptr,
                             order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
@@ -180,7 +180,7 @@ public:
                             double stop,
                             double limit, 
                             size_t size,
-                            order_exec_cb_type exec_cb,
+                            order_exec_cb_type exec_cb = nullptr,
                             order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual void 

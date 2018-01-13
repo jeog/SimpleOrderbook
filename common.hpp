@@ -73,13 +73,17 @@ typedef std::function<void(id_type)> order_admin_cb_type;
 /* < order type, is buy, limit price, stop price, size > */
 typedef std::tuple<order_type,bool,double, double, size_t> order_info_type;
 
-std::string to_string(const callback_msg& cm);
 std::string to_string(const order_type& ot);
+std::string to_string(const callback_msg& cm);
+std::string to_string(const side_of_market& s);
 std::string to_string(const clock_type::time_point& tp);
 std::string to_string(const order_info_type& oi);
 
+std::ostream& operator<<(std::ostream& out, const order_type& ot);
+std::ostream& operator<<(std::ostream& out, const callback_msg& cm);
+std::ostream& operator<<(std::ostream& out, const side_of_market& s);
+std::ostream& operator<<(std::ostream& out, const clock_type::time_point& tp);
 std::ostream& operator<<(std::ostream& out, const order_info_type& oi);
-
 
 class liquidity_exception
         : public std::logic_error{
