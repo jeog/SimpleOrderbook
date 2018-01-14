@@ -21,7 +21,7 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 
 - **C++** 
 
-        user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -lpthread src/simpleorderbook.cpp example_code.cpp -o example_code.out
+        user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -Iinclude -lpthread src/simpleorderbook.cpp example_code.cpp -o example_code.out
         user@host:/usr/local/SimpleOrderbook$ ./example_code.out  
 
 - **python**
@@ -31,7 +31,7 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
         >>> import simpleorderbook           
 
 #### Examples
-    
+ 
         // example_code.cpp
 
         #include "simpleoderbook.hpp"
@@ -193,6 +193,60 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
                      << " @ " << orderbook->last_price() << std::endl;
         }
 
+<br>
+    
+        // python
+
+        >>> import simpleorderbook as sob
+        >>> ob = sob.SimpleOrderbook(sob.SOB_QUARTER_TICK, .25, 100) 
+        >>> print("%f to %f by %f" % (ob.min_price(), ob.max_price(), ob.incr_size()))
+        0.250000 to 100.000000 by 0.250000
+        >>> cb = lambda a,b,c,d: print("+ msg:%i id:%i price:%f size:%i" % (a,b,c,d))
+        >>> ob.buy_limit(limit=20.0, size=100, callback=cb) 
+        1
+        >>> ob.buy_limit(20.25, 100, cb)
+        2
+        >>> ob.buy_limit(21.0, 100, cb)
+        3
+        >>> ob.bid_depth(10)
+        {20.0: 100, 20.25: 100, 21.0: 100}
+        >>> ob.bid_size()
+        100
+        >>> ob.total_bid_size()
+        300
+        >>> ob.sell_stop(stop=21.0, size=50) 
+        4
+        >>> ob.sell_stop_limit(stop=21.0, limit=20.75, size=100, callback=cb) 
+        5
+        >>> ob.dump_sell_stops()
+        21 <S 50 @ MKT #4>  <S 100 @ 20.750000 #5> 
+        >>> ob.dump_buy_limits()
+        21 <100 #3> 
+        20.25 <100 #2> 
+        20 <100 #1> 
+        >>> ob.sell_market(50) 
+        + msg:1 id:3 price:21.0 size:50 # callback from order #3 (1 == FILL) 
+        + msg:2 id:5 price:20.75 size:100 # callback from order #5 (2 == STOP-TO-LIMIT)
+        + msg:1 id:3 price:21.0 size:50 # callback from order #3 (1 == FILL)
+        6
+        >>> for ts in ob.time_and_sales():
+        ...  ts
+        ... 
+        ('Sat Jan 13 18:51:31 2018', 21.0, 50)
+        ('Sat Jan 13 18:51:31 2018', 21.0, 50)
+        >>> ob.market_depth(10)
+        {20.0: (100, 1), 20.25: (100, 1), 20.75: (100, -1)}  ## 1 == SIDE_BID, -1 == SIDE_ASK
+        >>> ob.dump_buy_limits()
+        20.25 <100 #2> 
+        20 <100 #1> 
+        >>> ob.pull_order(id=2)
+        + msg:0 id:2 price:0.0 size:0 # callback from order #2 (0 == CANCEL)
+        True
+        >>> ob.replace_with_buy_limit(id=1, limit=20.50, size=500) # callback=None
+        + msg:0 id:1 price:0.0 size:0 # callback from order #1 (0 == CANCEL)
+        7
+        >>> ob.dump_buy_limits()
+        20.5 <500 #7> 
 
 #### Licensing & Warranty
 *SimpleOrderbook is released under the GNU General Public License(GPL); a copy (LICENSE.txt) should be included. If not, see http://www.gnu.org/licenses. The author reserves the right to issue current and/or future versions of SimpleOrderbook under other licensing agreements. Any party that wishes to use SimpleOrderbook, in whole or in part, in any way not explicitly stipulated by the GPL, is thereby required to obtain a separate license from the author. The author reserves all other rights.*
