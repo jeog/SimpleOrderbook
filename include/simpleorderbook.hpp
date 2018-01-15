@@ -56,8 +56,8 @@ namespace sob {
  *   The ratio-type first parameter defines the tick size; the second parameter 
  *   provides a memory limit. Upon construction, if the memory required to build
  *   the internal 'chains' of the book exceeds this memory limit it throws 
- *   sob::allocation_error. (NOTE: MaxMemory is not the maximum total
- *   memory the book can use, as number and types of orders are run-time dependent)
+ *   std::logic_error. (NOTE: MaxMemory is not the maximum total memory the
+ *   book can use, as number and types of orders are run-time dependent)
  *
  *   SimpleOrderbook::BuildFactoryProxy<std::ratio, size_t, CTy>()
  *   returns a struct containing methods for managing SimpleOrderbookImpl
@@ -748,7 +748,7 @@ private:
                 throw std::invalid_argument("need at least 3 increments");
             }
             if( incr  > max_ticks ){
-                throw allocation_error("tick range would exceed MaxMemory");
+                throw std::logic_error("tick range would exceed MaxMemory");
             }
 
             FullInterface *tmp = new SimpleOrderbookImpl(min, incr);

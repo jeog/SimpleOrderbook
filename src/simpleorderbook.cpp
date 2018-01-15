@@ -54,6 +54,22 @@ SimpleOrderbook::ImplDeleter::operator()(FullInterface *i) const
     }
 }
 
+liquidity_exception::liquidity_exception( size_t initial_size,
+                                          size_t remaining_size,
+                                          id_type order_id,
+                                          std::string msg )
+    :
+        std::logic_error(
+            "order #" + std::to_string(order_id) + " only filled " +
+            std::to_string(initial_size - remaining_size) + "/" +
+            std::to_string(initial_size) + "; " + msg
+            ),
+        initial_size(initial_size),
+        remaining_size(remaining_size),
+        order_id(order_id)
+    {
+    }
+
 std::string 
 to_string(const order_type& ot)
 { 

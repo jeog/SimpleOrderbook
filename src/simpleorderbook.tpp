@@ -583,7 +583,7 @@ struct SOB_CLASS::_limit_exec {
     adjust_state_after_pull(My* sob, SOB_CLASS::plevel limit) 
     {
         if( limit < sob->_low_buy_limit ){ 
-            throw invalid_state("can't remove limit lower than cached val");
+            throw std::runtime_error("can't remove limit lower than cached val");
         }
         if( limit == sob->_low_buy_limit ){
             ++sob->_low_buy_limit;  /*dont look for next valid plevel*/
@@ -620,7 +620,7 @@ struct SOB_CLASS::_limit_exec<false, Dummy> {
     adjust_state_after_pull(My* sob, SOB_CLASS::plevel limit) 
     {
         if( limit > sob->_high_sell_limit ){ 
-            throw invalid_state("can't remove limit higher than cached val");
+            throw std::runtime_error("can't remove limit higher than cached val");
         }
         if( limit == sob->_high_sell_limit ){
             --sob->_high_sell_limit;  /*dont look for next valid plevel*/
@@ -657,10 +657,10 @@ struct SOB_CLASS::_stop_exec {
     {
         // COULD WE ACCIDENTALLY ADJUST TWICE IN HERE ???
         if( stop > sob->_high_buy_stop ){                  
-            throw invalid_state("can't remove stop higher than cached val");
+            throw std::runtime_error("can't remove stop higher than cached val");
         }
         if( stop < sob->_low_buy_stop ){
-            throw invalid_state("can't remove stop lower than cached val");
+            throw std::runtime_error("can't remove stop lower than cached val");
         }
         
         if( stop == sob->_high_buy_stop ){
@@ -721,10 +721,10 @@ struct SOB_CLASS::_stop_exec<false,Redirect>
     adjust_state_after_pull(My* sob, SOB_CLASS::plevel stop) 
     {
         if( stop > sob->_high_sell_stop ){ 
-            throw invalid_state("can't remove stop higher than cached val");
+            throw std::runtime_error("can't remove stop higher than cached val");
         }
         if( stop < sob->_low_sell_stop ){ 
-            throw invalid_state("can't remove stop lower than cached val");
+            throw std::runtime_error("can't remove stop lower than cached val");
         }
         
         if( stop == sob->_high_sell_stop ){
@@ -1211,11 +1211,8 @@ SOB_CLASS::_insert_market_order( size_t size,
                                  id_type id )
 {
     size_t rmndr = _trade<!BuyMarket>(nullptr, id, size, exec_cb);
-    if( rmndr > 0 ){        
-        std::stringstream msg;
-        msg << "market order couldn't fill: ("  << size-rmndr << "/" << size 
-            << ") filled";
-        throw liquidity_exception( msg.str().c_str() );
+    if( rmndr > 0 ){               
+        throw liquidity_exception( size, rmndr, id, "_insert_market_order()" );
     }
 }
 
@@ -1486,14 +1483,14 @@ SOB_CLASS::insert_limit_order( bool buy,
                                order_admin_cb_type admin_cb ) 
 {      
     if(size == 0){
-        throw invalid_order("invalid order size");
+        throw std::invalid_argument("invalid order size");
     }
     
     plevel plev;
     try{
         plev = _ptoi(TrimmedRational<TickRatio>(limit));    
     }catch(std::range_error){
-        throw invalid_order("invalid limit price");
+        throw std::invalid_argument("invalid limit price");
     }        
  
     return _push_order_and_wait(order_type::limit, buy, plev, nullptr, 
@@ -1509,7 +1506,7 @@ SOB_CLASS::insert_market_order( bool buy,
                                 order_admin_cb_type admin_cb )
 {    
     if(size == 0){
-        throw invalid_order("invalid order size");
+        throw std::invalid_argument("invalid order size");
     }
     return _push_order_and_wait(order_type::market, buy, nullptr, nullptr, 
                                 size, exec_cb, admin_cb); 
@@ -1538,7 +1535,7 @@ SOB_CLASS::insert_stop_order( bool buy,
                               order_admin_cb_type admin_cb )
 {      
     if(size == 0){
-        throw invalid_order("invalid order size");
+        throw std::invalid_argument("invalid order size");
     }
 
     plevel plimit;
@@ -1547,7 +1544,7 @@ SOB_CLASS::insert_stop_order( bool buy,
         plimit = limit ? _ptoi(TrimmedRational<TickRatio>(limit)) : nullptr;
         pstop = _ptoi(TrimmedRational<TickRatio>(stop));         
     }catch(std::range_error){
-        throw invalid_order("invalid price");
+        throw std::invalid_argument("invalid price");
     }    
     order_type oty = limit ? order_type::stop_limit : order_type::stop;
 
@@ -1560,7 +1557,7 @@ bool
 SOB_CLASS::pull_order(id_type id, bool search_limits_first)
 {
     if(id == 0){
-        throw invalid_order("invalid order id(0)");
+        throw std::invalid_argument("invalid order id(0)");
     }
     return _push_order_and_wait(order_type::null, search_limits_first, 
                                 nullptr, nullptr, 0, nullptr, nullptr, id); 
