@@ -75,7 +75,7 @@ public:
     virtual unsigned long long 
     volume() const = 0;
 
-    virtual unsigned long long 
+    virtual id_type
     last_id() const = 0;
 
     virtual std::map<double,size_t> 

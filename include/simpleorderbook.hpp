@@ -80,13 +80,14 @@ namespace sob {
  *
  *   order_exec_cb_type: a functor defined in common.h that will be called
  *                       when a fill or cancelation occurs for the order, or
- *                       when a stop-limit is triggered.
+ *                       when a stop-to-limit is triggered.
  *
  *   order_admin_cb_type: a functor defined in common.h that is guaranteed
  *                        to be called after the order is inserted internally
- *                        but before the insert/replace call returns and any
- *                        order_exec_cb_type callbacks are made.
- *
+ *                        but before:
+ *                        1) the insert/replace call returns
+ *                        2) any stop orders are triggered
+ *                        3) any order_exec_cb_type callbacks are made
  *
  *   On success the order id will be returned, 0 on failure. The order id for a 
  *   stop-limit becomes the id for the limit once the stop is triggered.
@@ -181,7 +182,7 @@ public:
     };
 
     template< typename TickRatio=hundredth_tick,
-              size_t MaxMemory=SOB_MAX_MEM,
+              size_t MaxMemory=SOB_MAX_MEMORY,
               typename CreatorTy=def_create_func_type >
     static constexpr FactoryProxy<CreatorTy>
     BuildFactoryProxy()
@@ -293,7 +294,7 @@ private:
         plevel _high_sell_stop;
 
         unsigned long long _total_volume;
-        unsigned long long _last_id;
+        id_type _last_id;
 
         /* time & sales */
         timesale_vector_type _timesales;
@@ -329,9 +330,6 @@ private:
 
         void
         _route_order(order_queue_elem_type& e, id_type& id);
-
-        void
-        _threaded_waker(int sleep);
 
         /*
          * structs below are used to get around member specialization restrictions
@@ -400,7 +398,7 @@ private:
                             id_type id = 0);
 
         /* generate order ids; don't worry about overflow */
-        inline unsigned long long
+        inline id_type
         _generate_id()
         { return ++_last_id; }
 
@@ -479,8 +477,9 @@ private:
         void
         _clear_callback_queue();
 
-        void
-        _on_trade_completion();
+        inline void
+        _execute_admin_callback(order_admin_cb_type& cb, id_type id)
+        { if( cb ) cb(id); }
 
         void
         _look_for_triggered_stops(bool nothrow);
@@ -519,23 +518,20 @@ private:
         _insert_limit_order(plevel limit,
                             size_t size,
                             order_exec_cb_type exec_cb,
-                            id_type id,
-                            order_admin_cb_type admin_cb = nullptr);
+                            id_type id);
 
         template<bool BuyMarket>
         void
         _insert_market_order(size_t size,
                              order_exec_cb_type exec_cb,
-                             id_type id,
-                             order_admin_cb_type admin_cb = nullptr);
+                             id_type id);
 
         template<bool BuyStop>
         void
         _insert_stop_order(plevel stop,
                            size_t size,
                            order_exec_cb_type exec_cb,
-                           id_type id,
-                           order_admin_cb_type admin_cb = nullptr);
+                           id_type id);
 
         template<bool BuyStop>
         void
@@ -543,8 +539,7 @@ private:
                            plevel limit,
                            size_t size,
                            order_exec_cb_type exec_cb,
-                           id_type id,
-                           order_admin_cb_type admin_cb = nullptr);
+                           id_type id);
 
     public:
         order_info_type
@@ -698,7 +693,7 @@ private:
         volume() const
         { return _total_volume; }
 
-        inline unsigned long long
+        inline id_type
         last_id() const
         { return _last_id; }
 

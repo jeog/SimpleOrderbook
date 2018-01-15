@@ -30,19 +30,20 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <vector>
 #include <map>
 
-#define SOB_MAX_MEM (1024 * 1024 * 128)
-
 namespace sob{
 
+/* container class forward decl */
 class SimpleOrderbook;
 
-typedef unsigned long       id_type;
+const size_t SOB_MAX_MEMORY = 1024 * 1024 * 128;
 
-typedef std::ratio<1,4>     quarter_tick;
-typedef std::ratio<1,10>    tenth_tick;
-typedef std::ratio<1,32>    thirty_secondth_tick;
-typedef std::ratio<1,100>   hundredth_tick;
-typedef std::ratio<1,1000>  thousandth_tick;
+typedef unsigned long id_type;
+
+typedef std::ratio<1,4> quarter_tick;
+typedef std::ratio<1,10> tenth_tick;
+typedef std::ratio<1,32> thirty_secondth_tick;
+typedef std::ratio<1,100> hundredth_tick;
+typedef std::ratio<1,1000> thousandth_tick;
 typedef std::ratio<1,10000> ten_thousandth_tick;
 
 typedef std::chrono::steady_clock clock_type;
