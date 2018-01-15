@@ -79,7 +79,7 @@ ExecCallbackWrap::operator()(sob::callback_msg msg,
     if( !valid_interpreter_state() ){
         std::cerr<< "* callback(" << std::hex << reinterpret_cast<void*>(cb)
                  << ") not called; invalid interpreter state *"
-                 << std::endl;
+                 << std::dec << std::endl;
         return;
     }
     /* ignore race condition here for same reason as in destructor */
@@ -88,7 +88,7 @@ ExecCallbackWrap::operator()(sob::callback_msg msg,
     PyObject* res = PyObject_CallObject(cb, args);
     if( PyErr_Occurred() ){
         std::cerr<< "* callback(" << std::hex << reinterpret_cast<void*>(cb)
-                 <<  ") error * " << std::endl;
+                 <<  ") error * " << std::dec << std::endl;
         PyErr_Print();
     }
     Py_XDECREF(res);

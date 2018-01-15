@@ -49,8 +49,10 @@ SimpleOrderbook::ImplDeleter::operator()(FullInterface *i) const
 {
     delete i;
     if( _msg.size() > 0 ){
-        _out << "ImplDeleter" << " :: " <<  _tag << " :: "
-             << std::hex << i << " :: " << _msg << std::endl;
+        _out << "ImplDeleter :: " <<  _tag
+             << " :: " << std::hex << i << std::dec
+             << " :: " << _msg << std::endl;
+
     }
 }
 

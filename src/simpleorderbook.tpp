@@ -18,7 +18,6 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <iterator>
 #include "../include/simpleorderbook.hpp"
 
-/* readability macros - #undef'd at the end of file */
 #define SOB_TEMPLATE template<typename TickRatio, size_t MaxMemory>
 #define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio,MaxMemory>
 
@@ -1652,14 +1651,14 @@ SOB_CLASS::dump_cached_plevels() const
     static auto to_str = [&](plevel p){ return std::to_string(_itop(p)); };
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
-    std::cout<< "*** CACHED PLEVELS ***" << std::endl;      
-    std::cout<< "_high_sell_limit: " << to_str(_high_sell_limit) << std::endl;
-    std::cout<< "_high_buy_stop: "<< to_str(_low_buy_stop) << std::endl;
-    std::cout<< "_low_buy_stop: " << to_str(_low_buy_stop) << std::endl;
-    std::cout<< "last: " << to_str(_last) << std::endl;
-    std::cout<< "_high_sell_stop: " << to_str(_high_sell_stop) << std::endl;
-    std::cout<< "_low_sell_stop: " << to_str(_low_sell_stop) << std::endl;
-    std::cout<< "_low_buy_limit: " << to_str(_low_buy_limit) << std::endl;
+    std::cout<< "*** CACHED PLEVELS ***" << std::endl     
+             << "_high_sell_limit: " << to_str(_high_sell_limit) << std::endl
+             << "_high_buy_stop: "<< to_str(_low_buy_stop) << std::endl
+             << "_low_buy_stop: " << to_str(_low_buy_stop) << std::endl
+             << "last: " << to_str(_last) << std::endl
+             << "_high_sell_stop: " << to_str(_high_sell_stop) << std::endl
+             << "_low_sell_stop: " << to_str(_low_sell_stop) << std::endl
+             << "_low_buy_limit: " << to_str(_low_buy_limit) << std::endl;
     /* --- CRITICAL SECTION --- */
 }
 

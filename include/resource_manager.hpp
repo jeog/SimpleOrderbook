@@ -201,16 +201,17 @@ class ResourceManager_Debug
     inline void
     _write(std::string msg) const
     {
-        _out << "ResourceManager_Debug"
-             << " :: " << base_ty::tag << " (" << std::hex << this << ") "
-             << " :: " << msg << std::endl;
+        _out << "ResourceManager_Debug :: "
+             << base_ty::tag << " ("
+             << std::hex << reinterpret_cast<const void*>(this) << std::dec
+             << ") :: " << msg << std::endl;
     }
 
     void
     _write(std::string msg, T *resource, bool success)
     {
         std::stringstream ss;
-        ss << msg << " " << std::hex << (void*)resource
+        ss << msg << " " << std::hex << reinterpret_cast<const void*>(resource)
                   << " (" << std::boolalpha << success << ")";
         _write(ss.str());
     }
