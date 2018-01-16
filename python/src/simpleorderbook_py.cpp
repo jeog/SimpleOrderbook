@@ -465,7 +465,7 @@ struct MDef{
 PyMethodDef pySOB_methods[] = {
     MDef::NoArgs("min_price", SOB_min_price, "() -> float"),
     MDef::NoArgs("max_price", SOB_max_price, "() -> float"),
-    MDef::NoArgs("incr_size", SOB_tick_size, "() -> float"),
+    MDef::NoArgs("tick_size", SOB_tick_size, "() -> float"),
     MDef::NoArgs("bid_price", SOB_bid_price, "() -> float"),
     MDef::NoArgs("ask_price", SOB_ask_price, "() -> float"),
     MDef::NoArgs("last_price", SOB_last_price, "() -> float"),
