@@ -22,7 +22,7 @@ cpp_sources = ["../src/simpleorderbook.cpp", "src/simpleorderbook_py.cpp",
 
 _setup_dict = {
     "name":'simpleorderbook',
-    "version":'0.3',
+    "version":'0.4',
     "description": "financial-market orderbook and matching engine",
     "author":"Jonathon Ogden",
     "author_email":"jeog.dev@gmail.com"

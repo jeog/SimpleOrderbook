@@ -3,7 +3,7 @@
 
 An experimental C++(11) financial-market orderbook and matching engine w/ a Python extension module.
 
-\* **v0.3 is currently undergoing a complete refactoring** 
+\* **v0.4 is undergoing a complete refactoring** 
 
 
 #### Features 
