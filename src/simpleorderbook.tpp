@@ -1466,7 +1466,7 @@ SOB_CLASS::_itop(plevel plev) const
     if(plev > _end ){
         throw std::range_error( "plevel > _end" );
     }        
-    return _base + static_cast<long>(plev - _beg);
+    return _base + (plev - _beg);
 }
 
 

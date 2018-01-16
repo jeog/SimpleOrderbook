@@ -80,6 +80,7 @@ public:
         {
         }
 
+    /* conversion methods */
     inline unsigned long long
     as_increments() const
     { return  increments_per_unit * _n_whole + _n_incrs; }
@@ -92,39 +93,85 @@ public:
     double() const
     { return RoundFunction((_n_whole + _n_incrs * increment_size) * radj) / radj; }
 
+
+    /* + - += -i for TrimmedRational objects */
     inline TrimmedRational
-    operator+(const TrimmedRational& r) const
-    { return TrimmedRational(_n_whole + r._n_whole, _n_incrs + r._n_incrs); }
+    operator+(const TrimmedRational& tr) const
+    { return TrimmedRational(_n_whole + tr._n_whole, _n_incrs + tr._n_incrs); }
 
     inline TrimmedRational
-    operator-(const TrimmedRational& r) const
-    { return TrimmedRational(_n_whole - r._n_whole, _n_incrs - r._n_incrs); }
+    operator-(const TrimmedRational& tr) const
+    { return TrimmedRational(_n_whole - tr._n_whole, _n_incrs - tr._n_incrs); }
 
     inline TrimmedRational
-    operator+(long i) const
-    { return TrimmedRational(_n_whole, _n_incrs + i); }
+    operator+=(const TrimmedRational& tr)
+    { return (*this = *this + tr); }
 
     inline TrimmedRational
-    operator-(long i) const
-    { return TrimmedRational(_n_whole, _n_incrs - i); }
+    operator-=(const TrimmedRational& tr)
+    { return (*this = *this - tr); }
+
+
+    /* + - += -i for reals (double) */
+    inline TrimmedRational
+    operator+(double r) const
+    { return *this + TrimmedRational(r); }
 
     inline TrimmedRational
-    operator++() // TODO, create a utility function for setting whole/incr
-    {
-        TrimmedRational obj = TrimmedRational(_n_whole, _n_incrs + 1);
-        this->_n_whole = obj._n_whole;
-        this->_n_incrs = obj._n_incrs;
-        return *this;
-    }
+    operator-(double r) const
+    { return *this - TrimmedRational(r); }
+
+    inline TrimmedRational
+    operator+=(double r)
+    { return (*this = *this + TrimmedRational(r)); }
+
+    inline TrimmedRational
+    operator-=(double r)
+    { return (*this = *this - TrimmedRational(r)); }
+
+
+    /* + - += -i for increments (long) */
+    inline TrimmedRational
+    operator+(long increments) const
+    { return TrimmedRational(_n_whole, _n_incrs + increments); }
+
+    inline TrimmedRational
+    operator-(long increments) const
+    { return TrimmedRational(_n_whole, _n_incrs - increments); }
+
+    inline TrimmedRational
+    operator+=(long increments)
+    { return (*this = TrimmedRational(_n_whole, _n_incrs + increments)); }
+
+    inline TrimmedRational
+    operator-=(long increments)
+    { return (*this = TrimmedRational(_n_whole, _n_incrs - increments)); }
+
+
+    /* + - += -i ++ -- for increments (int to avoid ambiguity) */
+    inline TrimmedRational
+    operator+(int increments) const
+    { return TrimmedRational(_n_whole, _n_incrs + increments); }
+
+    inline TrimmedRational
+    operator-(int increments) const
+    { return TrimmedRational(_n_whole, _n_incrs - increments); }
+
+    inline TrimmedRational
+    operator+=(int increments)
+    { return (*this = TrimmedRational(_n_whole, _n_incrs + increments)); }
+
+    inline TrimmedRational
+    operator-=(int increments)
+    { return (*this = TrimmedRational(_n_whole, _n_incrs - increments)); }
+
+    inline TrimmedRational
+    operator++()
+    { return (*this = TrimmedRational(_n_whole, _n_incrs + 1)); }
 
     inline TrimmedRational
     operator--()
-    {
-        TrimmedRational obj = TrimmedRational(_n_whole, _n_incrs - 1);
-        this->_n_whole = obj._n_whole;
-        this->_n_incrs = obj._n_incrs;
-        return *this;
-    }
+    { return (*this = TrimmedRational(_n_whole, _n_incrs - 1)); }
 
     inline TrimmedRational
     operator++(int) const
@@ -142,38 +189,117 @@ public:
         return tmp;
     }
 
+
+    /* == != < > <= >= for TrimmedRational objects */
     inline bool
-    operator==(const TrimmedRational& r) const
-    { return (this->_n_whole == r._n_whole) && (this->_n_incrs == r._n_incrs); }
+    operator==(const TrimmedRational& tr) const
+    { return (_n_whole == tr._n_whole) && (_n_incrs == tr._n_incrs); }
 
     inline bool
-    operator!=(const TrimmedRational& r) const
-    { return (*this != r); }
+    operator!=(const TrimmedRational& tr) const
+    { return !(*this == tr); }
 
     inline bool
-    operator>(const TrimmedRational& r) const
+    operator>(const TrimmedRational& tr) const
     {
-        if( this->_n_whole > r._n_whole ){
+        if( _n_whole > tr._n_whole ){
             return true;
         }
-        if( this->_n_whole == r._n_whole ){
-            return (this->_n_incrs > r._n_incrs);
+        if( _n_whole == tr._n_whole ){
+            return (_n_incrs > tr._n_incrs);
         }
         return false;
     }
 
     inline bool
-    operator<=(const TrimmedRational& r) const
-    { return !(*this > r); }
+    operator<=(const TrimmedRational& tr) const
+    { return !(*this > tr); }
 
     inline bool
-    operator>=(const TrimmedRational& r) const
-    { return (*this > r) || (*this == r); }
+    operator>=(const TrimmedRational& tr) const
+    { return (*this > tr) || (*this == tr); }
 
     inline bool
-    operator<(const TrimmedRational& r) const
-    { return !(*this >= r); }
+    operator<(const TrimmedRational& tr) const
+    { return !(*this >= tr); }
 
+
+    /* == != < > <= >= for increments (long) */
+    inline bool
+    operator==(long increments) const
+    { return *this == TrimmedRational(increments); }
+
+    inline bool
+    operator!=(long increments) const
+    { return *this != TrimmedRational(increments); }
+
+    inline bool
+    operator>(long increments) const
+    { return *this > TrimmedRational(increments); }
+
+    inline bool
+    operator<=(long increments) const
+    { return *this <= TrimmedRational(increments); }
+
+    inline bool
+    operator>=(long increments) const
+    { return *this >= TrimmedRational(increments); }
+
+    inline bool
+    operator<(long increments) const
+    { return *this < TrimmedRational(increments); }
+
+
+    /* == != < > <= >= for increments (int to avoid ambiguity) */
+    inline bool
+    operator==(int increments) const
+    { return *this == TrimmedRational(static_cast<long>(increments)); }
+
+    inline bool
+    operator!=(int increments) const
+    { return *this != TrimmedRational(static_cast<long>(increments)); }
+
+    inline bool
+    operator>(int increments) const
+    { return *this > TrimmedRational(static_cast<long>(increments)); }
+
+    inline bool
+    operator<=(int increments) const
+    { return *this <= TrimmedRational(static_cast<long>(increments)); }
+
+    inline bool
+    operator>=(int increments) const
+    { return *this >= TrimmedRational(static_cast<long>(increments)); }
+
+    inline bool
+    operator<(int increments) const
+    { return *this < TrimmedRational(static_cast<long>(increments)); }
+
+
+    /* == != < > <= >= for reals (double) */
+    inline bool
+    operator==(double r) const
+    { return *this == TrimmedRational(r); }
+
+    inline bool
+    operator!=(double r) const
+    { return *this != TrimmedRational(r); }
+
+    inline bool
+    operator>(double r) const
+    { return *this > TrimmedRational(r); }
+
+    inline bool
+    operator<=(double r) const
+    { return *this <= TrimmedRational(r); }
+
+    inline bool
+    operator>=(double r) const
+    { return *this >= TrimmedRational(r); }
+
+    inline bool
+    operator<(double r) const
+    { return *this < TrimmedRational(r); }
 };
 
 #endif
