@@ -37,7 +37,7 @@ public:
     typedef std::vector<timesale_entry_type> timesale_vector_type;
 
     virtual double
-    incr_size() const = 0;
+    tick_size() const = 0;
 
     virtual double
     min_price() const = 0;

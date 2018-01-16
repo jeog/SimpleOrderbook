@@ -81,7 +81,8 @@ to_string(const order_type& ot)
     case order_type::stop: return "stop";
     case order_type::stop_limit: return "stop-limit";
     default: 
-        throw std::logic_error("bad order_type: " + std::to_string((int)ot));
+        throw std::logic_error( "bad order_type: " +
+                std::to_string(static_cast<int>(ot)) );
     }
 }
 
@@ -93,7 +94,8 @@ to_string(const callback_msg& cm)
     case callback_msg::fill: return "fill";
     case callback_msg::stop_to_limit: return "stop-to-limit";
     default:
-        throw std::logic_error("bad callback_msg: " + std::to_string((int)cm));
+        throw std::logic_error( "bad callback_msg: " +
+                std::to_string(static_cast<int>(cm)) );
     }
 }
 
@@ -105,7 +107,8 @@ to_string(const side_of_market& s)
     case side_of_market::ask: return "ask";
     case side_of_market::both: return "both";
     default:
-        throw std::logic_error("bad side_of_market: " + std::to_string((int)s));
+        throw std::logic_error( "bad side_of_market: " +
+                std::to_string(static_cast<int>(s)) );
     }
 }
 

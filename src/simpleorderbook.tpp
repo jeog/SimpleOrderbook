@@ -1248,7 +1248,7 @@ SOB_CLASS::_insert_stop_order( plevel stop,
     orders->insert( 
         stop_chain_type::value_type(
             id, 
-            stop_bndl_type(BuyStop, (void*)limit, size, exec_cb)
+            stop_bndl_type(BuyStop, reinterpret_cast<void*>(limit), size, exec_cb)
         ) 
     );   
     _stop_exec<BuyStop>::adjust_state_after_insert(this, stop);  
@@ -1444,8 +1444,8 @@ SOB_CLASS::_ptoi(TrimmedRational<TickRatio> price) const
     * 
     * if this causes trouble just create a seperate user input check
     */   
-    size_t incr_offset = round((price - _base) * TickRatio::den/TickRatio::num);
-    plevel plev = _beg + incr_offset;
+    unsigned long long offset = (price - _base).as_increments();
+    plevel plev = _beg + offset;
     if(plev < _beg){
         throw std::range_error( "plevel < _beg" );
     }
@@ -1465,11 +1465,8 @@ SOB_CLASS::_itop(plevel plev) const
     }
     if(plev > _end ){
         throw std::range_error( "plevel > _end" );
-    }
-    
-    long long offset = plev - _beg;
-    double incr_offset = (double)offset * TickRatio::num / TickRatio::den;
-    return _base + TrimmedRational<TickRatio>(incr_offset);
+    }        
+    return _base + static_cast<long>(plev - _beg);
 }
 
 

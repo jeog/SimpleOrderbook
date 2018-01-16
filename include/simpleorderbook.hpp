@@ -642,8 +642,8 @@ private:
         { return _market_depth<side_of_market::both>(depth); }
 
         inline double
-        incr_size() const
-        { return tick_size; }
+        tick_size() const
+        { return TrimmedRational<TickRatio>::increment_size; }
 
         inline double
         bid_price() const
@@ -701,28 +701,7 @@ private:
         time_and_sales() const
         { return _timesales; }
 
-        // check these (should ticks_per be int?)
-        static constexpr double tick_size = (double)TickRatio::num / TickRatio::den;
-        static constexpr double ticks_per_unit = TickRatio::den / TickRatio::num;
         static constexpr size_t max_ticks = MaxMemory / sizeof(chain_pair_type);
-
-        static inline TrimmedRational<TickRatio>
-        round_to_incr(TrimmedRational<TickRatio> price)
-        {
-            return TrimmedRational<TickRatio>(
-                       round((double)price * TickRatio::den / TickRatio::num)
-                       * TickRatio::num / TickRatio::den
-                   );
-        }
-
-        static inline size_t
-        incrs_in_range( TrimmedRational<TickRatio> lprice,
-                        TrimmedRational<TickRatio> hprice )
-        {
-            auto diff = round_to_incr(hprice) - round_to_incr(lprice);
-            return round((double)diff * ticks_per_unit);
-        }
-
 
         static inline FullInterface*
         create(double min, double max)
@@ -738,12 +717,12 @@ private:
             if( min < 0 || min > max ){
                 throw std::invalid_argument("!(0 <= min <= max)");
             }
-            if( min.to_incr() == 0 ){
-               /* note: we adjust w/o client knowing */
-               ++min;
+            if( min.as_increments() == 0 ){
+               ++min; /* note: we adjust w/o client knowing */
             }
 
-            size_t incr = incrs_in_range(min, max) + 1; // make inclusive
+            // make inclusive
+            size_t incr = (max - min).as_increments() + 1;
             if( incr < 3 ){
                 throw std::invalid_argument("need at least 3 increments");
             }

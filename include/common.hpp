@@ -102,82 +102,104 @@ public:
 
 
 template<typename IncrementRatio = std::ratio<1,1>,
-         double(*RoundFunc)(double) = round,
-         unsigned long RoundDigits = 5>
+         double(*RoundFunction)(double) = round,
+         unsigned long RoundPrecision = 5>
 class TrimmedRational{
+    /* only accept ratio between 1/1 and 1/1000000, inclusive */
     static_assert(!std::ratio_greater<IncrementRatio,std::ratio<1,1>>::value,
                   "Increment Ratio > ratio<1,1> ");
+    static_assert(!std::ratio_less<IncrementRatio,std::ratio<1,1000000>>::value,
+                  "Increment Ratio < ratio<1,1000000> ");
 
-    static constexpr long round_adj = pow(10,RoundDigits);
+    /* don't let precision overflow 'radj' (9 == floor(log10(pow(2,31)))*/
+    static_assert(RoundPrecision <= 9, "RoundPrecision > 9");
+    static_assert(RoundPrecision >= 0, "RoundPrecision < 0");
+    static constexpr long radj = pow(10,RoundPrecision);
 
-    long long _whole;
-    long long _incr;
+    long _n_whole;
+    long _n_incrs;
 
 public:
-    typedef TrimmedRational<IncrementRatio,RoundFunc,RoundDigits> my_type;
-    typedef IncrementRatio incr_ratio;
+    typedef TrimmedRational<IncrementRatio,RoundFunction,RoundPrecision> my_type;
+    typedef IncrementRatio increment_ratio;
     typedef double(*round_function)(double);
 
-    static constexpr unsigned long rounding_digits = RoundDigits;
-    static constexpr double incr_size = (double)incr_ratio::num / incr_ratio::den;
-    static constexpr double incr_per_unit = (double)incr_ratio::den / incr_ratio::num;
+    static constexpr unsigned long rounding_precision = RoundPrecision;
 
-    explicit TrimmedRational(long long incr)
-        : TrimmedRational(0, incr) {}
+    static constexpr double increment_size =
+        static_cast<double>(increment_ratio::num) / increment_ratio::den;
 
-    TrimmedRational(long long whole, long long incr)
+    static constexpr long increment_per_unit =
+        static_cast<long>(increment_ratio::den) / increment_ratio::num;
+
+    static constexpr unsigned long long increments_per_unit_ULL =
+        static_cast<unsigned long long>(increment_ratio::den) / increment_ratio::num;
+
+    TrimmedRational(long whole, long increments)
         {
-           div_t dt = div(incr, incr_per_unit);
-           _whole = whole + (dt.rem >= 0 ? dt.quot : -dt.quot-1);
-           _incr = dt.rem + (dt.rem >= 0 ? 0 : incr_per_unit);
+           ldiv_t dt = ldiv(increments, increment_per_unit);
+           _n_whole = whole + dt.quot;
+           _n_incrs = dt.rem;
+           if( _n_incrs < 0 ){
+               --_n_whole;
+               _n_incrs += increment_per_unit;
+           }
         }
+
+    explicit TrimmedRational(long increments)
+        : TrimmedRational(0, increments)
+        {}
 
     explicit TrimmedRational(double r)
         :
-            _whole( r >= 0 ? (long long)r : (long long)r - 1),
-            _incr( RoundFunc((r-_whole) * incr_per_unit) )
+            _n_whole( static_cast<long>(r) - (r < 0 ? 1 : 0) ),
+            _n_incrs( RoundFunction((r - _n_whole) * increment_per_unit) )
         {
         }
 
-    inline long long
-    to_incr() const
-    { return _whole * incr_per_unit + _incr; }
+    inline unsigned long long
+    as_increments() const
+    { return _n_whole * increments_per_unit_ULL + _n_incrs; }
 
-    inline operator 
+    inline long
+    as_whole() const
+    { return _n_whole; }
+
+    inline operator
     double() const
-    { return RoundFunc((_whole + _incr * incr_size) * round_adj) / round_adj; }
+    { return RoundFunction((_n_whole + _n_incrs * increment_size) * radj) / radj; }
 
     inline my_type
     operator+(const my_type& r) const
-    { return my_type(_whole + r._whole, _incr + r._incr); }
+    { return my_type(_n_whole + r._n_whole, _n_incrs + r._n_incrs); }
 
     inline my_type
     operator-(const my_type& r) const
-    { return my_type(_whole - r._whole, _incr - r._incr); }
+    { return my_type(_n_whole - r._n_whole, _n_incrs - r._n_incrs); }
 
     inline my_type
-    operator+(int i) const
-    { return my_type(_whole, _incr + i); }
+    operator+(long i) const
+    { return my_type(_n_whole, _n_incrs + i); }
 
     inline my_type
-    operator-(int i) const
-    { return my_type(_whole, _incr - i); }
+    operator-(long i) const
+    { return my_type(_n_whole, _n_incrs - i); }
 
     inline my_type
     operator++() // TODO, create a utility function for setting whole/incr
     {
-        my_type obj = my_type(_whole, _incr + 1);
-        this->_whole = obj._whole;
-        this->_incr = obj._incr;
+        my_type obj = my_type(_n_whole, _n_incrs + 1);
+        this->_n_whole = obj._n_whole;
+        this->_n_incrs = obj._n_incrs;
         return *this;
     }
 
     inline my_type
     operator--()
     {
-        my_type obj = my_type(_whole, _incr - 1);
-        this->_whole = obj._whole;
-        this->_incr = obj._incr;
+        my_type obj = my_type(_n_whole, _n_incrs - 1);
+        this->_n_whole = obj._n_whole;
+        this->_n_incrs = obj._n_incrs;
         return *this;
     }
 
@@ -198,33 +220,37 @@ public:
     }
 
     inline bool
-    operator==(const my_type& r)
-    { return (this->_whole == r._whole) && (this->_incr == r._incr); }
+    operator==(const my_type& r) const
+    { return (this->_n_whole == r._n_whole) && (this->_n_incrs == r._n_incrs); }
 
     inline bool
-    operator!=(const my_type& r)
+    operator!=(const my_type& r) const
     { return (*this != r); }
 
     inline bool
-    operator>(const my_type& r)
+    operator>(const my_type& r) const
     {
-        if( this->_whole > r._whole ){
+        if( this->_n_whole > r._n_whole ){
             return true;
         }
-        return ((this->_whole == r._whole) ? (this->_incr > r._incr) : false);
+        if( this->_n_whole == r._n_whole ){
+            return (this->_n_incrs > r._n_incrs);
+        }
+        return false;
     }
 
     inline bool
-    operator<=(const my_type& r)
+    operator<=(const my_type& r) const
     { return !(*this > r); }
 
     inline bool
-    operator>=(const my_type& r)
+    operator>=(const my_type& r) const
     { return (*this > r) || (*this == r); }
 
     inline bool
-    operator<(const my_type& r)
+    operator<(const my_type& r) const
     { return !(*this >= r); }
+
 };
 
 #endif 

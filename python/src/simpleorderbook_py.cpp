@@ -113,7 +113,7 @@ SIDES_OF_MARKET = {
 
 CALLDOWN_FOR_STATE_DOUBLE( min_price )
 CALLDOWN_FOR_STATE_DOUBLE( max_price )
-CALLDOWN_FOR_STATE_DOUBLE( incr_size )
+CALLDOWN_FOR_STATE_DOUBLE( tick_size )
 CALLDOWN_FOR_STATE_DOUBLE( bid_price )
 CALLDOWN_FOR_STATE_DOUBLE( ask_price )
 CALLDOWN_FOR_STATE_DOUBLE( last_price )
@@ -297,7 +297,7 @@ SOB_pull_order(pySOB *self, PyObject *args, PyObject *kwds)
     }
     Py_END_ALLOW_THREADS
 
-    return PyBool_FromLong((unsigned long)rval);
+    return PyBool_FromLong(static_cast<long>(rval));
 }
 
 PyObject*
@@ -464,26 +464,26 @@ struct MDef{
 
 PyMethodDef pySOB_methods[] = {
     MDef::NoArgs("min_price", SOB_min_price, "() -> float"),
-    MDef::NoArgs("max_price",SOB_max_price, "() -> float"),
-    MDef::NoArgs("incr_size",SOB_incr_size, "() -> float"),
-    MDef::NoArgs("bid_price",SOB_bid_price, "() -> float"),
-    MDef::NoArgs("ask_price",SOB_ask_price, "() -> float"),
-    MDef::NoArgs("last_price",SOB_last_price, "() -> float"),
-    MDef::NoArgs("bid_size",SOB_bid_size, "() -> int"),
-    MDef::NoArgs("ask_size",SOB_ask_size, "() -> int"),
-    MDef::NoArgs("total_bid_size",SOB_total_bid_size, "() -> int"),
-    MDef::NoArgs("total_ask_size",SOB_total_ask_size, "() -> int"),
-    MDef::NoArgs("total_size",SOB_total_size, "() -> int"),
-    MDef::NoArgs("last_size",SOB_last_size, "() -> int"),
-    MDef::NoArgs("volume",SOB_volume, "() -> int"),
+    MDef::NoArgs("max_price", SOB_max_price, "() -> float"),
+    MDef::NoArgs("incr_size", SOB_tick_size, "() -> float"),
+    MDef::NoArgs("bid_price", SOB_bid_price, "() -> float"),
+    MDef::NoArgs("ask_price", SOB_ask_price, "() -> float"),
+    MDef::NoArgs("last_price", SOB_last_price, "() -> float"),
+    MDef::NoArgs("bid_size", SOB_bid_size, "() -> int"),
+    MDef::NoArgs("ask_size", SOB_ask_size, "() -> int"),
+    MDef::NoArgs("total_bid_size", SOB_total_bid_size, "() -> int"),
+    MDef::NoArgs("total_ask_size", SOB_total_ask_size, "() -> int"),
+    MDef::NoArgs("total_size", SOB_total_size, "() -> int"),
+    MDef::NoArgs("last_size", SOB_last_size, "() -> int"),
+    MDef::NoArgs("volume", SOB_volume, "() -> int"),
 
-    MDef::NoArgs("dump_buy_limits",SOB_dump_buy_limits,
+    MDef::NoArgs("dump_buy_limits", SOB_dump_buy_limits,
                  "print to stdout all active buy limit orders"),
-    MDef::NoArgs("dump_sell_limits",SOB_dump_sell_limits,
+    MDef::NoArgs("dump_sell_limits", SOB_dump_sell_limits,
                  "print to stdout all active sell limit orders"),
-    MDef::NoArgs("dump_buy_stops",SOB_dump_buy_stops,
+    MDef::NoArgs("dump_buy_stops", SOB_dump_buy_stops,
                  "print to stdout all active buy stop orders"),
-    MDef::NoArgs("dump_sell_stops",SOB_dump_sell_stops,
+    MDef::NoArgs("dump_sell_stops", SOB_dump_sell_stops,
                  "print to stdout all active sell stop orders"),
 
 

@@ -8,13 +8,12 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 
 #### Features 
 
-- market, limit, stop-market, and stop-limit orders that trigger callbacks when executed
+- market, limit, stop-market, and stop-limit order types
 - cancel/replace orders by ID
+- pass callbacks that are triggered on execution and/or successful insert
 - query market state(bid size, volume etc.), dump orders to stdout, view Time & Sales 
 - access via a CPython extension module
-- orderbook methods are accessed via a number of (virtual) interfaces
-- orderbook objects are allocated/managed by a 2-level static resource manager
-- sacrifices space for speed (e.g using static price levels, pre-allocation of internal objects)
+- sacrifices space for speed (e.g static price ladders, pre-allocation of internal objects, templates)
 
 
 #### Getting Started
@@ -199,7 +198,7 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 
         >>> import simpleorderbook as sob
         >>> ob = sob.SimpleOrderbook(sob.SOB_QUARTER_TICK, .25, 100) 
-        >>> print("%f to %f by %f" % (ob.min_price(), ob.max_price(), ob.incr_size()))
+        >>> print("%f to %f by %f" % (ob.min_price(), ob.max_price(), ob.tick_size()))
         0.250000 to 100.000000 by 0.250000
         >>> cb = lambda a,b,c,d: print("+ msg:%i id:%i price:%f size:%i" % (a,b,c,d))
         >>> ob.buy_limit(limit=20.0, size=100, callback=cb) 
