@@ -301,7 +301,7 @@ SOB_pull_order(pySOB *self, PyObject *args, PyObject *kwds)
 }
 
 PyObject*
-timesales_to_list(const sob::QueryInterface::timesale_vector_type& vec, size_t n)
+timesales_to_list(const std::vector<sob::timesale_entry_type>& vec, size_t n)
 {
     PyObject *list;
     try{

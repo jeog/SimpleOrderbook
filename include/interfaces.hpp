@@ -32,10 +32,6 @@ protected:
     virtual ~QueryInterface() {}
 
 public:
-    typedef QueryInterface my_type;
-    typedef std::tuple<clock_type::time_point,double,size_t> timesale_entry_type;
-    typedef std::vector<timesale_entry_type> timesale_vector_type;
-
     virtual double
     tick_size() const = 0;
 
@@ -88,7 +84,7 @@ public:
     market_depth(size_t depth=8) const = 0;
 
     /* new elems get put on back i.e beg() == oldest, end() == newest */
-    virtual const timesale_vector_type&
+    virtual const std::vector<timesale_entry_type>&
     time_and_sales() const = 0;
 
     virtual order_info_type 
@@ -104,9 +100,6 @@ protected:
     virtual ~LimitInterface() {}
 
 public:
-    typedef LimitInterface my_type;
-    typedef QueryInterface my_base_type;
-
     virtual id_type
     insert_limit_order(bool buy, 
                        double limit, 
@@ -135,9 +128,6 @@ protected:
     virtual ~FullInterface() {}
 
 public:
-    typedef FullInterface my_type;
-    typedef LimitInterface my_base_type;
-
     virtual id_type
     insert_market_order(bool buy, 
                         size_t size, 

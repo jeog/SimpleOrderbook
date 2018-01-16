@@ -41,6 +41,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #include "interfaces.hpp"
 #include "resource_manager.hpp"
+#include "trimmed_rational.hpp"
 
 #ifdef DEBUG
 #define SOB_RESOURCE_MANAGER ResourceManager_Debug
@@ -297,7 +298,7 @@ private:
         id_type _last_id;
 
         /* time & sales */
-        timesale_vector_type _timesales;
+        std::vector<timesale_entry_type> _timesales;
 
         /* store deferred callbacks info until we are clear to execute */
         std::deque<dfrd_cb_elem_type> _deferred_callback_queue;
@@ -408,10 +409,6 @@ private:
 
         TrimmedRational<TickRatio>
         _itop(plevel plev) const;
-
-        size_t
-        _incrs_in_range( TrimmedRational<TickRatio> lprice,
-                         TrimmedRational<TickRatio> hprice );
 
         /* calculate chain_size of orders at each price level
          * use depth increments on each side of last  */
@@ -697,7 +694,7 @@ private:
         last_id() const
         { return _last_id; }
 
-        inline const timesale_vector_type&
+        inline const std::vector<timesale_entry_type>&
         time_and_sales() const
         { return _timesales; }
 
