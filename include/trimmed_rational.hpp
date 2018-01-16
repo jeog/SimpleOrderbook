@@ -148,7 +148,7 @@ public:
 
     inline bool
     operator!=(const TrimmedRational& r) const
-    { return (*this != r); }
+    { return !(*this == r); }
 
     inline bool
     operator>(const TrimmedRational& r) const
