@@ -1444,7 +1444,7 @@ SOB_CLASS::_ptoi(TrimmedRational<TickRatio> price) const
     * 
     * if this causes trouble just create a seperate user input check
     */   
-    unsigned long long offset = (price - _base).as_increments();
+    long long offset = (price - _base).as_increments();
     plevel plev = _beg + offset;
     if(plev < _beg){
         throw std::range_error( "plevel < _beg" );
