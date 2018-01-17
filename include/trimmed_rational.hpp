@@ -22,6 +22,8 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <cmath>
 #include <limits>
 
+// TODO consider non-member friend opeartor overloads
+
 template< typename IncrementRatio,
           double(*RoundFunction)(double) = round,
           unsigned long RoundPrecision = 5 >
@@ -75,13 +77,17 @@ public:
 
     explicit TrimmedRational(double r)
         :
-            _n_whole( static_cast<long>(r) - (r < 0 ? 1 : 0) ),
+            _n_whole( static_cast<long>(r) - static_cast<long>(r < 0) ),
             _n_incrs( RoundFunction((r - _n_whole) * increments_per_unit) )
         {
+            if( _n_incrs == increments_per_unit ){
+                ++_n_whole;
+                _n_incrs = 0;
+            }
         }
 
     /* conversion methods */
-    inline unsigned long long
+    inline long long
     as_increments() const
     { return  increments_per_unit * _n_whole + _n_incrs; }
 

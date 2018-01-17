@@ -38,6 +38,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <fstream>
 #include <tuple>
 #include <unordered_map>
+#include <cstddef>
 
 #include "interfaces.hpp"
 #include "resource_manager.hpp"
@@ -46,8 +47,11 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #ifdef DEBUG
 #define SOB_RESOURCE_MANAGER ResourceManager_Debug
 #else
+#define NDEBUG
 #define SOB_RESOURCE_MANAGER ResourceManager
 #endif
+
+#include <assert.h>
 
 namespace sob {
 /*
@@ -171,7 +175,7 @@ public:
                                          destroy_func_type destroy,
                                          is_managed_func_type is_managed,
                                          get_all_func_type get_all,
-                                         destroy_all_func_type destroy_all)
+                                         destroy_all_func_type destroy_all )
             :
                 create(create),
                 destroy(destroy),
@@ -223,7 +227,7 @@ public:
 private:
     template<typename TickRatio, size_t MaxMemory>
     class SimpleOrderbookImpl
-            : public FullInterface{
+            : public ManagementInterface{
     protected:
         SimpleOrderbookImpl( TrimmedRational<TickRatio> min, size_t incr );
         ~SimpleOrderbookImpl();
@@ -460,6 +464,18 @@ private:
         void
         _adjust_limit_cache_vals(plevel plev);
 
+        /* called from grow book to reset invalidated pointers */
+        void
+        _reset_cached_pointers(plevel old_beg,
+                               plevel new_beg,
+                               plevel old_end,
+                               plevel new_end,
+                               long long addr_offset);
+
+        /* called by ManagementInterface to increase book size */
+        void
+        _grow_book(TrimmedRational<TickRatio> min, size_t incr, bool at_beg);
+
         /* dump (to stdout) a particular chain array */
         template<bool BuyNotSell>
         void
@@ -607,6 +623,15 @@ private:
                                 order_exec_cb_type exec_cb,
                                 order_admin_cb_type admin_cb = nullptr);
 
+        void
+        grow_book_above(double new_max);
+
+        void
+        grow_book_below(double new_min);
+
+        void
+        dump_cached_plevels() const;
+
         inline void
         dump_buy_limits() const
         { _dump_limits<true>(); }
@@ -622,9 +647,6 @@ private:
         inline void
         dump_sell_stops() const
         { _dump_stops<false>(); }
-
-        void
-        dump_cached_plevels() const;
 
         inline std::map<double, size_t>
         bid_depth(size_t depth=8) const
@@ -644,11 +666,11 @@ private:
 
         inline double
         bid_price() const
-        { return _itop(_bid); }
+        { return (_bid >= _beg) ? _itop(_bid) : 0; }
 
         inline double
         ask_price() const
-        { return _itop(_ask); }
+        { return (_ask < _end) ? _itop(_ask) : 0; }
 
         inline double
         last_price() const
@@ -714,7 +736,7 @@ private:
             if( min < 0 || min > max ){
                 throw std::invalid_argument("!(0 <= min <= max)");
             }
-            if( min.as_increments() == 0 ){
+            if( min == 0 ){
                ++min; /* note: we adjust w/o client knowing */
             }
 

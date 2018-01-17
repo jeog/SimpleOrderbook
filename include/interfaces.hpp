@@ -187,6 +187,24 @@ public:
 
 };
 
+class ManagementInterface
+        : public FullInterface{
+    friend SimpleOrderbook;
+protected:
+    ManagementInterface() {}
+    virtual ~ManagementInterface() {}
+
+public:
+    virtual void
+    dump_cached_plevels() const = 0;
+
+    virtual void
+    grow_book_above(double new_max) = 0;
+
+    virtual void
+    grow_book_below(double new_min) = 0;
+};
+
 }; /* sob */
 
 #endif 

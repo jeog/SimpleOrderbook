@@ -16,6 +16,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 */
 
 #include <iterator>
+#include <iomanip>
 #include "../include/simpleorderbook.hpp"
 
 #define SOB_TEMPLATE template<typename TickRatio, size_t MaxMemory>
@@ -35,17 +36,17 @@ SOB_CLASS::SimpleOrderbookImpl(TrimmedRational<TickRatio> min, size_t incr)
         _base(min),
         /* actual orderbook object */
         _book(incr + 1), /*pad the beg side */
-        /***********************************************************************
+        /***************************************************************
          :: our ersatz iterator approach ::
          
-         i = [ 0, _total_incr ) 
+         i = [ 0, incr ) 
      
-         vector iter    [begin()]                                      [ end() ]
-         internal pntr  [ _base ][ _beg ]                  [ _end - 1 ][ _end  ]
-         internal index [ NULL  ][   i  ][ i+1 ]...   [ _total_incr-1 ][  NULL ]
-         external price [ THROW ][ min  ]                     [  max  ][ THROW ]        
+         vector iter    [begin()]                               [ end() ]
+         internal pntr  [ _base ][ _beg ]           [ _end - 1 ][ _end  ]
+         internal index [ NULL  ][   i  ][ i+1 ]...   [ incr-1 ][  NULL ]
+         external price [ THROW ][ min  ]              [  max  ][ THROW ]        
     
-        ***********************************************************************/
+        *****************************************************************/
         _beg( &(*_book.begin()) + 1 ), 
         _end( &(*_book.end())), 
         _last( 0 ), // _beg + _lower_incr ), *** CHANGED *** 
@@ -1455,7 +1456,7 @@ SOB_CLASS::_ptoi(TrimmedRational<TickRatio> price) const
     return plev;
 }
 
-
+/* NOTE: before any trades, _last == 0 causes range_error */
 SOB_TEMPLATE 
 TrimmedRational<TickRatio>
 SOB_CLASS::_itop(plevel plev) const
@@ -1467,6 +1468,72 @@ SOB_CLASS::_itop(plevel plev) const
         throw std::range_error( "plevel > _end" );
     }        
     return _base + (plev - _beg);
+}
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_reset_cached_pointers( plevel old_beg,
+                                   plevel new_beg,
+                                   plevel old_end,
+                                   plevel new_end,
+                                   long long addr_offset )
+{   /*** PROTECTED BY _master_mtx ***/ 
+    if( _last ){
+        _last += addr_offset;
+    }
+
+    /* if plevel is below _beg, it's empty and needs to follow new_beg */
+    auto reset_low = [=](plevel *ptr){
+        *ptr = (*ptr < old_beg)  ?  &(*(new_beg - 1))  :  (*ptr + addr_offset);       
+    };
+    reset_low(&_bid);
+    reset_low(&_high_sell_limit);
+    reset_low(&_high_buy_stop);
+    reset_low(&_high_sell_stop);
+
+    /* if plevel is at _end, it's empty and needs to follow new_end */
+    auto reset_high = [=](plevel *ptr){
+        *ptr = (*ptr == old_end)  ?  &(*new_end)  :  (*ptr + addr_offset);         
+    };
+    reset_high(&_ask);
+    reset_high(&_low_buy_limit);
+    reset_high(&_low_buy_stop);
+    reset_high(&_low_sell_stop);
+}
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_grow_book(TrimmedRational<TickRatio> min, size_t incr, bool at_beg)
+{
+    if( incr == 0 ){
+        return;
+    }
+
+    plevel old_beg = _beg;
+    plevel old_end = _end;
+    size_t old_sz = _book.size();
+    size_t new_sz = old_sz + incr;
+
+    if( new_sz  > max_ticks ){
+        throw std::logic_error("new tick range would exceed MaxMemory");
+    }
+
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+
+    /* after this point no guarantee about cached pointers */
+    _book.insert( at_beg ? _book.begin() : _book.end(),
+                  incr,
+                  chain_pair_type() );
+
+    _base = min;
+    _beg = &(*_book.begin()) + 1;
+    _end = &(*_book.end());
+    assert( (_end - _beg) == static_cast<ptrdiff_t>(new_sz - 1) );
+    auto addr_offset = at_beg ? (_end - old_end) : (_beg - old_beg);
+
+    _reset_cached_pointers(old_beg, _beg, old_end, _end, addr_offset);
+    /* --- CRITICAL SECTION --- */
 }
 
 
@@ -1643,22 +1710,74 @@ SOB_CLASS::replace_with_stop_order( id_type id,
 
 SOB_TEMPLATE
 void 
-SOB_CLASS::dump_cached_plevels() const
+SOB_CLASS::grow_book_above(double new_max)
 {
-    static auto to_str = [&](plevel p){ return std::to_string(_itop(p)); };
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-    std::cout<< "*** CACHED PLEVELS ***" << std::endl     
-             << "_high_sell_limit: " << to_str(_high_sell_limit) << std::endl
-             << "_high_buy_stop: "<< to_str(_low_buy_stop) << std::endl
-             << "_low_buy_stop: " << to_str(_low_buy_stop) << std::endl
-             << "last: " << to_str(_last) << std::endl
-             << "_high_sell_stop: " << to_str(_high_sell_stop) << std::endl
-             << "_low_sell_stop: " << to_str(_low_sell_stop) << std::endl
-             << "_low_buy_limit: " << to_str(_low_buy_limit) << std::endl;
-    /* --- CRITICAL SECTION --- */
+    auto diff = TrimmedRational<TickRatio>(new_max) - max_price();
+
+    if( diff > std::numeric_limits<long>::max() ){
+        throw std::invalid_argument("new_max too far from old max to grow");
+    }else if( diff > 0 ){
+        size_t incr = static_cast<size_t>(diff.as_increments());
+        _grow_book(_base, incr, false);
+    }
 }
 
+
+SOB_TEMPLATE
+void
+SOB_CLASS::grow_book_below(double new_min) 
+{
+    if( _base == 1 ){ // can't go any lower
+        return;
+    }
+
+    TrimmedRational<TickRatio> new_base(new_min);
+    if( new_base < 1 ){
+        new_base = TrimmedRational<TickRatio>(static_cast<long>(1));
+    }
+
+    auto diff = _base - new_base;
+    if( diff > std::numeric_limits<long>::max() ){
+        throw std::invalid_argument("new_min too far from old min to grow");
+    }else if( diff > 0 ){
+        size_t incr = static_cast<size_t>(diff.as_increments());
+        _grow_book(new_base, incr, true);
+    }
+}
+
+
+SOB_TEMPLATE
+void 
+SOB_CLASS::dump_cached_plevels() const
+{    
+    auto println = [&](std::string n, plevel p){
+        std::string price;
+        try{
+            price = std::to_string(_itop(p));
+        }catch(std::range_error&){  
+            price = "N/A";
+        }
+        std::cout<< std::setw(20) << n << " : " 
+                 << std::setw(10) << price << " : "
+                 << std::hex << p << std::dec << std::endl;
+    };
+    
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+    std::cout<< "*** CACHED PLEVELS ***" << std::endl;
+    println("_end", _end);
+    println("_high_sell_limit", _high_sell_limit);
+    println("_high_buy_stop", _high_buy_stop);
+    println("_low_buy_stop", _low_buy_stop);
+    println("_ask", _ask);
+    println("_last", _last);
+    println("_bid", _bid);
+    println("_high_sell_stop", _high_sell_stop);
+    println("_low_sell_stop", _low_sell_stop);
+    println("_low_buy_limit", _low_buy_limit);
+    println("_beg", _beg);
+    /* --- CRITICAL SECTION --- */
+}
 
 };
 
