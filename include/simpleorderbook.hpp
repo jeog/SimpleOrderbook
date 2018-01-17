@@ -479,12 +479,12 @@ private:
         /* dump (to stdout) a particular chain array */
         template<bool BuyNotSell>
         void
-        _dump_limits() const;
+        _dump_limits(std::ostream& out) const;
 
         /* dump (to stdout) a particular chain array */
         template<bool BuyNotSell>
         void
-        _dump_stops() const;
+        _dump_stops(std::ostream& out) const;
 
         /* handle post-trade tasks */
         void
@@ -562,20 +562,20 @@ private:
         insert_limit_order(bool buy,
                            double limit,
                            size_t size,
-                           order_exec_cb_type exec_cb,
+                           order_exec_cb_type exec_cb = nullptr,
                            order_admin_cb_type admin_cb = nullptr);
 
         id_type
         insert_market_order(bool buy,
                             size_t size,
-                            order_exec_cb_type exec_cb,
+                            order_exec_cb_type exec_cb = nullptr,
                             order_admin_cb_type admin_cb = nullptr);
 
         id_type
         insert_stop_order(bool buy,
                           double stop,
                           size_t size,
-                          order_exec_cb_type exec_cb,
+                          order_exec_cb_type exec_cb = nullptr,
                           order_admin_cb_type admin_cb = nullptr);
 
         id_type
@@ -583,7 +583,7 @@ private:
                           double stop,
                           double limit,
                           size_t size,
-                          order_exec_cb_type exec_cb,
+                          order_exec_cb_type exec_cb = nullptr,
                           order_admin_cb_type admin_cb = nullptr);
 
         bool
@@ -596,14 +596,14 @@ private:
                                  bool buy,
                                  double limit,
                                  size_t size,
-                                 order_exec_cb_type exec_cb,
+                                 order_exec_cb_type exec_cb = nullptr,
                                  order_admin_cb_type admin_cb = nullptr);
 
         id_type
         replace_with_market_order(id_type id,
                                   bool buy,
                                   size_t size,
-                                  order_exec_cb_type exec_cb,
+                                  order_exec_cb_type exec_cb = nullptr,
                                   order_admin_cb_type admin_cb = nullptr);
 
         id_type
@@ -611,7 +611,7 @@ private:
                                 bool buy,
                                 double stop,
                                 size_t size,
-                                order_exec_cb_type exec_cb,
+                                order_exec_cb_type exec_cb = nullptr,
                                 order_admin_cb_type admin_cb = nullptr);
 
         id_type
@@ -620,7 +620,7 @@ private:
                                 double stop,
                                 double limit,
                                 size_t size,
-                                order_exec_cb_type exec_cb,
+                                order_exec_cb_type exec_cb = nullptr,
                                 order_admin_cb_type admin_cb = nullptr);
 
         void
@@ -630,23 +630,23 @@ private:
         grow_book_below(double new_min);
 
         void
-        dump_cached_plevels() const;
+        dump_cached_plevels(std::ostream& out = std::cout) const;
 
         inline void
-        dump_buy_limits() const
-        { _dump_limits<true>(); }
+        dump_buy_limits(std::ostream& out = std::cout) const
+        { _dump_limits<true>(out); }
 
         inline void
-        dump_sell_limits() const
-        { _dump_limits<false>(); }
+        dump_sell_limits(std::ostream& out = std::cout) const
+        { _dump_limits<false>(out); }
 
         inline void
-        dump_buy_stops() const
-        { _dump_stops<true>(); }
+        dump_buy_stops(std::ostream& out = std::cout) const
+        { _dump_stops<true>(out); }
 
         inline void
-        dump_sell_stops() const
-        { _dump_stops<false>(); }
+        dump_sell_stops(std::ostream& out = std::cout) const
+        { _dump_stops<false>(out); }
 
         inline std::map<double, size_t>
         bid_depth(size_t depth=8) const

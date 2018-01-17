@@ -174,16 +174,16 @@ public:
                             order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual void 
-    dump_buy_limits() const = 0;
+    dump_buy_limits(std::ostream& out = std::cout) const = 0;
 
     virtual void 
-    dump_sell_limits() const = 0;
+    dump_sell_limits(std::ostream& out = std::cout) const = 0;
 
     virtual void 
-    dump_buy_stops() const = 0; 
+    dump_buy_stops(std::ostream& out = std::cout) const = 0;
 
     virtual void 
-    dump_sell_stops() const = 0;
+    dump_sell_stops(std::ostream& out = std::cout) const = 0;
 
 };
 
@@ -196,7 +196,7 @@ protected:
 
 public:
     virtual void
-    dump_cached_plevels() const = 0;
+    dump_cached_plevels(std::ostream& out = std::cout) const = 0;
 
     virtual void
     grow_book_above(double new_max) = 0;

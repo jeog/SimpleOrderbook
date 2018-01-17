@@ -1381,7 +1381,7 @@ SOB_CLASS::_pull_order(id_type id)
 SOB_TEMPLATE
 template<bool BuyNotSell>
 void 
-SOB_CLASS::_dump_limits() const
+SOB_CLASS::_dump_limits(std::ostream& out) const
 { 
     std::lock_guard<std::mutex> lock(_master_mtx); 
     /* --- CRITICAL SECTION --- */
@@ -1389,15 +1389,16 @@ SOB_CLASS::_dump_limits() const
     /* from high to low */
     plevel h = BuyNotSell ? _bid : _high_sell_limit;
     plevel l = BuyNotSell ? _low_buy_limit : _ask;
-    _high_low<>::range_check(this,&h,&l);
+    _high_low<>::range_check(this, &h, &l);
     
+    out << "*** " << (BuyNotSell ? "BUY" : "SELL") << " LIMITS ***" << std::endl;
     for( ; h >= l; --h){    
         if( !h->first.empty() ){
-            std::cout<< _itop(h);
+            out << _itop(h);
             for(const limit_chain_type::value_type& e : h->first){
-                std::cout<< " <" << e.second.first << " #" << e.first << "> ";
+                out << " <" << e.second.first << " #" << e.first << "> ";
             }
-            std::cout<< std::endl;
+            out << std::endl;
         } 
     }
     /* --- CRITICAL SECTION --- */
@@ -1405,7 +1406,7 @@ SOB_CLASS::_dump_limits() const
 
 SOB_TEMPLATE
 template< bool BuyNotSell >
-void SOB_CLASS::_dump_stops() const
+void SOB_CLASS::_dump_stops(std::ostream& out) const
 { 
     std::lock_guard<std::mutex> lock(_master_mtx); 
     /* --- CRITICAL SECTION --- */
@@ -1415,18 +1416,19 @@ void SOB_CLASS::_dump_stops() const
     plevel l = BuyNotSell ? _low_buy_stop : _low_sell_stop;
     _high_low<>::range_check(this,&h,&l);    
     
+    out << "*** " << (BuyNotSell ? "BUY" : "SELL") << " STOPS ***" << std::endl;
     plevel plim;
     for( ; h >= l; --h){ 
         if( !h->second.empty() ){
-            std::cout<< _itop(h);
+            out << _itop(h);
             for(const auto & e : h->second){
                 plim = (plevel)get<1>(e.second);
-                std::cout<< " <" << (get<0>(e.second) ? "B " : "S ")
-                                 << std::to_string( get<2>(e.second) ) << " @ "
-                                 << (plim ? std::to_string(_itop(plim)) : "MKT")
-                                 << " #" << std::to_string(e.first) << "> ";
+                out << " <" << (get<0>(e.second) ? "B " : "S ")
+                            << std::to_string( get<2>(e.second) ) << " @ "
+                            << (plim ? std::to_string(_itop(plim)) : "MKT")
+                            << " #" << std::to_string(e.first) << "> ";
             }
-            std::cout<< std::endl;
+            out << std::endl;
         } 
     }
     /* --- CRITICAL SECTION --- */
@@ -1716,7 +1718,8 @@ SOB_CLASS::grow_book_above(double new_max)
 
     if( diff > std::numeric_limits<long>::max() ){
         throw std::invalid_argument("new_max too far from old max to grow");
-    }else if( diff > 0 ){
+    }
+    if( diff > 0 ){
         size_t incr = static_cast<size_t>(diff.as_increments());
         _grow_book(_base, incr, false);
     }
@@ -1739,7 +1742,8 @@ SOB_CLASS::grow_book_below(double new_min)
     auto diff = _base - new_base;
     if( diff > std::numeric_limits<long>::max() ){
         throw std::invalid_argument("new_min too far from old min to grow");
-    }else if( diff > 0 ){
+    }
+    if( diff > 0 ){
         size_t incr = static_cast<size_t>(diff.as_increments());
         _grow_book(new_base, incr, true);
     }
@@ -1748,7 +1752,7 @@ SOB_CLASS::grow_book_below(double new_min)
 
 SOB_TEMPLATE
 void 
-SOB_CLASS::dump_cached_plevels() const
+SOB_CLASS::dump_cached_plevels(std::ostream& out) const
 {    
     auto println = [&](std::string n, plevel p){
         std::string price;
@@ -1756,15 +1760,17 @@ SOB_CLASS::dump_cached_plevels() const
             price = std::to_string(_itop(p));
         }catch(std::range_error&){  
             price = "N/A";
-        }
-        std::cout<< std::setw(20) << n << " : " 
-                 << std::setw(10) << price << " : "
-                 << std::hex << p << std::dec << std::endl;
+        }        
+        out<< std::setw(18) << n << " : " 
+           << std::setw(14) << price << " : "
+           << std::hex << p << std::dec << std::endl;
     };
     
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
-    std::cout<< "*** CACHED PLEVELS ***" << std::endl;
+    std::ios sstate(nullptr);
+    sstate.copyfmt(out);
+    out<< "*** CACHED PLEVELS ***" << std::left << std::endl;
     println("_end", _end);
     println("_high_sell_limit", _high_sell_limit);
     println("_high_buy_stop", _high_buy_stop);
@@ -1776,6 +1782,7 @@ SOB_CLASS::dump_cached_plevels() const
     println("_low_sell_stop", _low_sell_stop);
     println("_low_buy_limit", _low_buy_limit);
     println("_beg", _beg);
+    out.copyfmt(sstate);
     /* --- CRITICAL SECTION --- */
 }
 
