@@ -719,7 +719,7 @@ private:
             }
 
             // make inclusive
-            size_t incr = (max - min).as_increments() + 1;
+            size_t incr = static_cast<size_t>((max - min).as_increments()) + 1;
             if( incr < 3 ){
                 throw std::invalid_argument("need at least 3 increments");
             }

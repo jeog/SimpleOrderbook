@@ -80,7 +80,7 @@ public:
         {
         }
 
-    inline unsigned long long
+    inline long long
     as_increments() const
     { return  increments_per_unit * _n_whole + _n_incrs; }
 
