@@ -1645,7 +1645,7 @@ SOB_TEMPLATE
 void 
 SOB_CLASS::dump_cached_plevels() const
 {
-    static auto to_str = [&](plevel p){ return std::to_string(_itop(p)); };
+    auto to_str = [&](plevel p){ return std::to_string(_itop(p)); };
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
     std::cout<< "*** CACHED PLEVELS ***" << std::endl     

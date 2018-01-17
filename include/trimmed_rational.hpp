@@ -78,6 +78,10 @@ public:
             _n_whole( static_cast<long>(r) - (r < 0 ? 1 : 0) ),
             _n_incrs( RoundFunction((r - _n_whole) * increments_per_unit) )
         {
+            if( _n_incrs == increments_per_unit ){
+                ++_n_whole;
+                _n_incrs = 0;
+            }
         }
 
     inline long long
