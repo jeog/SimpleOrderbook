@@ -279,14 +279,14 @@ SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
 PyObject* 
 SOB_pull_order(pySOB *self, PyObject *args, PyObject *kwds)
 {
-    bool rval;
-    sob::id_type id;
+    static char* kwlist[] = {MethodArgs::id, NULL};
 
-    static char* kwlist[] = {MethodArgs::id,NULL};
+    sob::id_type id;
     if( !MethodArgs::parse(args, kwds, "k", kwlist, &id) ){
         return false;
     }
 
+    bool rval = false;
     Py_BEGIN_ALLOW_THREADS
     try{
         rval = to_interface(self)->pull_order(id);
@@ -412,11 +412,11 @@ struct DepthHelper<sob::side_of_market::ask>{
 
 template<sob::side_of_market Side>
 PyObject*
-SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
+SOB_market_depth(pySOB *self, PyObject *args, PyObject *kwds)
 {
-    long depth;
-
     static char* kwlist[] = {MethodArgs::depth, NULL};
+
+    long depth = 0;
     if( !MethodArgs::parse(args, kwds, "l", kwlist, &depth) ){
         return NULL;
     }
@@ -441,6 +441,39 @@ SOB_market_depth(pySOB *self, PyObject *args,PyObject *kwds)
     Py_END_ALLOW_THREADS
 
     return dict;
+}
+
+
+template<bool Above>
+PyObject*
+SOB_grow_book(pySOB *self, PyObject *args, PyObject *kwds)
+{
+    static char* kwlist[] = {
+        Above ? MethodArgs::new_max : MethodArgs::new_min,
+        NULL
+    };
+
+    double m;
+    if( !MethodArgs::parse(args, kwds, "d", kwlist, &m) ){
+        return NULL;
+    }
+
+    Py_BEGIN_ALLOW_THREADS
+    try{
+        sob::ManagementInterface *ob =
+            dynamic_cast<sob::ManagementInterface*>(to_interface(self));
+        if( Above ){
+            ob->grow_book_above(m);
+        }else{
+            ob->grow_book_below(m);
+        }
+    }catch(std::exception& e){
+        Py_BLOCK_THREADS
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
+        Py_UNBLOCK_THREADS
+    }
+    Py_END_ALLOW_THREADS
+    Py_RETURN_NONE;
 }
 
 
@@ -486,6 +519,15 @@ PyMethodDef pySOB_methods[] = {
     MDef::NoArgs("dump_sell_stops", SOB_dump_sell_stops,
                  "print to stdout all active sell stop orders"),
 
+    MDef::KeyArgs("grow_book_above", SOB_grow_book<true>,
+                  "increase the size of the orderbook from above \n\n"
+                  "    def grow_book_above(new_max) -> None \n\n"
+                  "    new_max :: double :: new maximum order/trade price"),
+
+    MDef::KeyArgs("grow_book_below", SOB_grow_book<false>,
+                  "increase the size of the orderbook from below \n\n"
+                  "    def grow_book_below(new_min) -> None \n\n"
+                  "    new_min :: double :: new minimum order/trade price"),
 
 #define DOCS_MARKET_DEPTH(arg1) \
 " get total outstanding order size at each " arg1 " price level \n\n" \
@@ -502,7 +544,6 @@ PyMethodDef pySOB_methods[] = {
     MDef::KeyArgs("market_depth",SOB_market_depth<sob::side_of_market::both>,
         DOCS_MARKET_DEPTH("market")),
 
-
 #define DOCS_TRADE_MARKET(arg1) \
 " insert " arg1 " market order \n\n" \
 "    def " arg1 "_market(size, callback=None) -> order ID \n\n" \
@@ -515,7 +556,6 @@ PyMethodDef pySOB_methods[] = {
 
     MDef::KeyArgs("sell_market",SOB_trade_market<false,false>,
         DOCS_TRADE_MARKET("sell")),
-
 
 #define DOCS_TRADE_STOP_OR_LIMIT(arg1, arg2) \
     " insert " arg1 " " arg2 " order \n\n" \
@@ -537,7 +577,6 @@ PyMethodDef pySOB_methods[] = {
     MDef::KeyArgs("sell_stop",SOB_trade_stop<false,false>,
         DOCS_TRADE_STOP_OR_LIMIT("sell", "stop")),
 
-
 #define DOCS_TRADE_STOP_AND_LIMIT(arg1) \
     " insert " arg1 " stop-limit order \n\n" \
     "    def " arg1 "_stop_limit(stop, limit, size, callback=None)" \
@@ -554,13 +593,11 @@ PyMethodDef pySOB_methods[] = {
     MDef::KeyArgs("sell_stop_limit",SOB_trade_stop_limit<false,false>,
         DOCS_TRADE_STOP_AND_LIMIT("sell")),
 
-
     MDef::KeyArgs("pull_order",SOB_pull_order,
         " pull(remove) order \n\n"
         "    def pull_order(id) -> success \n\n"
         "    id :: int :: order ID \n\n"
         "    returns -> bool \n"),
-
 
 #define DOCS_REPLACE_WITH_MARKET(arg1) \
     " replace old order with new " arg1 " market order \n\n" \
@@ -576,7 +613,6 @@ PyMethodDef pySOB_methods[] = {
 
     MDef::KeyArgs("replace_with_sell_market",SOB_trade_market<false,true>,
         DOCS_REPLACE_WITH_MARKET("sell")),
-
 
 #define DOCS_REPLACE_WITH_STOP_OR_LIMIT(arg1, arg2) \
     " replace old order with new " arg1 " " arg2 " order \n\n" \
@@ -599,7 +635,6 @@ PyMethodDef pySOB_methods[] = {
 
     MDef::KeyArgs("replace_with_sell_stop",SOB_trade_stop<false,true>,
             DOCS_REPLACE_WITH_STOP_OR_LIMIT("sell","stop")),
-
 
 #define DOCS_REPLACE_WITH_STOP_AND_LIMIT(arg1) \
     " replace old order with new " arg1 " stop-limit order \n\n" \
