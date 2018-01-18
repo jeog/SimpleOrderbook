@@ -36,6 +36,9 @@ public:
     tick_size() const = 0;
 
     virtual double
+    price_to_tick(double price) const = 0;
+
+    virtual double
     min_price() const = 0;
 
     virtual double

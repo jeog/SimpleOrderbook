@@ -161,7 +161,7 @@ public:
     {
         _set_using_cached<ChainTy>::call(sob,ph,pl); 
         *ph = (plevel)min(sob->_ask + depth - 1, *ph);
-        *pl = (plevel)max(sob->_bid - depth +1, *pl);    
+        *pl = (plevel)max(sob->_bid - depth + 1, *pl);    
         _high_low<Side,My>::range_check(sob,ph,pl);
     }
 
@@ -1472,6 +1472,8 @@ SOB_CLASS::_itop(plevel plev) const
     return _base + (plev - _beg);
 }
 
+
+
 SOB_TEMPLATE
 void
 SOB_CLASS::_reset_cached_pointers( plevel old_beg,
@@ -1479,14 +1481,19 @@ SOB_CLASS::_reset_cached_pointers( plevel old_beg,
                                    plevel old_end,
                                    plevel new_end,
                                    long long addr_offset )
-{   /*** PROTECTED BY _master_mtx ***/ 
+{   
+    auto adj_ptr = [=](plevel ptr){
+        return (plevel)((char*)(ptr) + addr_offset);
+    };
+    
+    /*** PROTECTED BY _master_mtx ***/ 
     if( _last ){
-        _last += addr_offset;
+        _last = adj_ptr(_last);
     }
 
     /* if plevel is below _beg, it's empty and needs to follow new_beg */
     auto reset_low = [=](plevel *ptr){
-        *ptr = (*ptr < old_beg)  ?  &(*(new_beg - 1))  :  (*ptr + addr_offset);       
+        *ptr = (*ptr < old_beg)  ?  &(*(new_beg - 1))  :  adj_ptr(*ptr);       
     };
     reset_low(&_bid);
     reset_low(&_high_sell_limit);
@@ -1495,7 +1502,7 @@ SOB_CLASS::_reset_cached_pointers( plevel old_beg,
 
     /* if plevel is at _end, it's empty and needs to follow new_end */
     auto reset_high = [=](plevel *ptr){
-        *ptr = (*ptr == old_end)  ?  &(*new_end)  :  (*ptr + addr_offset);         
+        *ptr = (*ptr == old_end)  ?  &(*new_end)  :  adj_ptr(*ptr);         
     };
     reset_high(&_ask);
     reset_high(&_low_buy_limit);
@@ -1531,9 +1538,17 @@ SOB_CLASS::_grow_book(TrimmedRational<TickRatio> min, size_t incr, bool at_beg)
     _base = min;
     _beg = &(*_book.begin()) + 1;
     _end = &(*_book.end());
-    assert( (_end - _beg) == static_cast<ptrdiff_t>(new_sz - 1) );
-    auto addr_offset = at_beg ? (_end - old_end) : (_beg - old_beg);
+    assert( (_end - _beg) == static_cast<ptrdiff_t>(new_sz - 1) );  
 
+    long long addr_offset = 0;    
+    if(at_beg){
+        addr_offset = (reinterpret_cast<unsigned long>(_end) 
+                - reinterpret_cast<unsigned long>(old_end));
+    }else{
+        addr_offset = (reinterpret_cast<unsigned long>(_beg) 
+                - reinterpret_cast<unsigned long>(old_beg));      
+    }  
+   
     _reset_cached_pointers(old_beg, _beg, old_end, _end, addr_offset);
     /* --- CRITICAL SECTION --- */
 }

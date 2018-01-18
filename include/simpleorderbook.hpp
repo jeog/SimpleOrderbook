@@ -664,6 +664,10 @@ private:
         tick_size() const
         { return TrimmedRational<TickRatio>::increment_size; }
 
+        virtual double
+        price_to_tick(double price) const
+        { return TrimmedRational<TickRatio>(price); }
+
         inline double
         bid_price() const
         { return (_bid >= _beg) ? _itop(_bid) : 0.0; }
@@ -674,7 +678,7 @@ private:
 
         inline double
         last_price() const
-        { return _itop(_last); }
+        { return (_last >= _beg && _last < _end) ? _itop(_last) : 0.0; }
 
         inline double
         min_price() const
