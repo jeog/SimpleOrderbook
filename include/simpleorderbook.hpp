@@ -666,11 +666,11 @@ private:
 
         inline double
         bid_price() const
-        { return (_bid >= _beg) ? _itop(_bid) : 0; }
+        { return (_bid >= _beg) ? _itop(_bid) : 0.0; }
 
         inline double
         ask_price() const
-        { return (_ask < _end) ? _itop(_ask) : 0; }
+        { return (_ask < _end) ? _itop(_ask) : 0.0; }
 
         inline double
         last_price() const
