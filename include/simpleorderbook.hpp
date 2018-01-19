@@ -437,24 +437,8 @@ private:
         _pull_order(id_type id);
 
         /* optimize by checking limit or stop chains first */
-        inline bool
-        _pull_order(bool limits_first, id_type id)
-        {
-            return limits_first
-                ? (_pull_order<limit_chain_type>(id)
-                        || _pull_order<stop_chain_type>(id))
-                : (_pull_order<stop_chain_type>(id)
-                        || _pull_order<limit_chain_type>(id));
-        }
-
-        /* helper for getting exec callback (what about admin_cb specialization?) */
-        inline order_exec_cb_type
-        _get_cb_from_bndl(limit_bndl_type& b)
-        { return b.second; }
-
-        inline order_exec_cb_type
-        _get_cb_from_bndl(stop_bndl_type& b)
-        { return std::get<3>(b); }
+        bool
+        _pull_order(id_type id, bool limits_first);
 
         /* called from _pull order to update cached pointers */
         template<bool BuyStop>
@@ -489,10 +473,6 @@ private:
         /* handle post-trade tasks */
         void
         _clear_callback_queue();
-
-        inline void
-        _execute_admin_callback(order_admin_cb_type& cb, id_type id)
-        { if( cb ) cb(id); }
 
         void
         _look_for_triggered_stops(bool nothrow);
@@ -553,6 +533,32 @@ private:
                            size_t size,
                            order_exec_cb_type exec_cb,
                            id_type id);
+
+        /* helper for getting exec callback */
+        static inline order_exec_cb_type
+        callback_from_bndl(limit_bndl_type& b)
+        { return b.second; }
+
+        static inline order_exec_cb_type
+        callback_from_bndl(stop_bndl_type& b)
+        { return std::get<3>(b); }
+
+        static inline void
+        execute_admin_callback(order_admin_cb_type& cb, id_type id)
+        { if( cb ) cb(id); }
+
+        template<typename T>
+        static inline long long
+        bytes_offset(T *l, T *r)
+        {
+            return (reinterpret_cast<unsigned long long>(l) -
+                    reinterpret_cast<unsigned long long>(r));
+        }
+
+        template<typename T>
+        static inline T*
+        bytes_add(T *ptr, long long offset)
+        { return reinterpret_cast<T*>(reinterpret_cast<char*>(ptr) + offset); }
 
     public:
         order_info_type

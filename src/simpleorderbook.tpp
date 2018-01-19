@@ -916,7 +916,7 @@ SOB_CLASS::_route_order(order_queue_elem_type& e, id_type& id)
             get<1>(e) 
                 ? _insert_limit_order<true>(get<2>(e), get<4>(e), get<5>(e), id)
                 : _insert_limit_order<false>(get<2>(e), get<4>(e), get<5>(e), id); 
-            _execute_admin_callback(get<7>(e), id);
+            execute_admin_callback(get<7>(e), id);
             _look_for_triggered_stops(false); /* throw */
             break;
        
@@ -924,7 +924,7 @@ SOB_CLASS::_route_order(order_queue_elem_type& e, id_type& id)
             get<1>(e) 
                 ? _insert_market_order<true>(get<4>(e), get<5>(e), id)
                 : _insert_market_order<false>(get<4>(e), get<5>(e), id);  
-            _execute_admin_callback(get<7>(e), id);
+            execute_admin_callback(get<7>(e), id);
             _look_for_triggered_stops(false); /* throw */
             break;
       
@@ -932,7 +932,7 @@ SOB_CLASS::_route_order(order_queue_elem_type& e, id_type& id)
             get<1>(e) 
                 ? _insert_stop_order<true>(get<3>(e), get<4>(e), get<5>(e), id)
                 : _insert_stop_order<false>(get<3>(e), get<4>(e), get<5>(e), id); 
-            _execute_admin_callback(get<7>(e), id);
+            execute_admin_callback(get<7>(e), id);
             break;
          
         case order_type::stop_limit:        
@@ -941,13 +941,13 @@ SOB_CLASS::_route_order(order_queue_elem_type& e, id_type& id)
                                            get<5>(e), id)
                 : _insert_stop_order<false>(get<3>(e), get<2>(e), get<4>(e), 
                                             get<5>(e), id);  
-            _execute_admin_callback(get<7>(e), id);
+            execute_admin_callback(get<7>(e), id);
             break;
          
         case order_type::null: 
             /* not the cleanest but most effective/thread-safe 
                e[1] indicates to check limits first (not buy/sell) */
-            id = (id_type)_pull_order(get<1>(e),id);
+            id = (id_type)_pull_order(id, get<1>(e));
             break;
         
         default: 
@@ -1329,6 +1329,20 @@ SOB_CLASS::_get_order_info(id_type id) const
 
 
 SOB_TEMPLATE
+bool
+SOB_CLASS::_pull_order(id_type id, bool limits_first)
+{
+    if( limits_first ){
+        return (_pull_order<limit_chain_type>(id) 
+                || _pull_order<stop_chain_type>(id));
+    }else{
+        return (_pull_order<stop_chain_type>(id) 
+                || _pull_order<limit_chain_type>(id));
+    }
+}
+
+
+SOB_TEMPLATE
 template<typename ChainTy, bool IsLimit>
 bool 
 SOB_CLASS::_pull_order(id_type id)
@@ -1343,7 +1357,7 @@ SOB_CLASS::_pull_order(id_type id)
 
     /* get the callback and, if stop order, its direction... before erasing */
     auto bndl = c->at(id);
-    order_exec_cb_type cb = _get_cb_from_bndl(bndl);
+    order_exec_cb_type cb = callback_from_bndl(bndl);
     bool is_buystop = IsLimit ? false : get<0>(bndl); 
 
     c->erase(id);
@@ -1480,20 +1494,16 @@ SOB_CLASS::_reset_cached_pointers( plevel old_beg,
                                    plevel new_beg,
                                    plevel old_end,
                                    plevel new_end,
-                                   long long addr_offset )
+                                   long long offset )
 {   
-    auto adj_ptr = [=](plevel ptr){
-        return (plevel)((char*)(ptr) + addr_offset);
-    };
-    
-    /*** PROTECTED BY _master_mtx ***/ 
+    /*** PROTECTED BY _master_mtx ***/          
     if( _last ){
-        _last = adj_ptr(_last);
+        _last = bytes_add(_last, offset);
     }
 
     /* if plevel is below _beg, it's empty and needs to follow new_beg */
     auto reset_low = [=](plevel *ptr){
-        *ptr = (*ptr < old_beg)  ?  &(*(new_beg - 1))  :  adj_ptr(*ptr);       
+        *ptr = (*ptr < old_beg)  ?  &(*(new_beg - 1)) : bytes_add(*ptr, offset);       
     };
     reset_low(&_bid);
     reset_low(&_high_sell_limit);
@@ -1502,13 +1512,14 @@ SOB_CLASS::_reset_cached_pointers( plevel old_beg,
 
     /* if plevel is at _end, it's empty and needs to follow new_end */
     auto reset_high = [=](plevel *ptr){
-        *ptr = (*ptr == old_end)  ?  &(*new_end)  :  adj_ptr(*ptr);         
+        *ptr = (*ptr == old_end)  ?  &(*new_end) : bytes_add(*ptr, offset);         
     };
     reset_high(&_ask);
     reset_high(&_low_buy_limit);
     reset_high(&_low_buy_stop);
     reset_high(&_low_sell_stop);
 }
+
 
 SOB_TEMPLATE
 void
@@ -1538,18 +1549,15 @@ SOB_CLASS::_grow_book(TrimmedRational<TickRatio> min, size_t incr, bool at_beg)
     _base = min;
     _beg = &(*_book.begin()) + 1;
     _end = &(*_book.end());
-    assert( (_end - _beg) == static_cast<ptrdiff_t>(new_sz - 1) );  
+    assert( 
+        bytes_offset(_end, _beg) ==
+        static_cast<long long>((new_sz - 1) * sizeof(*_beg)) 
+        );  
 
-    long long addr_offset = 0;    
-    if(at_beg){
-        addr_offset = (reinterpret_cast<unsigned long>(_end) 
-                - reinterpret_cast<unsigned long>(old_end));
-    }else{
-        addr_offset = (reinterpret_cast<unsigned long>(_beg) 
-                - reinterpret_cast<unsigned long>(old_beg));      
-    }  
-   
-    _reset_cached_pointers(old_beg, _beg, old_end, _end, addr_offset);
+    long long offset = at_beg ? bytes_offset(_end, old_end)
+                              : bytes_offset(_beg, old_beg);
+  
+    _reset_cached_pointers(old_beg, _beg, old_end, _end, offset);
     /* --- CRITICAL SECTION --- */
 }
 
