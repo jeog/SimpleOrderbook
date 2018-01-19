@@ -10,11 +10,12 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 
 - market, limit, stop-market, and stop-limit order types
 - cancel/replace orders by ID
-- pass callbacks that are triggered on execution and/or successful insert
+- pass callbacks that are triggered on execution and/or successful order insert
 - query market state(bid size, volume etc.), dump orders to stdout, view Time & Sales 
 - access via a CPython extension module
-- sacrifices space for speed (e.g static price ladders, pre-allocation of internal objects, templates)
-
+- tick sizing/rounding/math is handled for user by a TrimmedRational\<std::ratio\> object
+- pre-allocates (some) internals during construction to reduce runtime overhead
+- (manually) grow orderbook as necessary
 
 #### Getting Started
 
@@ -58,18 +59,16 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
              * we provide different factory interfaces(proxies).
              *
              * The following will be used for managing orderbooks of (implementation) type:
-             *     SimpleOrderbook::SimpleOrderbookImpl< std::ratio<1,4>, 1024 * 1024 * 8>
+             *     SimpleOrderbook::SimpleOrderbookImpl< std::ratio<1,4> >
              *
              * - uses the default factory 'create' function via (double,double) constructor
-             * - with .25 price intervals
-             * - and a max 8MB of pre-allocated (internal) storage (see source comments)
+             * - with .25 price intervals       
              * 
              * NOTICE the use of the copy constructor. Factory Proxies RESTRICT 
              * DEFAULT CONSTRUCTION to insure non-null function pointer fields
-             */
-            const size_t MAX_MEM = 1024 * 1024 * 8;
-            SimpleOrderbook::FactoryProxy<> qt8_def_proxy( 
-                SimpleOrderbook::BuildFactoryProxy<quarter_tick, MAX_MEM>()
+             */         
+            SimpleOrderbook::FactoryProxy<> qt_def_proxy( 
+                SimpleOrderbook::BuildFactoryProxy<quarter_tick>()
             );
 
            /*
@@ -79,9 +78,9 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
             */           
             std::map<std::string, SimpleOrderbook::FactoryProxy<>> 
             my_factory_proxies = { 
-                {"QT", qt8_def_proxy},
-                {"TT", SimpleOrderbook::BuildFactoryProxy<tenth_tick, MAX_MEM * 4>()}
-                {"HT", SimpleOrderbook::BuildFactoryProxy<std::ratio<1,2>, MAX_MEM >()}
+                {"QT", qt_def_proxy},
+                {"TT", SimpleOrderbook::BuildFactoryProxy<tenth_tick>()}
+                {"HT", SimpleOrderbook::BuildFactoryProxy<std::ratio<1,2>>()}
             };
 
             /*  
@@ -135,6 +134,21 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 
             /* use the query interface (defined below) */
             print_inside_market(orderbook);
+
+            /* increase the size of the orderbook */
+            dynamic_cast<ManagementInterface*>(orderbook)->grow_book_above(150);
+
+            if( orderbook->min_price() == .25 
+                && orderbook->max_price() == 150.00
+                && orderbook->tick_size() == .25
+                && orderbook->price_to_tick(150.12) == 150.00
+                && orderbook->price_to_tick(150.13) == 150.25
+                && orderbook->is_valid_price(150.13) == false
+                && orderbook->ticks_in_range(.25, 150) == 599 
+                && orderbook->tick_memory_required(.25, 150) == orderbook->tick_memory_required() )
+            {
+                // true
+            }
 
             /* 
              * WHEN DONE...

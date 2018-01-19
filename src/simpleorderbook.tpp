@@ -19,8 +19,8 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <iomanip>
 #include "../include/simpleorderbook.hpp"
 
-#define SOB_TEMPLATE template<typename TickRatio, size_t MaxMemory>
-#define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio,MaxMemory>
+#define SOB_TEMPLATE template<typename TickRatio>
+#define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio>
 
 namespace sob{
 
@@ -49,16 +49,16 @@ SOB_CLASS::SimpleOrderbookImpl(TrimmedRational<TickRatio> min, size_t incr)
         *****************************************************************/
         _beg( &(*_book.begin()) + 1 ), 
         _end( &(*_book.end())), 
-        _last( 0 ), // _beg + _lower_incr ), *** CHANGED *** 
-        _bid( &(*(_beg-1)) ),
-        _ask( &(*_end) ),
+        _last( 0 ),  
+        _bid( _beg - 1),
+        _ask( _end ),
         /* cache range vals for faster lookups */
-        _low_buy_limit( &(*_end) ),
-        _high_sell_limit( &(*(_beg-1)) ),
-        _low_buy_stop( &(*_end) ),
-        _high_buy_stop( &(*(_beg-1)) ),
-        _low_sell_stop( &(*_end) ),
-        _high_sell_stop( &(*(_beg-1)) ),
+        _low_buy_limit( _end ),
+        _high_sell_limit( _beg - 1 ),
+        _low_buy_stop( _end ),
+        _high_buy_stop( _beg - 1 ),
+        _low_sell_stop( _end ),
+        _high_sell_stop( _beg - 1 ),
         /* internal trade stats */
         _total_volume(0),
         _last_id(0), 
@@ -556,7 +556,7 @@ private:
     {
         if( sob->_ask >= sob->_end ){
             sob->_ask_size = 0;          
-            sob->_high_sell_limit = sob->_beg-1;    
+            sob->_high_sell_limit = sob->_beg - 1;    
             return false;
         }
         sob->_ask_size = SOB_CLASS::_chain<SOB_CLASS::limit_chain_type>
@@ -1040,7 +1040,7 @@ SOB_CLASS::_block_on_outstanding_orders()
             std::lock_guard<std::mutex> lock(_order_queue_mtx);
             /* --- CRITICAL SECTION --- */
             if( _noutstanding_orders < 0 ){
-                throw std::logic_error("_noutstanding_orders < 0");
+                throw std::runtime_error("_noutstanding_orders < 0");
             }else if( _noutstanding_orders == 0 ){
                 break;
             }
@@ -1487,7 +1487,6 @@ SOB_CLASS::_itop(plevel plev) const
 }
 
 
-
 SOB_TEMPLATE
 void
 SOB_CLASS::_reset_cached_pointers( plevel old_beg,
@@ -1503,7 +1502,7 @@ SOB_CLASS::_reset_cached_pointers( plevel old_beg,
 
     /* if plevel is below _beg, it's empty and needs to follow new_beg */
     auto reset_low = [=](plevel *ptr){
-        *ptr = (*ptr < old_beg)  ?  &(*(new_beg - 1)) : bytes_add(*ptr, offset);       
+        *ptr = (*ptr < old_beg)  ?  (new_beg - 1) : bytes_add(*ptr, offset);       
     };
     reset_low(&_bid);
     reset_low(&_high_sell_limit);
@@ -1512,7 +1511,7 @@ SOB_CLASS::_reset_cached_pointers( plevel old_beg,
 
     /* if plevel is at _end, it's empty and needs to follow new_end */
     auto reset_high = [=](plevel *ptr){
-        *ptr = (*ptr == old_end)  ?  &(*new_end) : bytes_add(*ptr, offset);         
+        *ptr = (*ptr == old_end)  ?  new_end : bytes_add(*ptr, offset);         
     };
     reset_high(&_ask);
     reset_high(&_low_buy_limit);
@@ -1533,10 +1532,6 @@ SOB_CLASS::_grow_book(TrimmedRational<TickRatio> min, size_t incr, bool at_beg)
     plevel old_end = _end;
     size_t old_sz = _book.size();
     size_t new_sz = old_sz + incr;
-
-    if( new_sz  > max_ticks ){
-        throw std::logic_error("new tick range would exceed MaxMemory");
-    }
 
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */

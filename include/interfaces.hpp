@@ -25,11 +25,11 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 namespace sob{
 
-class QueryInterface{
+class UtilityInterface{
     friend SimpleOrderbook;
 protected:
-    QueryInterface() {}
-    virtual ~QueryInterface() {}
+    UtilityInterface() {}
+    virtual ~UtilityInterface() {}
 
 public:
     virtual double
@@ -38,6 +38,27 @@ public:
     virtual double
     price_to_tick(double price) const = 0;
 
+    virtual long long
+    ticks_in_range(double lower, double upper) const = 0;
+
+    virtual unsigned long long
+    tick_memory_required(double lower, double upper) const = 0;
+
+    virtual unsigned long long
+    tick_memory_required() const = 0;
+
+    virtual bool
+    is_valid_price(double price) const = 0;
+};
+
+class QueryInterface
+        : public UtilityInterface {
+    friend SimpleOrderbook;
+protected:
+    QueryInterface() {}
+    virtual ~QueryInterface() {}
+
+public:
     virtual double
     min_price() const = 0;
 

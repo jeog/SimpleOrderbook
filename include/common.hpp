@@ -35,8 +35,6 @@ namespace sob{
 /* container class forward decl */
 class SimpleOrderbook;
 
-const size_t SOB_MAX_MEMORY = 1024 * 1024 * 128;
-
 typedef unsigned long id_type;
 
 typedef std::ratio<1,4> quarter_tick;
