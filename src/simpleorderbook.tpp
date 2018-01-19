@@ -16,10 +16,11 @@ along with this program. If not, see http://www.gnu.org/licenses.
 */
 
 #include <iterator>
+#include <iomanip>
 #include "../include/simpleorderbook.hpp"
 
-#define SOB_TEMPLATE template<typename TickRatio, size_t MaxMemory>
-#define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio,MaxMemory>
+#define SOB_TEMPLATE template<typename TickRatio>
+#define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio>
 
 namespace sob{
 
@@ -35,29 +36,29 @@ SOB_CLASS::SimpleOrderbookImpl(TrimmedRational<TickRatio> min, size_t incr)
         _base(min),
         /* actual orderbook object */
         _book(incr + 1), /*pad the beg side */
-        /***********************************************************************
+        /***************************************************************
          :: our ersatz iterator approach ::
          
-         i = [ 0, _total_incr ) 
+         i = [ 0, incr ) 
      
-         vector iter    [begin()]                                      [ end() ]
-         internal pntr  [ _base ][ _beg ]                  [ _end - 1 ][ _end  ]
-         internal index [ NULL  ][   i  ][ i+1 ]...   [ _total_incr-1 ][  NULL ]
-         external price [ THROW ][ min  ]                     [  max  ][ THROW ]        
+         vector iter    [begin()]                               [ end() ]
+         internal pntr  [ _base ][ _beg ]           [ _end - 1 ][ _end  ]
+         internal index [ NULL  ][   i  ][ i+1 ]...   [ incr-1 ][  NULL ]
+         external price [ THROW ][ min  ]              [  max  ][ THROW ]        
     
-        ***********************************************************************/
+        *****************************************************************/
         _beg( &(*_book.begin()) + 1 ), 
         _end( &(*_book.end())), 
-        _last( 0 ), // _beg + _lower_incr ), *** CHANGED *** 
-        _bid( &(*(_beg-1)) ),
-        _ask( &(*_end) ),
+        _last( 0 ),  
+        _bid( _beg - 1),
+        _ask( _end ),
         /* cache range vals for faster lookups */
-        _low_buy_limit( &(*_end) ),
-        _high_sell_limit( &(*(_beg-1)) ),
-        _low_buy_stop( &(*_end) ),
-        _high_buy_stop( &(*(_beg-1)) ),
-        _low_sell_stop( &(*_end) ),
-        _high_sell_stop( &(*(_beg-1)) ),
+        _low_buy_limit( _end ),
+        _high_sell_limit( _beg - 1 ),
+        _low_buy_stop( _end ),
+        _high_buy_stop( _beg - 1 ),
+        _low_sell_stop( _end ),
+        _high_sell_stop( _beg - 1 ),
         /* internal trade stats */
         _total_volume(0),
         _last_id(0), 
@@ -160,7 +161,7 @@ public:
     {
         _set_using_cached<ChainTy>::call(sob,ph,pl); 
         *ph = (plevel)min(sob->_ask + depth - 1, *ph);
-        *pl = (plevel)max(sob->_bid - depth +1, *pl);    
+        *pl = (plevel)max(sob->_bid - depth + 1, *pl);    
         _high_low<Side,My>::range_check(sob,ph,pl);
     }
 
@@ -555,7 +556,7 @@ private:
     {
         if( sob->_ask >= sob->_end ){
             sob->_ask_size = 0;          
-            sob->_high_sell_limit = sob->_beg-1;    
+            sob->_high_sell_limit = sob->_beg - 1;    
             return false;
         }
         sob->_ask_size = SOB_CLASS::_chain<SOB_CLASS::limit_chain_type>
@@ -915,7 +916,7 @@ SOB_CLASS::_route_order(order_queue_elem_type& e, id_type& id)
             get<1>(e) 
                 ? _insert_limit_order<true>(get<2>(e), get<4>(e), get<5>(e), id)
                 : _insert_limit_order<false>(get<2>(e), get<4>(e), get<5>(e), id); 
-            _execute_admin_callback(get<7>(e), id);
+            execute_admin_callback(get<7>(e), id);
             _look_for_triggered_stops(false); /* throw */
             break;
        
@@ -923,7 +924,7 @@ SOB_CLASS::_route_order(order_queue_elem_type& e, id_type& id)
             get<1>(e) 
                 ? _insert_market_order<true>(get<4>(e), get<5>(e), id)
                 : _insert_market_order<false>(get<4>(e), get<5>(e), id);  
-            _execute_admin_callback(get<7>(e), id);
+            execute_admin_callback(get<7>(e), id);
             _look_for_triggered_stops(false); /* throw */
             break;
       
@@ -931,7 +932,7 @@ SOB_CLASS::_route_order(order_queue_elem_type& e, id_type& id)
             get<1>(e) 
                 ? _insert_stop_order<true>(get<3>(e), get<4>(e), get<5>(e), id)
                 : _insert_stop_order<false>(get<3>(e), get<4>(e), get<5>(e), id); 
-            _execute_admin_callback(get<7>(e), id);
+            execute_admin_callback(get<7>(e), id);
             break;
          
         case order_type::stop_limit:        
@@ -940,13 +941,13 @@ SOB_CLASS::_route_order(order_queue_elem_type& e, id_type& id)
                                            get<5>(e), id)
                 : _insert_stop_order<false>(get<3>(e), get<2>(e), get<4>(e), 
                                             get<5>(e), id);  
-            _execute_admin_callback(get<7>(e), id);
+            execute_admin_callback(get<7>(e), id);
             break;
          
         case order_type::null: 
             /* not the cleanest but most effective/thread-safe 
                e[1] indicates to check limits first (not buy/sell) */
-            id = (id_type)_pull_order(get<1>(e),id);
+            id = (id_type)_pull_order(id, get<1>(e));
             break;
         
         default: 
@@ -1039,7 +1040,7 @@ SOB_CLASS::_block_on_outstanding_orders()
             std::lock_guard<std::mutex> lock(_order_queue_mtx);
             /* --- CRITICAL SECTION --- */
             if( _noutstanding_orders < 0 ){
-                throw std::logic_error("_noutstanding_orders < 0");
+                throw std::runtime_error("_noutstanding_orders < 0");
             }else if( _noutstanding_orders == 0 ){
                 break;
             }
@@ -1328,6 +1329,20 @@ SOB_CLASS::_get_order_info(id_type id) const
 
 
 SOB_TEMPLATE
+bool
+SOB_CLASS::_pull_order(id_type id, bool limits_first)
+{
+    if( limits_first ){
+        return (_pull_order<limit_chain_type>(id) 
+                || _pull_order<stop_chain_type>(id));
+    }else{
+        return (_pull_order<stop_chain_type>(id) 
+                || _pull_order<limit_chain_type>(id));
+    }
+}
+
+
+SOB_TEMPLATE
 template<typename ChainTy, bool IsLimit>
 bool 
 SOB_CLASS::_pull_order(id_type id)
@@ -1342,7 +1357,7 @@ SOB_CLASS::_pull_order(id_type id)
 
     /* get the callback and, if stop order, its direction... before erasing */
     auto bndl = c->at(id);
-    order_exec_cb_type cb = _get_cb_from_bndl(bndl);
+    order_exec_cb_type cb = callback_from_bndl(bndl);
     bool is_buystop = IsLimit ? false : get<0>(bndl); 
 
     c->erase(id);
@@ -1380,7 +1395,7 @@ SOB_CLASS::_pull_order(id_type id)
 SOB_TEMPLATE
 template<bool BuyNotSell>
 void 
-SOB_CLASS::_dump_limits() const
+SOB_CLASS::_dump_limits(std::ostream& out) const
 { 
     std::lock_guard<std::mutex> lock(_master_mtx); 
     /* --- CRITICAL SECTION --- */
@@ -1388,15 +1403,16 @@ SOB_CLASS::_dump_limits() const
     /* from high to low */
     plevel h = BuyNotSell ? _bid : _high_sell_limit;
     plevel l = BuyNotSell ? _low_buy_limit : _ask;
-    _high_low<>::range_check(this,&h,&l);
+    _high_low<>::range_check(this, &h, &l);
     
+    out << "*** " << (BuyNotSell ? "BUY" : "SELL") << " LIMITS ***" << std::endl;
     for( ; h >= l; --h){    
         if( !h->first.empty() ){
-            std::cout<< _itop(h);
+            out << _itop(h);
             for(const limit_chain_type::value_type& e : h->first){
-                std::cout<< " <" << e.second.first << " #" << e.first << "> ";
+                out << " <" << e.second.first << " #" << e.first << "> ";
             }
-            std::cout<< std::endl;
+            out << std::endl;
         } 
     }
     /* --- CRITICAL SECTION --- */
@@ -1404,7 +1420,7 @@ SOB_CLASS::_dump_limits() const
 
 SOB_TEMPLATE
 template< bool BuyNotSell >
-void SOB_CLASS::_dump_stops() const
+void SOB_CLASS::_dump_stops(std::ostream& out) const
 { 
     std::lock_guard<std::mutex> lock(_master_mtx); 
     /* --- CRITICAL SECTION --- */
@@ -1414,18 +1430,19 @@ void SOB_CLASS::_dump_stops() const
     plevel l = BuyNotSell ? _low_buy_stop : _low_sell_stop;
     _high_low<>::range_check(this,&h,&l);    
     
+    out << "*** " << (BuyNotSell ? "BUY" : "SELL") << " STOPS ***" << std::endl;
     plevel plim;
     for( ; h >= l; --h){ 
         if( !h->second.empty() ){
-            std::cout<< _itop(h);
+            out << _itop(h);
             for(const auto & e : h->second){
                 plim = (plevel)get<1>(e.second);
-                std::cout<< " <" << (get<0>(e.second) ? "B " : "S ")
-                                 << std::to_string( get<2>(e.second) ) << " @ "
-                                 << (plim ? std::to_string(_itop(plim)) : "MKT")
-                                 << " #" << std::to_string(e.first) << "> ";
+                out << " <" << (get<0>(e.second) ? "B " : "S ")
+                            << std::to_string( get<2>(e.second) ) << " @ "
+                            << (plim ? std::to_string(_itop(plim)) : "MKT")
+                            << " #" << std::to_string(e.first) << "> ";
             }
-            std::cout<< std::endl;
+            out << std::endl;
         } 
     }
     /* --- CRITICAL SECTION --- */
@@ -1455,7 +1472,7 @@ SOB_CLASS::_ptoi(TrimmedRational<TickRatio> price) const
     return plev;
 }
 
-
+/* NOTE: before any trades, _last == 0 causes range_error */
 SOB_TEMPLATE 
 TrimmedRational<TickRatio>
 SOB_CLASS::_itop(plevel plev) const
@@ -1467,6 +1484,76 @@ SOB_CLASS::_itop(plevel plev) const
         throw std::range_error( "plevel > _end" );
     }        
     return _base + (plev - _beg);
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_reset_cached_pointers( plevel old_beg,
+                                   plevel new_beg,
+                                   plevel old_end,
+                                   plevel new_end,
+                                   long long offset )
+{   
+    /*** PROTECTED BY _master_mtx ***/          
+    if( _last ){
+        _last = bytes_add(_last, offset);
+    }
+
+    /* if plevel is below _beg, it's empty and needs to follow new_beg */
+    auto reset_low = [=](plevel *ptr){
+        *ptr = (*ptr < old_beg)  ?  (new_beg - 1) : bytes_add(*ptr, offset);       
+    };
+    reset_low(&_bid);
+    reset_low(&_high_sell_limit);
+    reset_low(&_high_buy_stop);
+    reset_low(&_high_sell_stop);
+
+    /* if plevel is at _end, it's empty and needs to follow new_end */
+    auto reset_high = [=](plevel *ptr){
+        *ptr = (*ptr == old_end)  ?  new_end : bytes_add(*ptr, offset);         
+    };
+    reset_high(&_ask);
+    reset_high(&_low_buy_limit);
+    reset_high(&_low_buy_stop);
+    reset_high(&_low_sell_stop);
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_grow_book(TrimmedRational<TickRatio> min, size_t incr, bool at_beg)
+{
+    if( incr == 0 ){
+        return;
+    }
+
+    plevel old_beg = _beg;
+    plevel old_end = _end;
+    size_t old_sz = _book.size();
+    size_t new_sz = old_sz + incr;
+
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+
+    /* after this point no guarantee about cached pointers */
+    _book.insert( at_beg ? _book.begin() : _book.end(),
+                  incr,
+                  chain_pair_type() );
+
+    _base = min;
+    _beg = &(*_book.begin()) + 1;
+    _end = &(*_book.end());
+    assert( 
+        bytes_offset(_end, _beg) ==
+        static_cast<long long>((new_sz - 1) * sizeof(*_beg)) 
+        );  
+
+    long long offset = at_beg ? bytes_offset(_end, old_end)
+                              : bytes_offset(_beg, old_beg);
+  
+    _reset_cached_pointers(old_beg, _beg, old_end, _end, offset);
+    /* --- CRITICAL SECTION --- */
 }
 
 
@@ -1643,22 +1730,79 @@ SOB_CLASS::replace_with_stop_order( id_type id,
 
 SOB_TEMPLATE
 void 
-SOB_CLASS::dump_cached_plevels() const
+SOB_CLASS::grow_book_above(double new_max)
 {
-    auto to_str = [&](plevel p){ return std::to_string(_itop(p)); };
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-    std::cout<< "*** CACHED PLEVELS ***" << std::endl     
-             << "_high_sell_limit: " << to_str(_high_sell_limit) << std::endl
-             << "_high_buy_stop: "<< to_str(_low_buy_stop) << std::endl
-             << "_low_buy_stop: " << to_str(_low_buy_stop) << std::endl
-             << "last: " << to_str(_last) << std::endl
-             << "_high_sell_stop: " << to_str(_high_sell_stop) << std::endl
-             << "_low_sell_stop: " << to_str(_low_sell_stop) << std::endl
-             << "_low_buy_limit: " << to_str(_low_buy_limit) << std::endl;
-    /* --- CRITICAL SECTION --- */
+    auto diff = TrimmedRational<TickRatio>(new_max) - max_price();
+
+    if( diff > std::numeric_limits<long>::max() ){
+        throw std::invalid_argument("new_max too far from old max to grow");
+    }
+    if( diff > 0 ){
+        size_t incr = static_cast<size_t>(diff.as_increments());
+        _grow_book(_base, incr, false);
+    }
 }
 
+
+SOB_TEMPLATE
+void
+SOB_CLASS::grow_book_below(double new_min) 
+{
+    if( _base == 1 ){ // can't go any lower
+        return;
+    }
+
+    TrimmedRational<TickRatio> new_base(new_min);
+    if( new_base < 1 ){
+        new_base = TrimmedRational<TickRatio>(static_cast<long>(1));
+    }
+
+    auto diff = _base - new_base;
+    if( diff > std::numeric_limits<long>::max() ){
+        throw std::invalid_argument("new_min too far from old min to grow");
+    }
+    if( diff > 0 ){
+        size_t incr = static_cast<size_t>(diff.as_increments());
+        _grow_book(new_base, incr, true);
+    }
+}
+
+
+SOB_TEMPLATE
+void 
+SOB_CLASS::dump_cached_plevels(std::ostream& out) const
+{    
+    auto println = [&](std::string n, plevel p){
+        std::string price;
+        try{
+            price = std::to_string(_itop(p));
+        }catch(std::range_error&){  
+            price = "N/A";
+        }        
+        out<< std::setw(18) << n << " : " 
+           << std::setw(14) << price << " : "
+           << std::hex << p << std::dec << std::endl;
+    };   
+
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+    std::ios sstate(nullptr);
+    sstate.copyfmt(out);
+    out<< "*** CACHED PLEVELS ***" << std::left << std::endl;
+    println("_end", _end);
+    println("_high_sell_limit", _high_sell_limit);
+    println("_high_buy_stop", _high_buy_stop);
+    println("_low_buy_stop", _low_buy_stop);
+    println("_ask", _ask);
+    println("_last", _last);
+    println("_bid", _bid);
+    println("_high_sell_stop", _high_sell_stop);
+    println("_low_sell_stop", _low_sell_stop);
+    println("_low_buy_limit", _low_buy_limit);
+    println("_beg", _beg);
+    out.copyfmt(sstate);
+    /* --- CRITICAL SECTION --- */
+}
 
 };
 

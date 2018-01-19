@@ -25,16 +25,40 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 namespace sob{
 
-class QueryInterface{
+class UtilityInterface{
+    friend SimpleOrderbook;
+protected:
+    UtilityInterface() {}
+    virtual ~UtilityInterface() {}
+
+public:
+    virtual double
+    tick_size() const = 0;
+
+    virtual double
+    price_to_tick(double price) const = 0;
+
+    virtual long long
+    ticks_in_range(double lower, double upper) const = 0;
+
+    virtual unsigned long long
+    tick_memory_required(double lower, double upper) const = 0;
+
+    virtual unsigned long long
+    tick_memory_required() const = 0;
+
+    virtual bool
+    is_valid_price(double price) const = 0;
+};
+
+class QueryInterface
+        : public UtilityInterface {
     friend SimpleOrderbook;
 protected:
     QueryInterface() {}
     virtual ~QueryInterface() {}
 
 public:
-    virtual double
-    tick_size() const = 0;
-
     virtual double
     min_price() const = 0;
 
@@ -174,17 +198,35 @@ public:
                             order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual void 
-    dump_buy_limits() const = 0;
+    dump_buy_limits(std::ostream& out = std::cout) const = 0;
 
     virtual void 
-    dump_sell_limits() const = 0;
+    dump_sell_limits(std::ostream& out = std::cout) const = 0;
 
     virtual void 
-    dump_buy_stops() const = 0; 
+    dump_buy_stops(std::ostream& out = std::cout) const = 0;
 
     virtual void 
-    dump_sell_stops() const = 0;
+    dump_sell_stops(std::ostream& out = std::cout) const = 0;
 
+};
+
+class ManagementInterface
+        : public FullInterface{
+    friend SimpleOrderbook;
+protected:
+    ManagementInterface() {}
+    virtual ~ManagementInterface() {}
+
+public:
+    virtual void
+    dump_cached_plevels(std::ostream& out = std::cout) const = 0;
+
+    virtual void
+    grow_book_above(double new_max) = 0;
+
+    virtual void
+    grow_book_below(double new_min) = 0;
 };
 
 }; /* sob */

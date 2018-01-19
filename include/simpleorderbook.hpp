@@ -38,6 +38,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <fstream>
 #include <tuple>
 #include <unordered_map>
+#include <cstddef>
 
 #include "interfaces.hpp"
 #include "resource_manager.hpp"
@@ -46,19 +47,18 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #ifdef DEBUG
 #define SOB_RESOURCE_MANAGER ResourceManager_Debug
 #else
+#define NDEBUG
 #define SOB_RESOURCE_MANAGER ResourceManager
 #endif
+
+#include <assert.h>
 
 namespace sob {
 /*
  *   SimpleOrderbook::SimpleOrderbookImpl<std::ratio,size_t> is a class template
  *   that serves as the core implementation.
  *
- *   The ratio-type first parameter defines the tick size; the second parameter 
- *   provides a memory limit. Upon construction, if the memory required to build
- *   the internal 'chains' of the book exceeds this memory limit it throws 
- *   std::logic_error. (NOTE: MaxMemory is not the maximum total memory the
- *   book can use, as number and types of orders are run-time dependent)
+ *   The ratio-type first parameter defines the tick size.
  *
  *   SimpleOrderbook::BuildFactoryProxy<std::ratio, size_t, CTy>()
  *   returns a struct containing methods for managing SimpleOrderbookImpl
@@ -69,13 +69,31 @@ namespace sob {
  *   FactoryProxy.create :  allocate and return an orderbook as FullInterface*
  *   FactoryProxy.destroy : deallocate said object
  *
- *   interfaces.hpp contains a hierarchy of interfaces for accessing the book:
  *
- *   sob::QueryInterface : the const calls for state info
+ *   INTERFACES (interfaces.hpp):
+ *
+ *   sob::UtilityInterface : provide tick, price, and memory info for that type
+ *                          of orderbook
+ *
  *            - base of -
+ *
+ *   sob::QueryInterface : query the state of the orderbook
+ *
+ *            - base of -
+ *
  *   sob::LimitInterface : insert/remove limit orders, pull orders
+ *
  *            - base of -
- *   sob::FullInterface : insert/remove all orders, dump orders
+ *
+ *   sob::FullInterface : insert/remove market and stop orders, dump orders
+ *
+ *            - base of -
+ *
+ *   sob::ManagementInterface : advanced control and diagnostic features
+ *                              (grow orderbook, dump internal pointers)
+ *
+ *
+ *   INSERT ORDERS (LimitInterface & FullInterface):
  *
  *   The insert calls are relatively self explanatory except for the two callbacks:
  *
@@ -99,40 +117,6 @@ namespace sob {
  *   The replace calls are basically a pull_order(...) followed by the 
  *   respective insert call, if pull_order is successful. On success the order 
  *   id will be returned, 0 on failure.
- *
- *   Some of the state calls(via SimpleOrderbook::QueryInterface):
- *
- *       bid_price / ask_price: current 'inside' bid / ask price
- *
- *       bid_size / ask_size: current 'inside' bid / ask size
- *
- *       last_price: price of the last trade
- *
- *       volume: total volume traded
- *   
- *       last_id: last order id to be assigned
- *
- *       bid_depth: cumulative size of the (limit) orderbook between inside bid 
- *                  and 'depth' price/tick levels away from the inside bid
- *
- *       ask_depth: (same as bid_depth but on ask side)
- *
- *       market_depth: like a call to bid_depth AND ask_depth
- *
- *       total_bid_size: cumulative size of all bid limits
- *
- *       total_ask_size: (same as total_bid_size but on ask side)
- *
- *       total_size: total_bid_size + total_ask_size *
- *
- *       time_and_sales: a custom vector defined in QuertyInterface that returns
- *                       a pre-defined number of the most recent trades
- *
- *       get_order_info: return a tuple of order type, side, price(s) and size for
- *                       an outstanding order
- *
- *   The dump calls(via SimpleOrderbook::FullInterface) will dump ALL the
- *   orders - of the type named in the call - in a readable form to stdout.
  *
  *   (See simpleorderbook.tpp/simpleorderbook.cpp for implementation details)
  */
@@ -162,33 +146,48 @@ public:
         typedef bool(*is_managed_func_type)(FullInterface *);
         typedef std::vector<FullInterface *>(*get_all_func_type)();
         typedef void(*destroy_all_func_type)();
+        typedef double(*tick_size_func_type)();
+        typedef double(*price_to_tick_func_type)(double);
+        typedef long long(*ticks_in_range_func_type)(double, double);
+        typedef unsigned long long(*tick_memory_required_func_type)(double, double);
         const create_func_type create;
         const destroy_func_type destroy;
         const is_managed_func_type is_managed;
         const get_all_func_type get_all;
         const destroy_all_func_type destroy_all;
+        const tick_size_func_type tick_size;
+        const price_to_tick_func_type price_to_tick;
+        const ticks_in_range_func_type ticks_in_range;
+        const tick_memory_required_func_type tick_memory_required;
         explicit constexpr FactoryProxy( create_func_type create,
                                          destroy_func_type destroy,
                                          is_managed_func_type is_managed,
                                          get_all_func_type get_all,
-                                         destroy_all_func_type destroy_all)
+                                         destroy_all_func_type destroy_all,
+                                         tick_size_func_type tick_size,
+                                         price_to_tick_func_type price_to_tick,
+                                         ticks_in_range_func_type ticks_in_range,
+                                         tick_memory_required_func_type
+                                             tick_memory_required )
             :
                 create(create),
                 destroy(destroy),
                 is_managed(is_managed),
                 get_all(get_all),
-                destroy_all(destroy_all)
+                destroy_all(destroy_all),
+                tick_size(tick_size),
+                price_to_tick(price_to_tick),
+                ticks_in_range(ticks_in_range),
+                tick_memory_required(tick_memory_required)
             {
             }
     };
 
-    template< typename TickRatio=hundredth_tick,
-              size_t MaxMemory=SOB_MAX_MEMORY,
-              typename CreatorTy=def_create_func_type >
+    template<typename TickRatio, typename CreatorTy=def_create_func_type>
     static constexpr FactoryProxy<CreatorTy>
     BuildFactoryProxy()
     {
-         typedef SimpleOrderbookImpl<TickRatio, MaxMemory> ImplTy;
+         typedef SimpleOrderbookImpl<TickRatio> ImplTy;
          static_assert( std::is_base_of<FullInterface, ImplTy>::value,
                         "FullInterface not base of SimpleOrderbookImpl");
          return FactoryProxy<CreatorTy>(
@@ -196,7 +195,11 @@ public:
                  ImplTy::destroy,
                  ImplTy::is_managed,
                  ImplTy::get_all,
-                 ImplTy::destroy_all
+                 ImplTy::destroy_all,
+                 ImplTy::tick_size_,
+                 ImplTy::price_to_tick_,
+                 ImplTy::ticks_in_range_,
+                 ImplTy::tick_memory_required_
                  );
     }
 
@@ -221,9 +224,9 @@ public:
     { return master_rmanager.is_managed(interface); }
 
 private:
-    template<typename TickRatio, size_t MaxMemory>
+    template<typename TickRatio>
     class SimpleOrderbookImpl
-            : public FullInterface{
+            : public ManagementInterface{
     protected:
         SimpleOrderbookImpl( TrimmedRational<TickRatio> min, size_t incr );
         ~SimpleOrderbookImpl();
@@ -433,24 +436,8 @@ private:
         _pull_order(id_type id);
 
         /* optimize by checking limit or stop chains first */
-        inline bool
-        _pull_order(bool limits_first, id_type id)
-        {
-            return limits_first
-                ? (_pull_order<limit_chain_type>(id)
-                        || _pull_order<stop_chain_type>(id))
-                : (_pull_order<stop_chain_type>(id)
-                        || _pull_order<limit_chain_type>(id));
-        }
-
-        /* helper for getting exec callback (what about admin_cb specialization?) */
-        inline order_exec_cb_type
-        _get_cb_from_bndl(limit_bndl_type& b)
-        { return b.second; }
-
-        inline order_exec_cb_type
-        _get_cb_from_bndl(stop_bndl_type& b)
-        { return std::get<3>(b); }
+        bool
+        _pull_order(id_type id, bool limits_first);
 
         /* called from _pull order to update cached pointers */
         template<bool BuyStop>
@@ -460,23 +447,31 @@ private:
         void
         _adjust_limit_cache_vals(plevel plev);
 
-        /* dump (to stdout) a particular chain array */
-        template<bool BuyNotSell>
+        /* called from grow book to reset invalidated pointers */
         void
-        _dump_limits() const;
+        _reset_cached_pointers(plevel old_beg,
+                               plevel new_beg,
+                               plevel old_end,
+                               plevel new_end,
+                               long long addr_offset);
 
-        /* dump (to stdout) a particular chain array */
+        /* called by ManagementInterface to increase book size */
+        void
+        _grow_book(TrimmedRational<TickRatio> min, size_t incr, bool at_beg);
+
+        /* dump a particular chain array to ostream*/
         template<bool BuyNotSell>
         void
-        _dump_stops() const;
+        _dump_limits(std::ostream& out) const;
+
+        /* dump a particular chain array ostream*/
+        template<bool BuyNotSell>
+        void
+        _dump_stops(std::ostream& out) const;
 
         /* handle post-trade tasks */
         void
         _clear_callback_queue();
-
-        inline void
-        _execute_admin_callback(order_admin_cb_type& cb, id_type id)
-        { if( cb ) cb(id); }
 
         void
         _look_for_triggered_stops(bool nothrow);
@@ -538,6 +533,32 @@ private:
                            order_exec_cb_type exec_cb,
                            id_type id);
 
+        /* helper for getting exec callback */
+        static inline order_exec_cb_type
+        callback_from_bndl(limit_bndl_type& b)
+        { return b.second; }
+
+        static inline order_exec_cb_type
+        callback_from_bndl(stop_bndl_type& b)
+        { return std::get<3>(b); }
+
+        static inline void
+        execute_admin_callback(order_admin_cb_type& cb, id_type id)
+        { if( cb ) cb(id); }
+
+        template<typename T>
+        static inline long long
+        bytes_offset(T *l, T *r)
+        {
+            return (reinterpret_cast<unsigned long long>(l) -
+                    reinterpret_cast<unsigned long long>(r));
+        }
+
+        template<typename T>
+        static inline T*
+        bytes_add(T *ptr, long long offset)
+        { return reinterpret_cast<T*>(reinterpret_cast<char*>(ptr) + offset); }
+
     public:
         order_info_type
         get_order_info(id_type id, bool search_limits_first=true) const;
@@ -546,20 +567,20 @@ private:
         insert_limit_order(bool buy,
                            double limit,
                            size_t size,
-                           order_exec_cb_type exec_cb,
+                           order_exec_cb_type exec_cb = nullptr,
                            order_admin_cb_type admin_cb = nullptr);
 
         id_type
         insert_market_order(bool buy,
                             size_t size,
-                            order_exec_cb_type exec_cb,
+                            order_exec_cb_type exec_cb = nullptr,
                             order_admin_cb_type admin_cb = nullptr);
 
         id_type
         insert_stop_order(bool buy,
                           double stop,
                           size_t size,
-                          order_exec_cb_type exec_cb,
+                          order_exec_cb_type exec_cb = nullptr,
                           order_admin_cb_type admin_cb = nullptr);
 
         id_type
@@ -567,7 +588,7 @@ private:
                           double stop,
                           double limit,
                           size_t size,
-                          order_exec_cb_type exec_cb,
+                          order_exec_cb_type exec_cb = nullptr,
                           order_admin_cb_type admin_cb = nullptr);
 
         bool
@@ -580,14 +601,14 @@ private:
                                  bool buy,
                                  double limit,
                                  size_t size,
-                                 order_exec_cb_type exec_cb,
+                                 order_exec_cb_type exec_cb = nullptr,
                                  order_admin_cb_type admin_cb = nullptr);
 
         id_type
         replace_with_market_order(id_type id,
                                   bool buy,
                                   size_t size,
-                                  order_exec_cb_type exec_cb,
+                                  order_exec_cb_type exec_cb = nullptr,
                                   order_admin_cb_type admin_cb = nullptr);
 
         id_type
@@ -595,7 +616,7 @@ private:
                                 bool buy,
                                 double stop,
                                 size_t size,
-                                order_exec_cb_type exec_cb,
+                                order_exec_cb_type exec_cb = nullptr,
                                 order_admin_cb_type admin_cb = nullptr);
 
         id_type
@@ -604,27 +625,33 @@ private:
                                 double stop,
                                 double limit,
                                 size_t size,
-                                order_exec_cb_type exec_cb,
+                                order_exec_cb_type exec_cb = nullptr,
                                 order_admin_cb_type admin_cb = nullptr);
 
-        inline void
-        dump_buy_limits() const
-        { _dump_limits<true>(); }
-
-        inline void
-        dump_sell_limits() const
-        { _dump_limits<false>(); }
-
-        inline void
-        dump_buy_stops() const
-        { _dump_stops<true>(); }
-
-        inline void
-        dump_sell_stops() const
-        { _dump_stops<false>(); }
+        void
+        grow_book_above(double new_max);
 
         void
-        dump_cached_plevels() const;
+        grow_book_below(double new_min);
+
+        void
+        dump_cached_plevels(std::ostream& out = std::cout) const;
+
+        inline void
+        dump_buy_limits(std::ostream& out = std::cout) const
+        { _dump_limits<true>(out); }
+
+        inline void
+        dump_sell_limits(std::ostream& out = std::cout) const
+        { _dump_limits<false>(out); }
+
+        inline void
+        dump_buy_stops(std::ostream& out = std::cout) const
+        { _dump_stops<true>(out); }
+
+        inline void
+        dump_sell_stops(std::ostream& out = std::cout) const
+        { _dump_stops<false>(out); }
 
         inline std::map<double, size_t>
         bid_depth(size_t depth=8) const
@@ -639,20 +666,16 @@ private:
         { return _market_depth<side_of_market::both>(depth); }
 
         inline double
-        tick_size() const
-        { return TrimmedRational<TickRatio>::increment_size; }
-
-        inline double
         bid_price() const
-        { return _itop(_bid); }
+        { return (_bid >= _beg) ? _itop(_bid) : 0.0; }
 
         inline double
         ask_price() const
-        { return _itop(_ask); }
+        { return (_ask < _end) ? _itop(_ask) : 0.0; }
 
         inline double
         last_price() const
-        { return _itop(_last); }
+        { return (_last >= _beg && _last < _end) ? _itop(_last) : 0.0; }
 
         inline double
         min_price() const
@@ -698,7 +721,33 @@ private:
         time_and_sales() const
         { return _timesales; }
 
-        static constexpr size_t max_ticks = MaxMemory / sizeof(chain_pair_type);
+        inline double
+        tick_size() const
+        { return tick_size_(); }
+
+        inline double
+        price_to_tick(double price) const
+        { return price_to_tick_(price); }
+
+        inline long long
+        ticks_in_range(double lower, double upper) const
+        { return ticks_in_range_(lower, upper); }
+
+        inline unsigned long long
+        tick_memory_required(double lower, double upper) const
+        { return tick_memory_required_(lower, upper); }
+
+        inline unsigned long long
+        tick_memory_required() const
+        { return tick_memory_required_(min_price(), max_price()); }
+
+        bool
+        is_valid_price(double price) const
+        {
+            try{ _ptoi( TrimmedRational<TickRatio>(price) ); }
+            catch(std::range_error&){ return false; }
+            return true;
+        }
 
         static inline FullInterface*
         create(double min, double max)
@@ -714,7 +763,7 @@ private:
             if( min < 0 || min > max ){
                 throw std::invalid_argument("!(0 <= min <= max)");
             }
-            if( min.as_increments() == 0 ){
+            if( min == 0 ){
                ++min; /* note: we adjust w/o client knowing */
             }
 
@@ -722,9 +771,6 @@ private:
             size_t incr = static_cast<size_t>((max - min).as_increments()) + 1;
             if( incr < 3 ){
                 throw std::invalid_argument("need at least 3 increments");
-            }
-            if( incr  > max_ticks ){
-                throw std::logic_error("tick range would exceed MaxMemory");
             }
 
             FullInterface *tmp = new SimpleOrderbookImpl(min, incr);
@@ -757,6 +803,29 @@ private:
         is_managed(FullInterface *interface)
         { return rmanager.is_managed(interface); }
 
+        static constexpr double
+        tick_size_()
+        { return TrimmedRational<TickRatio>::increment_size; }
+
+        static double
+        price_to_tick_(double price)
+        { return TrimmedRational<TickRatio>(price); }
+
+        static long long
+        ticks_in_range_(double lower, double upper)
+        {
+            auto tr = TrimmedRational<TickRatio>(upper)
+                    - TrimmedRational<TickRatio>(lower);
+            return tr.as_increments();
+        }
+
+        static unsigned long long
+        tick_memory_required_(double lower, double upper)
+        {
+            return static_cast<unsigned long long>(ticks_in_range_(lower, upper))
+                    * sizeof(chain_pair_type);
+        }
+
         static_assert(!std::ratio_less<TickRatio,std::ratio<1,10000>>::value,
                       "Increment Ratio < ratio<1,10000> " );
 
@@ -781,9 +850,9 @@ private:
 
 typedef SimpleOrderbook::FactoryProxy<> DefaultFactoryProxy;
 
-template<typename TickRatio, size_t MaxMemory>
+template<typename TickRatio>
 SOB_RESOURCE_MANAGER<FullInterface, SimpleOrderbook::ImplDeleter>
-SimpleOrderbook::SimpleOrderbookImpl<TickRatio, MaxMemory>::rmanager(
+SimpleOrderbook::SimpleOrderbookImpl<TickRatio>::rmanager(
         typeid(TickRatio).name()
         );
 
