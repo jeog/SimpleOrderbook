@@ -223,7 +223,7 @@ protected:
 
 public:
     virtual void
-    dump_cached_plevels(std::ostream& out = std::cout) const = 0;
+    dump_internal_pointers(std::ostream& out = std::cout) const = 0;
 
     virtual void
     grow_book_above(double new_max) = 0;

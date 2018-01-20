@@ -65,11 +65,10 @@ namespace sob {
  *
  *   The ratio-type first parameter defines the tick size.
  *
- *   SimpleOrderbook::BuildFactoryProxy<std::ratio, size_t, CTy>()
- *   returns a struct containing methods for managing SimpleOrderbookImpl
- *   instances. The ratio type and size_t template parameters instantiate the
- *   type of SimpleOrderbookImpl object; CTy is the type of static function
- *   used to create SimpleOrderbookImpl objects.
+ *   SimpleOrderbook::BuildFactoryProxy<std::ratio, CTy>() returns a struct
+ *   containing methods for managing SimpleOrderbookImpl instances. The ratio
+ *   type parameter instantiates the SimpleOrderbookImpl type; CTy is the type
+ *   of static function used to create SimpleOrderbookImpl objects.
  *
  *   FactoryProxy.create :  allocate and return an orderbook as FullInterface*
  *   FactoryProxy.destroy : deallocate said object
@@ -141,10 +140,8 @@ public:
             : public create_func_varargs<TArg, TArg>{
     };
 
-    typedef create_func_2args<double>::type def_create_func_type;
-
     /* NOTE - we explicity prohibit default construction */
-    template< typename CTy=def_create_func_type>
+    template< typename CTy=create_func_2args<double>::type>
     struct FactoryProxy{
         typedef CTy create_func_type;
         typedef void(*destroy_func_type)(FullInterface *);
@@ -188,14 +185,14 @@ public:
             }
     };
 
-    template<typename TickRatio, typename CreatorTy=def_create_func_type>
-    static constexpr FactoryProxy<CreatorTy>
+    template<typename TickRatio, typename CTy=create_func_2args<double>::type>
+    static constexpr FactoryProxy<CTy>
     BuildFactoryProxy()
     {
          typedef SimpleOrderbookImpl<TickRatio> ImplTy;
          static_assert( std::is_base_of<FullInterface, ImplTy>::value,
                         "FullInterface not base of SimpleOrderbookImpl");
-         return FactoryProxy<CreatorTy>(
+         return FactoryProxy<CTy>(
                  ImplTy::create,
                  ImplTy::destroy,
                  ImplTy::is_managed,
@@ -245,41 +242,57 @@ private:
         /* manage instances created by factory proxy */
         static SOB_RESOURCE_MANAGER<FullInterface, ImplDeleter> rmanager;
 
-        /* how callback info is stored in the deferred callback queue */
-        typedef std::tuple<callback_msg, order_exec_cb_type,
-                           id_type, double,size_t>  dfrd_cb_elem_type;
+        /* represents a limit order internally */
+        typedef struct{
+            size_t sz;
+            order_exec_cb_type exec_cb;
+        } limit_bndl;
 
-        /* limit bundle type holds the size and callback of each limit order
-         * limit 'chain' type holds all limit orders at a price */
-        typedef std::pair<size_t, order_exec_cb_type> limit_bndl_type;
-        typedef std::map<id_type, limit_bndl_type> limit_chain_type;
+        /* represents a stop order internally */
+        typedef struct { // don't inherit
+            bool is_buy;
+            double limit;
+            size_t sz;
+            order_exec_cb_type exec_cb;
+        } stop_bndl;
 
-        /* stop bundle type holds the size and callback of each stop order
-         * stop 'chain' type holds all stop orders at a price(limit or market) */
-        typedef std::tuple<bool,void*,size_t,order_exec_cb_type> stop_bndl_type;
-        typedef std::map<id_type, stop_bndl_type> stop_chain_type;
+        /* info held for each exec callback in the deferred callback vector*/
+        typedef struct{
+            callback_msg msg;
+            order_exec_cb_type exec_cb;
+            id_type id;
+            double price;
+            size_t sz;
+        } dfrd_cb_elem;
 
-        /* chain pair is the limit and stop chain at a particular price
+        /* info held for each order in the execution queue */
+        typedef struct{
+            order_type type;
+            bool is_buy;
+            double limit;
+            double stop;
+            size_t sz;
+            order_exec_cb_type exec_cb;
+            id_type id;
+            order_admin_cb_type admin_cb;
+            std::promise<id_type> promise;
+        } order_queue_elem;
+
+        /* holds all limit orders at a price */
+        typedef std::map<id_type, limit_bndl> limit_chain_type;
+
+        /* holds all stop orders at a price (limit or market) */
+        typedef std::map<id_type, stop_bndl> stop_chain_type;
+
+        /*
+         * a chain pair is the limit and stop chain at a particular price
          * use a (less safe) pointer for plevel because iterator
-         * is implemented as a class and creates a number of problems internally */
+         * is implemented as a class and creates a number of problems internally
+         */
         typedef std::pair<limit_chain_type,stop_chain_type> chain_pair_type;
         typedef std::pair<limit_chain_type,stop_chain_type> *plevel;
 
-        /* a vector of all chain pairs (how we reprsent the 'book' internally) */
-        typedef std::vector<chain_pair_type> order_book_type;
-
-        /* type, buy/sell, limit, stop, size, exec cb, id, admin cb, promise */
-        typedef std::tuple<order_type,
-                           bool,
-                           plevel,
-                           plevel,
-                           size_t,
-                           order_exec_cb_type,
-                           id_type,
-                           order_admin_cb_type,
-                           std::promise<id_type>>  order_queue_elem_type;
-
-        /* state fields */
+        /* (current) state fields */
         size_t _bid_size;
         size_t _ask_size;
         size_t _last_size;
@@ -287,7 +300,7 @@ private:
         TrimmedRational<TickRatio> _base;
 
         /* THE ORDER BOOK */
-        order_book_type _book;
+        std::vector<chain_pair_type> _book;
 
         /* cached internal pointers(iterators) of the orderbook */
         plevel _beg;
@@ -309,13 +322,13 @@ private:
         std::vector<timesale_entry_type> _timesales;
 
         /* store deferred callbacks info until we are clear to execute */
-        std::deque<dfrd_cb_elem_type> _deferred_callback_queue;
+        std::vector<dfrd_cb_elem> _deferred_callbacks;
 
         /* to prevent recursion within _clear_callback_queue */
         std::atomic_bool _busy_with_callbacks;
 
         /* async order queue and sync objects */
-        std::queue<order_queue_elem_type> _order_queue;
+        std::queue<order_queue_elem> _order_queue;
         mutable std::mutex _order_queue_mtx;
         std::condition_variable _order_queue_cond;
         long long _noutstanding_orders;
@@ -331,10 +344,10 @@ private:
         std::thread _order_dispatcher_thread;
 
         void
-        _assert_plevel(plevel p);
+        _assert_plevel(plevel p) const;
 
         void
-        _assert_internal_pointers();
+        _assert_internal_pointers() const;
 
         void
         _block_on_outstanding_orders();
@@ -344,7 +357,7 @@ private:
         _threaded_order_dispatcher();
 
         void
-        _route_order(order_queue_elem_type& e, id_type& id);
+        _route_order(order_queue_elem& e, id_type& id);
 
         /*
          * structs below are used to get around member specialization restrictions
@@ -385,8 +398,8 @@ private:
         id_type
         _push_order_and_wait(order_type oty,
                              bool buy,
-                             plevel limit,
-                             plevel stop,
+                             double limit, // TrimmedRationals ??
+                             double stop, // TrimmedRationals ??
                              size_t size,
                              order_exec_cb_type cb,
                              order_admin_cb_type admin_cb= nullptr,
@@ -396,8 +409,8 @@ private:
         void
         _push_order_no_wait(order_type oty,
                             bool buy,
-                            plevel limit,
-                            plevel stop,
+                            double limit,
+                            double stop,
                             size_t size,
                             order_exec_cb_type cb,
                             order_admin_cb_type admin_cb = nullptr,
@@ -412,8 +425,12 @@ private:
         plevel
         _ptoi(TrimmedRational<TickRatio> price) const;
 
+        inline plevel
+        _ptoi(double price) const
+        { return _ptoi( TrimmedRational<TickRatio>(price)); }
+
         TrimmedRational<TickRatio>
-        _itop(plevel plev) const;
+        _itop(plevel p) const;
 
         /* calculate chain_size of orders at each price level
          * use depth increments on each side of last  */
@@ -522,19 +539,10 @@ private:
         template<bool BuyStop>
         void
         _insert_stop_order(plevel stop,
-                           plevel limit,
+                           double limit,
                            size_t size,
                            order_exec_cb_type exec_cb,
                            id_type id);
-
-        /* helper for getting exec callback */
-        static inline order_exec_cb_type
-        callback_from_bndl(limit_bndl_type& b)
-        { return b.second; }
-
-        static inline order_exec_cb_type
-        callback_from_bndl(stop_bndl_type& b)
-        { return std::get<3>(b); }
 
         static inline void
         execute_admin_callback(order_admin_cb_type& cb, id_type id)
@@ -552,6 +560,14 @@ private:
         static inline T*
         bytes_add(T *ptr, long long offset)
         { return reinterpret_cast<T*>(reinterpret_cast<char*>(ptr) + offset); }
+
+        static inline bool
+        _is_buystop(limit_bndl bndl)
+        { return false; }
+
+        static inline bool
+        _is_buystop(stop_bndl bndl)
+        { return bndl.is_buy; }
 
     public:
         order_info_type
@@ -629,7 +645,7 @@ private:
         grow_book_below(double new_min);
 
         void
-        dump_cached_plevels(std::ostream& out = std::cout) const;
+        dump_internal_pointers(std::ostream& out = std::cout) const;
 
         inline void
         dump_buy_limits(std::ostream& out = std::cout) const
@@ -742,9 +758,8 @@ private:
         bool
         is_valid_price(double price) const
         {
-            try{ _ptoi( TrimmedRational<TickRatio>(price) ); }
-            catch(std::range_error&){ return false; }
-            return true;
+            plevel p = _ptoi( TrimmedRational<TickRatio>(price) );
+            return (p >= _beg && p < _end);
         }
 
         static inline FullInterface*
