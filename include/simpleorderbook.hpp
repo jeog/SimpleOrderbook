@@ -45,13 +45,18 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include "trimmed_rational.hpp"
 
 #ifdef DEBUG
-#define SOB_RESOURCE_MANAGER ResourceManager_Debug
+#undef NDEBUG
 #else
 #define NDEBUG
-#define SOB_RESOURCE_MANAGER ResourceManager
 #endif
 
 #include <assert.h>
+
+#ifdef NDEBUG
+#define SOB_RESOURCE_MANAGER ResourceManager
+#else
+#define SOB_RESOURCE_MANAGER ResourceManager_Debug
+#endif
 
 namespace sob {
 /*
@@ -326,6 +331,12 @@ private:
         std::thread _order_dispatcher_thread;
 
         void
+        _assert_plevel(plevel p);
+
+        void
+        _assert_internal_pointers();
+
+        void
         _block_on_outstanding_orders();
 
         /* handles the async/consumer side of the order queue */
@@ -369,15 +380,6 @@ private:
         /* stop order execution helpers */
         template<bool BuyStop, bool Redirect = BuyStop>
         struct _stop_exec;
-
-        template<typename ChainTy>
-        static inline
-        void _assert_valid_chain(){
-            static_assert(
-                std::is_same<ChainTy, limit_chain_type>::value ||
-                std::is_same<ChainTy, stop_chain_type>::value,
-                "invalid chain type");
-        };
 
         /* push order onto the order queue and block until execution */
         id_type
@@ -439,21 +441,13 @@ private:
         bool
         _pull_order(id_type id, bool limits_first);
 
-        /* called from _pull order to update cached pointers */
-        template<bool BuyStop>
-        void
-        _adjust_stop_cache_vals(plevel plev, stop_chain_type* c);
-
-        void
-        _adjust_limit_cache_vals(plevel plev);
-
         /* called from grow book to reset invalidated pointers */
         void
-        _reset_cached_pointers(plevel old_beg,
-                               plevel new_beg,
-                               plevel old_end,
-                               plevel new_end,
-                               long long addr_offset);
+        _reset_internal_pointers(plevel old_beg,
+                                 plevel new_beg,
+                                 plevel old_end,
+                                 plevel new_end,
+                                 long long addr_offset);
 
         /* called by ManagementInterface to increase book size */
         void
@@ -733,6 +727,10 @@ private:
         ticks_in_range(double lower, double upper) const
         { return ticks_in_range_(lower, upper); }
 
+        inline long long
+        ticks_in_range() const
+        { return ticks_in_range_(min_price(), max_price()); }
+
         inline unsigned long long
         tick_memory_required(double lower, double upper) const
         { return tick_memory_required_(lower, upper); }
@@ -804,22 +802,21 @@ private:
         { return rmanager.is_managed(interface); }
 
         static constexpr double
-        tick_size_()
+        tick_size_() noexcept
         { return TrimmedRational<TickRatio>::increment_size; }
 
-        static double
+        static constexpr double
         price_to_tick_(double price)
         { return TrimmedRational<TickRatio>(price); }
 
-        static long long
+        static constexpr long long
         ticks_in_range_(double lower, double upper)
         {
-            auto tr = TrimmedRational<TickRatio>(upper)
-                    - TrimmedRational<TickRatio>(lower);
-            return tr.as_increments();
+            return ( TrimmedRational<TickRatio>(upper)
+                     - TrimmedRational<TickRatio>(lower) ).as_increments();
         }
 
-        static unsigned long long
+        static constexpr unsigned long long
         tick_memory_required_(double lower, double upper)
         {
             return static_cast<unsigned long long>(ticks_in_range_(lower, upper))
@@ -845,6 +842,16 @@ private:
         void
         operator()(FullInterface * i) const;
     };
+
+    template<typename T>
+    static bool
+    equal(T l, T r)
+    { return l == r; }
+
+    template<typename T, typename... TArgs>
+    static bool
+    equal(T a, T b, TArgs... c)
+    { return equal(a,b) && equal(a, c...); }
 
 }; /* SimpleOrderbook */
 

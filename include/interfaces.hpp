@@ -41,6 +41,9 @@ public:
     virtual long long
     ticks_in_range(double lower, double upper) const = 0;
 
+    virtual long long
+    ticks_in_range() const = 0;
+
     virtual unsigned long long
     tick_memory_required(double lower, double upper) const = 0;
 

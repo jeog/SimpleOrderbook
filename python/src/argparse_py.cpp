@@ -30,6 +30,9 @@ char MethodArgs::low[] = "low";
 char MethodArgs::high[] = "high";
 char MethodArgs::new_max[] = "new_max";
 char MethodArgs::new_min[] = "new_min";
+char MethodArgs::price[] = "price";
+char MethodArgs::lower[] = "lower";
+char MethodArgs::upper[] = "upper";
 
 const std::map<sob::order_type, std::array<char*,6>>
 OrderMethodArgsBase::keywords = {

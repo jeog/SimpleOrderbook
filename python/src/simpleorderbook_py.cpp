@@ -476,6 +476,104 @@ SOB_grow_book(pySOB *self, PyObject *args, PyObject *kwds)
     Py_RETURN_NONE;
 }
 
+PyObject*
+SOB_is_valid_price(pySOB *self, PyObject *args, PyObject *kwds)
+{
+    static char* kwlist[] = { MethodArgs::price, NULL };
+
+    double price;
+    if( !MethodArgs::parse(args, kwds, "d", kwlist, &price) ){
+        return NULL;
+    }
+
+    bool is_valid = false;
+    try{
+        is_valid = to_interface(self)->is_valid_price(price);
+    }catch(std::exception& e){
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
+    }
+    return PyBool_FromLong(static_cast<long>(is_valid));
+}
+
+
+PyObject*
+SOB_price_to_tick(pySOB *self, PyObject *args, PyObject *kwds)
+{
+    static char* kwlist[] = {MethodArgs::price, NULL};
+
+    double price;
+
+    if( !MethodArgs::parse(args, kwds, "d", kwlist, &price) ){
+        return NULL;
+    }
+
+    double tick = 0;
+    try{
+        tick = to_interface(self)->price_to_tick(price);
+    }catch(std::exception& e){
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
+    }
+    return PyFloat_FromDouble(tick);
+}
+
+
+PyObject*
+SOB_ticks_in_range(pySOB *self, PyObject *args, PyObject *kwds)
+{
+    static char* kwlist[] = { MethodArgs::lower, MethodArgs::upper, NULL};
+
+    double lower = -1.0;
+    double upper = -1.0;
+
+    if( !MethodArgs::parse(args, kwds, "|dd", kwlist, &lower, &upper) ){
+        return NULL;
+    }
+
+    long long ticks = 0;
+    try{
+        sob::FullInterface *ob = to_interface(self);
+        if(lower < 0){
+            lower = ob->min_price();
+        }
+        if(upper < 0){
+            upper = ob->max_price();
+        }
+        ticks = ob->ticks_in_range(lower, upper);
+    }catch(std::exception& e){
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
+    }
+    return PyLong_FromLongLong(ticks);
+}
+
+
+PyObject*
+SOB_tick_memory_required(pySOB *self, PyObject *args, PyObject *kwds)
+{
+    static char* kwlist[] = { MethodArgs::lower, MethodArgs::upper, NULL };
+
+    double lower = -1.0;
+    double upper = -1.0;
+
+    if( !MethodArgs::parse(args, kwds, "|dd", kwlist, &lower, &upper) ){
+        return NULL;
+    }
+
+    unsigned long long mem = 0;
+    try{
+        sob::FullInterface *ob = to_interface(self);
+        if(lower < 0){
+            lower = ob->min_price();
+        }
+        if(upper < 0){
+            upper = ob->max_price();
+        }
+        mem = ob->tick_memory_required(lower, upper);
+    }catch(std::exception& e){
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
+    }
+    return PyLong_FromUnsignedLongLong(mem);
+}
+
 
 struct MDef{
     template<typename F>
@@ -496,38 +594,66 @@ struct MDef{
 
 
 PyMethodDef pySOB_methods[] = {
-    MDef::NoArgs("min_price", SOB_min_price, "() -> float"),
-    MDef::NoArgs("max_price", SOB_max_price, "() -> float"),
-    MDef::NoArgs("tick_size", SOB_tick_size, "() -> float"),
-    MDef::NoArgs("bid_price", SOB_bid_price, "() -> float"),
-    MDef::NoArgs("ask_price", SOB_ask_price, "() -> float"),
-    MDef::NoArgs("last_price", SOB_last_price, "() -> float"),
-    MDef::NoArgs("bid_size", SOB_bid_size, "() -> int"),
-    MDef::NoArgs("ask_size", SOB_ask_size, "() -> int"),
-    MDef::NoArgs("total_bid_size", SOB_total_bid_size, "() -> int"),
-    MDef::NoArgs("total_ask_size", SOB_total_ask_size, "() -> int"),
-    MDef::NoArgs("total_size", SOB_total_size, "() -> int"),
-    MDef::NoArgs("last_size", SOB_last_size, "() -> int"),
-    MDef::NoArgs("volume", SOB_volume, "() -> int"),
+    MDef::NoArgs("min_price", SOB_min_price, "minimum valid (tick) price"),
+    MDef::NoArgs("max_price", SOB_max_price, "maximum valid (tick) price"),
+    MDef::NoArgs("tick_size", SOB_tick_size, "size of individual tick"),
+    MDef::NoArgs("bid_price", SOB_bid_price, "current bid price (0 if none)"),
+    MDef::NoArgs("ask_price", SOB_ask_price, "current ask price (0 if none)"),
+    MDef::NoArgs("last_price", SOB_last_price, "last price traded (0 if none)"),
+    MDef::NoArgs("bid_size", SOB_bid_size, "size of current (inside) bid (0 if none)"),
+    MDef::NoArgs("ask_size", SOB_ask_size, "size of current (inside) ask (0 if none)"),
+    MDef::NoArgs("total_bid_size", SOB_total_bid_size, "size of all bids (0 if none)"),
+    MDef::NoArgs("total_ask_size", SOB_total_ask_size, "size of all asks (0 if none)"),
+    MDef::NoArgs("total_size", SOB_total_size, "size of all (limit) orders (0 if none)"),
+    MDef::NoArgs("last_size", SOB_last_size, "last size traded (0 if none)"),
+    MDef::NoArgs("volume", SOB_volume, "total volume traded"),
 
     MDef::NoArgs("dump_buy_limits", SOB_dump_buy_limits,
-                 "print to stdout all active buy limit orders"),
+                 "print all active buy limit orders to stdout "),
     MDef::NoArgs("dump_sell_limits", SOB_dump_sell_limits,
-                 "print to stdout all active sell limit orders"),
+                 "print all active sell limit orders to stdout "),
     MDef::NoArgs("dump_buy_stops", SOB_dump_buy_stops,
-                 "print to stdout all active buy stop orders"),
+                 "print all active buy stop orders to stdout "),
     MDef::NoArgs("dump_sell_stops", SOB_dump_sell_stops,
-                 "print to stdout all active sell stop orders"),
+                 "print all active sell stop orders to stdout "),
 
     MDef::KeyArgs("grow_book_above", SOB_grow_book<true>,
                   "increase the size of the orderbook from above \n\n"
                   "    def grow_book_above(new_max) -> None \n\n"
-                  "    new_max :: double :: new maximum order/trade price"),
+                  "    new_max :: float :: new maximum order/trade price"),
 
     MDef::KeyArgs("grow_book_below", SOB_grow_book<false>,
                   "increase the size of the orderbook from below \n\n"
                   "    def grow_book_below(new_min) -> None \n\n"
-                  "    new_min :: double :: new minimum order/trade price"),
+                  "    new_min :: float :: new minimum order/trade price"),
+
+    MDef::KeyArgs("is_valid_price", SOB_is_valid_price,
+                  "is price valid inside this book \n\n"
+                  "    def is_valid_price(price) -> bool \n\n"
+                  "    price :: float :: price to check"),
+
+    MDef::KeyArgs("price_to_tick", SOB_price_to_tick,
+                  "convert a price to a tick value \n\n"
+                  "    def price_to_tick(price) -> tick \n\n"
+                  "    price :: float :: price \n\n"
+                  "    returns -> float \n"),
+
+    MDef::KeyArgs("ticks_in_range", SOB_ticks_in_range,
+                  "number of ticks between two prices \n\n"
+                  "    def ticks_in_range(lower=min_price(), upper=max_price()) "
+                  "-> number of ticks \n\n"
+                  "    lower :: float :: lower price \n"
+                  "    upper :: float :: upper price \n\n"
+                  "    returns -> int \n"),
+
+    MDef::KeyArgs("tick_memory_required", SOB_tick_memory_required,
+                  "bytes of memory pre-allocated by orderbook internals. "
+                  "THIS IS NOT TOTAL MEMORY BEING USED! \n\n"
+                  "    def tick_memory_required(lower=min_price(), upper=max_price()) "
+                  "-> number of bytes \n\n"
+                  "    lower :: float :: lower price \n"
+                  "    upper :: float :: upper price \n\n"
+                  "    returns -> int \n"),
 
 #define DOCS_MARKET_DEPTH(arg1) \
 " get total outstanding order size at each " arg1 " price level \n\n" \
@@ -803,12 +929,156 @@ PyTypeObject pySOB_type = {
 };
 
 
+PyObject*
+TickSize(pySOB *self, PyObject *args, PyObject *kwds)
+{
+    static char* kwlist[] = { MethodArgs::sob_type, NULL};
+
+    int sobty;
+
+    if( !MethodArgs::parse(args, kwds, "i", kwlist, &sobty) ){
+        return NULL;
+    }
+
+    auto sobty_entry = SOB_TYPES.find(sobty);
+    if( sobty_entry == SOB_TYPES.end() ){
+        PyErr_SetString(PyExc_ValueError, "invalid orderbook type");
+        return NULL;
+    }
+    //noexcept
+    return PyFloat_FromDouble( sobty_entry->second.second.tick_size() );
+}
+
+
+PyObject*
+PriceToTick(pySOB *self, PyObject *args, PyObject *kwds)
+{
+    static char* kwlist[] = { MethodArgs::sob_type, MethodArgs::price, NULL};
+
+    int sobty;
+    double price;
+
+    if( !MethodArgs::parse(args, kwds, "id", kwlist, &sobty, &price) ){
+        return NULL;
+    }
+
+    auto sobty_entry = SOB_TYPES.find(sobty);
+    if( sobty_entry == SOB_TYPES.end() ){
+        PyErr_SetString(PyExc_ValueError, "invalid orderbook type");
+        return NULL;
+    }
+
+    double tick = 0;
+    try{
+        tick = sobty_entry->second.second.price_to_tick(price);
+    }catch(std::exception& e){
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
+    }
+    return PyFloat_FromDouble(tick);
+}
+
+
+PyObject*
+TicksInRange(pySOB *self, PyObject *args, PyObject *kwds)
+{
+    static char* kwlist[] = { MethodArgs::sob_type, MethodArgs::lower,
+                              MethodArgs::upper, NULL};
+
+    int sobty;
+    double lower;
+    double upper;
+
+    if( !MethodArgs::parse(args, kwds, "idd", kwlist, &sobty, &lower, &upper) ){
+        return NULL;
+    }
+
+    auto sobty_entry = SOB_TYPES.find(sobty);
+    if( sobty_entry == SOB_TYPES.end() ){
+        PyErr_SetString(PyExc_ValueError, "invalid orderbook type");
+        return NULL;
+    }
+
+    long long ticks = 0;
+    try{
+        ticks = sobty_entry->second.second.ticks_in_range(lower, upper);
+    }catch(std::exception& e){
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
+    }
+    return PyLong_FromLongLong(ticks);
+}
+
+PyObject*
+TickMemoryRequired(pySOB *self, PyObject *args, PyObject *kwds)
+{
+    static char* kwlist[] = { MethodArgs::sob_type, MethodArgs::lower,
+                              MethodArgs::upper, NULL};
+
+    int sobty;
+    double lower;
+    double upper;
+
+    if( !MethodArgs::parse(args, kwds, "idd", kwlist, &sobty, &lower, &upper) ){
+        return NULL;
+    }
+
+    auto sobty_entry = SOB_TYPES.find(sobty);
+    if( sobty_entry == SOB_TYPES.end() ){
+        PyErr_SetString(PyExc_ValueError, "invalid orderbook type");
+        return NULL;
+    }
+
+    unsigned long long mem = 0;
+    try{
+        mem = sobty_entry->second.second.tick_memory_required(lower, upper);
+    }catch(std::exception& e){
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
+    }
+    return PyLong_FromUnsignedLongLong(mem);
+}
+
+
+PyMethodDef methods[] = {
+    MDef::KeyArgs("tick_size", TickSize,
+                  "tick size of orderbook \n\n"
+                  "def tick_size(sobty) -> tick size \n\n"
+                  "    sobty :: int :: SOB_* constant of orderbook type \n\n"
+                  "    returns -> float \n"),
+
+    MDef::KeyArgs("price_to_tick", PriceToTick,
+                  "convert a price to a tick value \n\n"
+                  "    def price_to_tick(sobty, price) -> tick \n\n"
+                  "    sobty :: int   :: SOB_* constant of orderbook type \n"
+                  "    price :: float :: price \n\n"
+                  "    returns -> float \n"),
+
+    MDef::KeyArgs("ticks_in_range", TicksInRange,
+                  "number of ticks between two prices \n\n"
+                  "    def ticks_in_range(sobty, lower, upper) "
+                  "-> number of ticks \n\n"
+                  "    sobty :: int   :: SOB_* constant of orderbook type \n"
+                  "    lower :: float :: lower price \n"
+                  "    upper :: float :: upper price \n\n"
+                  "    returns -> int \n"),
+
+    MDef::KeyArgs("tick_memory_required", TickMemoryRequired,
+                  "bytes of memory required for (pre-allocating) orderbook "
+                  "internals. THIS IS NOT TOTAL MEMORY NEEDED! \n\n"
+                  "    def tick_memory_required(sobty, lower, upper) "
+                  "-> number of bytes \n\n"
+                  "    sobty :: int   :: SOB_* constant of orderbook type \n"
+                  "    lower :: float :: lower price \n"
+                  "    upper :: float :: upper price \n\n"
+                  "    returns -> int \n"),
+    {NULL}
+};
+
+
 struct PyModuleDef module_def= {
     PyModuleDef_HEAD_INIT,
     "simpleorderbook",
     NULL,
     -1,
-    NULL,
+    methods,
     NULL,
     NULL,
     NULL,

@@ -910,38 +910,31 @@ SOB_CLASS::_route_order(order_queue_elem_type& e, id_type& id)
 {
     std::lock_guard<std::mutex> lock(_master_mtx); 
     /* --- CRITICAL SECTION --- */
-    try{
-        switch( get<0>(e) ){            
+    try{        
+        order_type ot = get<0>(e);
+        switch( ot ){            
         case order_type::limit:         
             get<1>(e) 
                 ? _insert_limit_order<true>(get<2>(e), get<4>(e), get<5>(e), id)
                 : _insert_limit_order<false>(get<2>(e), get<4>(e), get<5>(e), id); 
-            execute_admin_callback(get<7>(e), id);
-            _look_for_triggered_stops(false); /* throw */
             break;
        
         case order_type::market:                
             get<1>(e) 
                 ? _insert_market_order<true>(get<4>(e), get<5>(e), id)
                 : _insert_market_order<false>(get<4>(e), get<5>(e), id);  
-            execute_admin_callback(get<7>(e), id);
-            _look_for_triggered_stops(false); /* throw */
             break;
       
         case order_type::stop:        
             get<1>(e) 
                 ? _insert_stop_order<true>(get<3>(e), get<4>(e), get<5>(e), id)
-                : _insert_stop_order<false>(get<3>(e), get<4>(e), get<5>(e), id); 
-            execute_admin_callback(get<7>(e), id);
+                : _insert_stop_order<false>(get<3>(e), get<4>(e), get<5>(e), id);            
             break;
          
         case order_type::stop_limit:        
             get<1>(e) 
-                ? _insert_stop_order<true>(get<3>(e), get<2>(e), get<4>(e), 
-                                           get<5>(e), id)
-                : _insert_stop_order<false>(get<3>(e), get<2>(e), get<4>(e), 
-                                            get<5>(e), id);  
-            execute_admin_callback(get<7>(e), id);
+                ? _insert_stop_order<true>(get<3>(e), get<2>(e), get<4>(e), get<5>(e), id)
+                : _insert_stop_order<false>(get<3>(e), get<2>(e), get<4>(e), get<5>(e), id);           
             break;
          
         case order_type::null: 
@@ -953,7 +946,13 @@ SOB_CLASS::_route_order(order_queue_elem_type& e, id_type& id)
         default: 
             throw std::runtime_error("invalid order type in order_queue");
         }
-   
+        
+        execute_admin_callback(get<7>(e), id);
+        if( ot == order_type::limit || ot == order_type::market){
+            _look_for_triggered_stops(false); /* throw */
+        }
+        _assert_internal_pointers();
+        
     }catch(...){                
         _look_for_triggered_stops(true); /* no throw */
         throw;
@@ -1252,7 +1251,7 @@ SOB_CLASS::_insert_stop_order( plevel stop,
             stop_bndl_type(BuyStop, reinterpret_cast<void*>(limit), size, exec_cb)
         ) 
     );   
-    _stop_exec<BuyStop>::adjust_state_after_insert(this, stop);  
+    _stop_exec<BuyStop>::adjust_state_after_insert(this, stop); 
 }
 
 
@@ -1306,9 +1305,6 @@ template<typename FirstChainTy, typename SecondChainTy>
 order_info_type 
 SOB_CLASS::_get_order_info(id_type id) const
 {
-    _assert_valid_chain<FirstChainTy>();
-    _assert_valid_chain<SecondChainTy>();
-    
     std::lock_guard<std::mutex> lock(_master_mtx); 
     /* --- CRITICAL SECTION --- */    
     auto pc1 = _chain<FirstChainTy>::find(this,id);
@@ -1386,8 +1382,8 @@ SOB_CLASS::_pull_order(id_type id)
     /*** PROTECTED BY _master_mtx ***/    
     _deferred_callback_queue.push_back( /* callback with cancel msg */ 
         dfrd_cb_elem_type( callback_msg::cancel, cb, id, 0, 0 ) 
-    );   
-
+    ); 
+    
     return true;
 }
 
@@ -1489,11 +1485,11 @@ SOB_CLASS::_itop(plevel plev) const
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_reset_cached_pointers( plevel old_beg,
-                                   plevel new_beg,
-                                   plevel old_end,
-                                   plevel new_end,
-                                   long long offset )
+SOB_CLASS::_reset_internal_pointers( plevel old_beg,
+                                     plevel new_beg,
+                                     plevel old_end,
+                                     plevel new_end,
+                                     long long offset )
 {   
     /*** PROTECTED BY _master_mtx ***/          
     if( _last ){
@@ -1501,16 +1497,17 @@ SOB_CLASS::_reset_cached_pointers( plevel old_beg,
     }
 
     /* if plevel is below _beg, it's empty and needs to follow new_beg */
-    auto reset_low = [=](plevel *ptr){
-        *ptr = (*ptr < old_beg)  ?  (new_beg - 1) : bytes_add(*ptr, offset);       
+    auto reset_low = [=](plevel *ptr){     
+        *ptr = (*ptr == (old_beg-1))  ?  (new_beg - 1) : bytes_add(*ptr, offset);       
     };
     reset_low(&_bid);
     reset_low(&_high_sell_limit);
     reset_low(&_high_buy_stop);
     reset_low(&_high_sell_stop);
+     
 
     /* if plevel is at _end, it's empty and needs to follow new_end */
-    auto reset_high = [=](plevel *ptr){
+    auto reset_high = [=](plevel *ptr){     
         *ptr = (*ptr == old_end)  ?  new_end : bytes_add(*ptr, offset);         
     };
     reset_high(&_ask);
@@ -1531,7 +1528,6 @@ SOB_CLASS::_grow_book(TrimmedRational<TickRatio> min, size_t incr, bool at_beg)
     plevel old_beg = _beg;
     plevel old_end = _end;
     size_t old_sz = _book.size();
-    size_t new_sz = old_sz + incr;
 
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
@@ -1540,20 +1536,80 @@ SOB_CLASS::_grow_book(TrimmedRational<TickRatio> min, size_t incr, bool at_beg)
     _book.insert( at_beg ? _book.begin() : _book.end(),
                   incr,
                   chain_pair_type() );
+    /* the book is in an INVALID state until _reset_internal_pointers returns */
 
     _base = min;
     _beg = &(*_book.begin()) + 1;
     _end = &(*_book.end());
-    assert( 
-        bytes_offset(_end, _beg) ==
-        static_cast<long long>((new_sz - 1) * sizeof(*_beg)) 
-        );  
 
     long long offset = at_beg ? bytes_offset(_end, old_end)
                               : bytes_offset(_beg, old_beg);
-  
-    _reset_cached_pointers(old_beg, _beg, old_end, _end, offset);
+
+    assert( equal( 
+        bytes_offset(_end, _beg), 
+        bytes_offset(old_end, old_beg) 
+            + static_cast<long long>(sizeof(*_beg) * incr),  
+        static_cast<long long>((old_sz + incr - 1) * sizeof(*_beg)),
+        static_cast<long long>((_book.size() - 1) * sizeof(*_beg))
+    ) );
+    
+    _reset_internal_pointers(old_beg, _beg, old_end, _end, offset);
+    _assert_internal_pointers();
+    
     /* --- CRITICAL SECTION --- */
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_assert_plevel(plevel p)
+{
+    assert( (labs(bytes_offset(p, _beg)) % sizeof(chain_pair_type)) == 0 );
+    assert( (labs(bytes_offset(p, _end)) % sizeof(chain_pair_type)) == 0 );
+    assert( p >= (_beg - 1) );
+    assert( p <= _end );
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_assert_internal_pointers()
+{
+#ifndef NDEBUG  
+    if( _last ){
+        _assert_plevel(_last);
+    }
+    _assert_plevel(_bid);
+    _assert_plevel(_ask);
+    _assert_plevel(_low_buy_limit);
+    _assert_plevel(_high_sell_limit);
+    _assert_plevel(_low_buy_stop);
+    _assert_plevel(_high_buy_stop);
+    _assert_plevel(_low_sell_stop);
+    _assert_plevel(_high_sell_stop);
+    if( _bid != (_beg-1) ){
+        if( _ask != _end ){
+            assert( _ask > _bid );
+        }
+        if( _low_buy_limit != _end ){
+            assert( _low_buy_limit <= _bid);
+        }
+    }
+    if( _high_sell_limit != (_beg-1) ){
+        if( _ask != _end ){
+            assert( _high_sell_limit >= _ask );
+        }
+        if( _low_buy_limit != _end ){
+            assert( _high_sell_limit > _low_buy_limit );
+        }
+    }
+    if( _low_buy_stop != _end && _high_buy_stop != (_beg-1) ){
+        assert( _high_buy_stop >= _low_buy_stop );
+    }
+    if( _low_sell_stop != _end && _high_sell_stop != (_beg-1) ){
+        assert( _high_sell_stop >= _low_sell_stop );
+    }
+#endif
 }
 
 

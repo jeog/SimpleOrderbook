@@ -44,7 +44,8 @@ class MethodArgs {
 
 public:
     static char id[], stop[], limit[], size[], callback[], depth[],
-                sob_type[], low[], high[], new_max[], new_min[];
+                sob_type[], low[], high[], new_max[], new_min[],
+                price[], lower[], upper[];
 
     template<typename ...TArgs>
     static bool

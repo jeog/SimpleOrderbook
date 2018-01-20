@@ -3,8 +3,6 @@
 
 An experimental C++(11) financial-market orderbook and matching engine w/ a Python extension module.
 
-\* **v0.4 is undergoing a complete refactoring** 
-
 
 #### Features 
 
@@ -12,10 +10,11 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 - cancel/replace orders by ID
 - pass callbacks that are triggered on execution and/or successful order insert
 - query market state(bid size, volume etc.), dump orders to stdout, view Time & Sales 
+- extensible backend resource management(global and type-specific) via factory proxies 
+- tick sizing/rounding/math handled implicity by TrimmedRational\<std::ratio\> objects
+- pre-allocation of (some) internals during construction to reduce runtime overhead
+- (manually) grow orderbooks as necessary
 - access via a CPython extension module
-- tick sizing/rounding/math is handled for user by a TrimmedRational\<std::ratio\> object
-- pre-allocates (some) internals during construction to reduce runtime overhead
-- (manually) grow orderbook as necessary
 
 #### Getting Started
 
