@@ -42,7 +42,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #include "interfaces.hpp"
 #include "resource_manager.hpp"
-#include "trimmed_rational.hpp"
+#include "tick_price.hpp"
 
 #ifdef DEBUG
 #undef NDEBUG
