@@ -449,8 +449,7 @@ private:
         _get_order_info(id_type id) const;
 
         /* remove a particular order */
-        template<typename ChainTy,
-                 bool IsLimit = std::is_same<ChainTy,limit_chain_type>::value>
+        template<typename ChainTy>
         bool
         _pull_order(id_type id);
 
@@ -562,12 +561,17 @@ private:
         { return reinterpret_cast<T*>(reinterpret_cast<char*>(ptr) + offset); }
 
         static inline bool
-        _is_buystop(limit_bndl bndl)
+        is_buy_stop(limit_bndl bndl)
         { return false; }
 
         static inline bool
-        _is_buystop(stop_bndl bndl)
+        is_buy_stop(stop_bndl bndl)
         { return bndl.is_buy; }
+
+        template<typename ChainTy>
+        static constexpr bool
+        is_limit_chain()
+        { return std::is_same<ChainTy,limit_chain_type>::value; }
 
     public:
         order_info_type

@@ -129,11 +129,11 @@ to_string(const order_info_type& oi)
     double limit = std::get<2>(oi);
     double stop = std::get<3>(oi);
     std::stringstream ss;
-    ss << to_string(std::get<0>(oi)) << " "
-       << (is_buy ? "Buy" : "Sell") << " "
+    ss << (is_buy ? "buy" : "sell") << " "
+       << std::get<0>(oi) << " "
        << std::get<4>(oi) << " "
-       << (limit ? ("[Limit: " + std::to_string(limit) + "]") : "") << " "
-       << (stop ? ("[Stop: " + std::to_string(stop) + "]") : "");
+       << (limit ? ("[limit: " + std::to_string(limit) + "]") : "") << " "
+       << (stop ? ("[stop: " + std::to_string(stop) + "]") : "");
     return ss.str();
 }
 
