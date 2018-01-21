@@ -1596,6 +1596,7 @@ SOB_CLASS::insert_limit_order( bool buy,
         if( !is_valid_price(limit) ){
             throw std::invalid_argument("invalid limit price");
         }  
+        limit = price_to_tick(limit);
         /* --- CRITICAL SECTION --- */
     }
  
@@ -1650,11 +1651,13 @@ SOB_CLASS::insert_stop_order( bool buy,
         /* --- CRITICAL SECTION --- */
         if( !is_valid_price(stop) ){
             throw std::invalid_argument("invalid stop price");
-        }               
+        }  
+        stop = price_to_tick(stop);        
         if( limit != 0 ){
             if( !is_valid_price(limit) ){    
                 throw std::invalid_argument("invalid limit price");
             }
+            limit = price_to_tick(limit);
             ot = order_type::stop_limit;
         }
         /* --- CRITICAL SECTION --- */
