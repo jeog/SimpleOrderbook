@@ -230,7 +230,7 @@ private:
     class SimpleOrderbookImpl
             : public ManagementInterface{
     protected:
-        SimpleOrderbookImpl( TrimmedRational<TickRatio> min, size_t incr );
+        SimpleOrderbookImpl( TickPrice<TickRatio> min, size_t incr );
         ~SimpleOrderbookImpl();
 
     private:
@@ -297,7 +297,7 @@ private:
         size_t _ask_size;
         size_t _last_size;
 
-        TrimmedRational<TickRatio> _base;
+        TickPrice<TickRatio> _base;
 
         /* THE ORDER BOOK */
         std::vector<chain_pair_type> _book;
@@ -398,8 +398,8 @@ private:
         id_type
         _push_order_and_wait(order_type oty,
                              bool buy,
-                             double limit, // TrimmedRationals ??
-                             double stop, // TrimmedRationals ??
+                             double limit, // TickPrices ??
+                             double stop, // TickPrices ??
                              size_t size,
                              order_exec_cb_type cb,
                              order_admin_cb_type admin_cb= nullptr,
@@ -423,17 +423,17 @@ private:
 
         /* price-to-index and index-to-price utilities  */
         plevel
-        _ptoi(TrimmedRational<TickRatio> price) const;
+        _ptoi(TickPrice<TickRatio> price) const;
 
         inline plevel
         _ptoi(double price) const
-        { return _ptoi( TrimmedRational<TickRatio>(price)); }
+        { return _ptoi( TickPrice<TickRatio>(price)); }
 
-        TrimmedRational<TickRatio>
+        TickPrice<TickRatio>
         _itop(plevel p) const;
 
         /* calculate chain_size of orders at each price level
-         * use depth increments on each side of last  */
+         * use depth ticks on each side of last  */
         template<side_of_market Side, typename ChainTy = limit_chain_type>
         std::map<double, typename _depth<Side>::mapped_type >
         _market_depth(size_t depth) const;
@@ -467,7 +467,7 @@ private:
 
         /* called by ManagementInterface to increase book size */
         void
-        _grow_book(TrimmedRational<TickRatio> min, size_t incr, bool at_beg);
+        _grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg);
 
         /* dump a particular chain array to ostream*/
         template<bool BuyNotSell>
@@ -762,20 +762,20 @@ private:
         bool
         is_valid_price(double price) const
         {
-            plevel p = _ptoi( TrimmedRational<TickRatio>(price) );
+            plevel p = _ptoi( TickPrice<TickRatio>(price) );
             return (p >= _beg && p < _end);
         }
 
         static inline FullInterface*
         create(double min, double max)
         {
-            return create( TrimmedRational<TickRatio>(min),
-                           TrimmedRational<TickRatio>(max) );
+            return create( TickPrice<TickRatio>(min),
+                           TickPrice<TickRatio>(max) );
         }
 
         static FullInterface*
-        create( TrimmedRational<TickRatio> min,
-                TrimmedRational<TickRatio> max )
+        create( TickPrice<TickRatio> min,
+                TickPrice<TickRatio> max )
         {
             if( min < 0 || min > max ){
                 throw std::invalid_argument("!(0 <= min <= max)");
@@ -785,9 +785,9 @@ private:
             }
 
             // make inclusive
-            size_t incr = static_cast<size_t>((max - min).as_increments()) + 1;
+            size_t incr = static_cast<size_t>((max - min).as_ticks()) + 1;
             if( incr < 3 ){
-                throw std::invalid_argument("need at least 3 increments");
+                throw std::invalid_argument("need at least 3 ticks");
             }
 
             FullInterface *tmp = new SimpleOrderbookImpl(min, incr);
@@ -822,17 +822,17 @@ private:
 
         static constexpr double
         tick_size_() noexcept
-        { return TrimmedRational<TickRatio>::increment_size; }
+        { return TickPrice<TickRatio>::tick_size; }
 
         static constexpr double
         price_to_tick_(double price)
-        { return TrimmedRational<TickRatio>(price); }
+        { return TickPrice<TickRatio>(price); }
 
         static constexpr long long
         ticks_in_range_(double lower, double upper)
         {
-            return ( TrimmedRational<TickRatio>(upper)
-                     - TrimmedRational<TickRatio>(lower) ).as_increments();
+            return ( TickPrice<TickRatio>(upper)
+                     - TickPrice<TickRatio>(lower) ).as_ticks();
         }
 
         static constexpr unsigned long long
@@ -841,13 +841,6 @@ private:
             return static_cast<unsigned long long>(ticks_in_range_(lower, upper))
                     * sizeof(chain_pair_type);
         }
-
-        static_assert(!std::ratio_less<TickRatio,std::ratio<1,10000>>::value,
-                      "Increment Ratio < ratio<1,10000> " );
-
-        static_assert(!std::ratio_greater<TickRatio,std::ratio<1,1>>::value,
-                      "Increment Ratio > ratio<1,1> " );
-
     }; /* SimpleOrderbookImpl */
 
     class ImplDeleter{

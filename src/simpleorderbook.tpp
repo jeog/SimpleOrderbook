@@ -25,7 +25,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 namespace sob{
 
 SOB_TEMPLATE 
-SOB_CLASS::SimpleOrderbookImpl(TrimmedRational<TickRatio> min, size_t incr)
+SOB_CLASS::SimpleOrderbookImpl(TickPrice<TickRatio> min, size_t incr)
     :  
         _bid_size(0),
         _ask_size(0),
@@ -1425,7 +1425,7 @@ void SOB_CLASS::_dump_stops(std::ostream& out) const
 
 SOB_TEMPLATE
 typename SOB_CLASS::plevel 
-SOB_CLASS::_ptoi(TrimmedRational<TickRatio> price) const
+SOB_CLASS::_ptoi(TickPrice<TickRatio> price) const
 {  /* 
     * the range check asserts in here are 1 position more restrictive to catch
     * bad user price data passed but allow internal index conversions(_itop)
@@ -1433,7 +1433,7 @@ SOB_CLASS::_ptoi(TrimmedRational<TickRatio> price) const
     * this means that internally we should not convert to a price when
     * a pointer is past beg/at end, signaling a null value
     */   
-    long long offset = (price - _base).as_increments();
+    long long offset = (price - _base).as_ticks();
     plevel p = _beg + offset;
     assert(p >= _beg);
     assert(p <= (_end-1)); 
@@ -1442,7 +1442,7 @@ SOB_CLASS::_ptoi(TrimmedRational<TickRatio> price) const
 
 
 SOB_TEMPLATE 
-TrimmedRational<TickRatio>
+TickPrice<TickRatio>
 SOB_CLASS::_itop(plevel p) const
 {   
     _assert_plevel(p); // internal range and align check
@@ -1485,7 +1485,7 @@ SOB_CLASS::_reset_internal_pointers( plevel old_beg,
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_grow_book(TrimmedRational<TickRatio> min, size_t incr, bool at_beg)
+SOB_CLASS::_grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg)
 {
     if( incr == 0 ){
         return;
@@ -1760,13 +1760,13 @@ SOB_TEMPLATE
 void 
 SOB_CLASS::grow_book_above(double new_max)
 {
-    auto diff = TrimmedRational<TickRatio>(new_max) - max_price();
+    auto diff = TickPrice<TickRatio>(new_max) - max_price();
 
     if( diff > std::numeric_limits<long>::max() ){
         throw std::invalid_argument("new_max too far from old max to grow");
     }
     if( diff > 0 ){
-        size_t incr = static_cast<size_t>(diff.as_increments());
+        size_t incr = static_cast<size_t>(diff.as_ticks());
         _grow_book(_base, incr, false);
     }
 }
@@ -1780,9 +1780,9 @@ SOB_CLASS::grow_book_below(double new_min)
         return;
     }
 
-    TrimmedRational<TickRatio> new_base(new_min);
+    TickPrice<TickRatio> new_base(new_min);
     if( new_base < 1 ){
-        new_base = TrimmedRational<TickRatio>(static_cast<long>(1));
+        new_base = TickPrice<TickRatio>(static_cast<long>(1));
     }
 
     auto diff = _base - new_base;
@@ -1790,7 +1790,7 @@ SOB_CLASS::grow_book_below(double new_min)
         throw std::invalid_argument("new_min too far from old min to grow");
     }
     if( diff > 0 ){
-        size_t incr = static_cast<size_t>(diff.as_increments());
+        size_t incr = static_cast<size_t>(diff.as_ticks());
         _grow_book(new_base, incr, true);
     }
 }

@@ -22,15 +22,19 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <cmath>
 #include <limits>
 
-template< typename IncrementRatio,
+template< typename TickRatio,
           double(*RoundFunction)(double) = round,
           unsigned long RoundPrecision = 5 >
-class TrimmedRational{
+class TickPrice{
     /* only accept ratio between 1/1 and 1/1000000, inclusive */
-    static_assert(!std::ratio_greater<IncrementRatio,std::ratio<1,1>>::value,
-                  "Increment Ratio > ratio<1,1> ");
-    static_assert(!std::ratio_less<IncrementRatio,std::ratio<1,1000000>>::value,
-                  "Increment Ratio < ratio<1,1000000> ");
+    static_assert(!std::ratio_greater<TickRatio,std::ratio<1,1>>::value,
+                  "TickRatio > ratio<1,1> ");
+    static_assert(!std::ratio_less<TickRatio,std::ratio<1,1000000>>::value,
+                  "TickRatio < ratio<1,1000000> ");
+
+    /* only accept ratios evenly divisible into 1 */
+    static_assert( (TickRatio::den % TickRatio::num) == 0,
+                   "TickRatio::den not a multiple of TickRatio::num");
 
     /* don't let precision overflow 'radj' (9 == floor(log10(pow(2,31)))*/
     static_assert(RoundPrecision <= 9, "RoundPrecision > 9");
@@ -38,60 +42,60 @@ class TrimmedRational{
     static constexpr long radj = pow(10,RoundPrecision);
 
     long _n_whole;
-    long _n_incrs;
+    long _n_ticks;
 
 public:
-    typedef IncrementRatio increment_ratio;
+    typedef TickRatio tick_ratio;
 
     static constexpr double(*round_function)(double) = RoundFunction;
     static constexpr unsigned long round_precision = RoundPrecision;
 
-    static constexpr double increment_size =
-        static_cast<double>(increment_ratio::num) / increment_ratio::den;
+    static constexpr double tick_size =
+        static_cast<double>(tick_ratio::num) / tick_ratio::den;
 
-    static constexpr unsigned long long increments_per_unit =
-        static_cast<unsigned long long>(increment_ratio::den) / increment_ratio::num;
+    static constexpr unsigned long long ticks_per_unit =
+        static_cast<unsigned long long>(tick_ratio::den) / tick_ratio::num;
     /*
-     * use unsigned long long to avoid the cast in as_increments(),
+     * use unsigned long long to avoid the cast in as_ticks(),
      * assert to avoid overflow in case we remove the lower-bound ratio assert
      */
-    static_assert(increments_per_unit <= std::numeric_limits<long>::max(),
-                  "increments_per_unit > LONG_MAX");
+    static_assert(ticks_per_unit <= std::numeric_limits<long>::max(),
+                  "ticks_per_unit > LONG_MAX");
 
-    TrimmedRational(long whole, long increments)
+    TickPrice(long whole, long ticks)
         {
-           ldiv_t dt = ldiv(increments, increments_per_unit);
+           ldiv_t dt = ldiv(ticks, ticks_per_unit);
            _n_whole = whole + dt.quot;
-           _n_incrs = dt.rem;
-           if( _n_incrs < 0 ){
+           _n_ticks = dt.rem;
+           if( _n_ticks < 0 ){
                --_n_whole;
-               _n_incrs += increments_per_unit;
+               _n_ticks += ticks_per_unit;
            }
         }
 
-    explicit TrimmedRational(long increments)
-        : TrimmedRational(0, increments)
+    explicit TickPrice(long ticks)
+        : TickPrice(0, ticks)
         {}
 
-    explicit TrimmedRational(int increments)
-        : TrimmedRational(0, static_cast<long>(increments))
+    explicit TickPrice(int ticks)
+        : TickPrice(0, static_cast<long>(ticks))
         {}
 
-    explicit TrimmedRational(double r)
+    explicit TickPrice(double r)
         :
             _n_whole( static_cast<long>(r) - static_cast<long>(r < 0) ),
-            _n_incrs( RoundFunction((r - _n_whole) * increments_per_unit) )
+            _n_ticks( RoundFunction((r - _n_whole) * ticks_per_unit) )
         {
-            if( _n_incrs == increments_per_unit ){
+            if( _n_ticks == ticks_per_unit ){
                 ++_n_whole;
-                _n_incrs = 0;
+                _n_ticks = 0;
             }
         }
 
     /* conversion methods */
     inline long long
-    as_increments() const
-    { return  increments_per_unit * _n_whole + _n_incrs; }
+    as_ticks() const
+    { return  ticks_per_unit * _n_whole + _n_ticks; }
 
     inline long
     as_whole() const
@@ -99,83 +103,83 @@ public:
 
     inline operator
     double() const
-    { return RoundFunction((_n_whole + _n_incrs * increment_size) * radj) / radj; }
+    { return RoundFunction((_n_whole + _n_ticks * tick_size) * radj) / radj; }
 
     /* + - */
-    inline TrimmedRational
-    operator+(const TrimmedRational& tr) const
-    { return TrimmedRational(_n_whole + tr._n_whole, _n_incrs + tr._n_incrs); }
+    inline TickPrice
+    operator+(const TickPrice& tr) const
+    { return TickPrice(_n_whole + tr._n_whole, _n_ticks + tr._n_ticks); }
 
-    inline TrimmedRational
-    operator-(const TrimmedRational& tr) const
-    { return TrimmedRational(_n_whole - tr._n_whole, _n_incrs - tr._n_incrs); }
+    inline TickPrice
+    operator-(const TickPrice& tr) const
+    { return TickPrice(_n_whole - tr._n_whole, _n_ticks - tr._n_ticks); }
 
-    inline TrimmedRational
-    operator+(long increments) const
-    { return TrimmedRational(_n_whole, _n_incrs + increments); }
+    inline TickPrice
+    operator+(long ticks) const
+    { return TickPrice(_n_whole, _n_ticks + ticks); }
 
-    inline TrimmedRational
-    operator-(long increments) const
-    { return TrimmedRational(_n_whole, _n_incrs - increments); }
+    inline TickPrice
+    operator-(long ticks) const
+    { return TickPrice(_n_whole, _n_ticks - ticks); }
 
-    inline TrimmedRational
-    operator+(int increments) const
-    { return TrimmedRational(_n_whole, _n_incrs + increments); }
+    inline TickPrice
+    operator+(int ticks) const
+    { return TickPrice(_n_whole, _n_ticks + ticks); }
 
-    inline TrimmedRational
-    operator-(int increments) const
-    { return TrimmedRational(_n_whole, _n_incrs - increments); }
+    inline TickPrice
+    operator-(int ticks) const
+    { return TickPrice(_n_whole, _n_ticks - ticks); }
 
-    inline TrimmedRational
+    inline TickPrice
     operator+(double r) const
-    { return *this + TrimmedRational(r); }
+    { return *this + TickPrice(r); }
 
-    inline TrimmedRational
+    inline TickPrice
     operator-(double r) const
-    { return *this - TrimmedRational(r); }
+    { return *this - TickPrice(r); }
 
 
     /* += -= */
-    inline TrimmedRational
-    operator+=(const TrimmedRational& tr)
+    inline TickPrice
+    operator+=(const TickPrice& tr)
     { return (*this = *this + tr); }
 
-    inline TrimmedRational
-    operator-=(const TrimmedRational& tr)
+    inline TickPrice
+    operator-=(const TickPrice& tr)
     { return (*this = *this - tr); }
 
     template<typename T>
-    inline TrimmedRational
+    inline TickPrice
     operator+=(T val)
-    { return (*this = *this + TrimmedRational(val)); }
+    { return (*this = *this + TickPrice(val)); }
 
     template<typename T>
-    inline TrimmedRational
+    inline TickPrice
     operator-=(T val)
-    { return (*this = *this - TrimmedRational(val)); }
+    { return (*this = *this - TickPrice(val)); }
 
 
     /* ++ -- */
-    inline TrimmedRational
+    inline TickPrice
     operator++()
-    { return (*this = TrimmedRational(_n_whole, _n_incrs + 1)); }
+    { return (*this = TickPrice(_n_whole, _n_ticks + 1)); }
 
-    inline TrimmedRational
+    inline TickPrice
     operator--()
-    { return (*this = TrimmedRational(_n_whole, _n_incrs - 1)); }
+    { return (*this = TickPrice(_n_whole, _n_ticks - 1)); }
 
-    inline TrimmedRational
+    inline TickPrice
     operator++(int) const
     {
-        TrimmedRational tmp(*this);
+        TickPrice tmp(*this);
         ++(*this);
         return tmp;
     }
 
-    inline TrimmedRational
+    inline TickPrice
     operator--(int) const
     {
-        TrimmedRational tmp(*this);
+        TickPrice tmp(*this);
         --(*this);
         return tmp;
     }
@@ -183,123 +187,123 @@ public:
 
     /* == != < > <= >= */
     inline bool
-    operator==(const TrimmedRational& tr) const
-    { return (_n_whole == tr._n_whole) && (_n_incrs == tr._n_incrs); }
+    operator==(const TickPrice& tr) const
+    { return (_n_whole == tr._n_whole) && (_n_ticks == tr._n_ticks); }
 
     inline bool
-    operator!=(const TrimmedRational& tr) const
+    operator!=(const TickPrice& tr) const
     { return !(*this == tr); }
 
     inline bool
-    operator>(const TrimmedRational& tr) const
+    operator>(const TickPrice& tr) const
     {
         if( _n_whole > tr._n_whole ){
             return true;
         }
         if( _n_whole == tr._n_whole ){
-            return (_n_incrs > tr._n_incrs);
+            return (_n_ticks > tr._n_ticks);
         }
         return false;
     }
 
     inline bool
-    operator<=(const TrimmedRational& tr) const
+    operator<=(const TickPrice& tr) const
     { return !(*this > tr); }
 
     inline bool
-    operator>=(const TrimmedRational& tr) const
+    operator>=(const TickPrice& tr) const
     { return (*this > tr) || (*this == tr); }
 
     inline bool
-    operator<(const TrimmedRational& tr) const
+    operator<(const TickPrice& tr) const
     { return !(*this >= tr); }
 
     template<typename T>
     inline bool
-    operator==(T increments) const
-    { return *this == TrimmedRational(increments); }
+    operator==(T ticks) const
+    { return *this == TickPrice(ticks); }
 
     template<typename T>
     inline bool
-    operator!=(T increments) const
-    { return *this != TrimmedRational(increments); }
+    operator!=(T ticks) const
+    { return *this != TickPrice(ticks); }
 
     template<typename T>
     inline bool
-    operator>(T increments) const
-    { return *this > TrimmedRational(increments); }
+    operator>(T ticks) const
+    { return *this > TickPrice(ticks); }
 
     template<typename T>
     inline bool
-    operator<=(T increments) const
-    { return *this <= TrimmedRational(increments); }
+    operator<=(T ticks) const
+    { return *this <= TickPrice(ticks); }
 
     template<typename T>
     inline bool
-    operator>=(T increments) const
-    { return *this >= TrimmedRational(increments); }
+    operator>=(T ticks) const
+    { return *this >= TickPrice(ticks); }
 
     template<typename T>
     inline bool
-    operator<(T increments) const
-    { return *this < TrimmedRational(increments); }
+    operator<(T ticks) const
+    { return *this < TickPrice(ticks); }
 };
 
 
 /* + - (reversed operands) */
 template<typename T, typename A>
-inline TrimmedRational<A>
-operator+(T val, const TrimmedRational<A>& tr)
+inline TickPrice<A>
+operator+(T val, const TickPrice<A>& tr)
 { return tr + val; }
 
 template<typename T, typename A>
-inline TrimmedRational<A>
-operator-(T val, const TrimmedRational<A>& tr)
-{ return TrimmedRational<A>(val) - tr; }
+inline TickPrice<A>
+operator-(T val, const TickPrice<A>& tr)
+{ return TickPrice<A>(val) - tr; }
 
 
 /* += -= (reversed operands) */
 template<typename T, typename A>
-inline TrimmedRational<A>
-operator+=(T val, const TrimmedRational<A>& tr)
+inline TickPrice<A>
+operator+=(T val, const TickPrice<A>& tr)
 { return (val = val + tr); }
 
 template<typename T, typename A>
-inline TrimmedRational<A>
-operator-=(T val, const TrimmedRational<A>& tr)
+inline TickPrice<A>
+operator-=(T val, const TickPrice<A>& tr)
 { return (val = val - tr); }
 
 
 /* == != < > <= >= for other objects (reversed operands) */
 template<typename T, typename A>
 inline bool
-operator==(T increments, const TrimmedRational<A>& tr)
-{ return tr == increments; }
+operator==(T ticks, const TickPrice<A>& tr)
+{ return tr == ticks; }
 
 template<typename T, typename A>
 inline bool
-operator!=(T increments, const TrimmedRational<A>& tr)
-{ return tr != increments; }
+operator!=(T ticks, const TickPrice<A>& tr)
+{ return tr != ticks; }
 
 template<typename T, typename A>
 inline bool
-operator>(T increments, const TrimmedRational<A>& tr)
-{ return tr <= increments; }
+operator>(T ticks, const TickPrice<A>& tr)
+{ return tr <= ticks; }
 
 template<typename T, typename A>
 inline bool
-operator<=(T increments, const TrimmedRational<A>& tr)
-{ return tr > increments; }
+operator<=(T ticks, const TickPrice<A>& tr)
+{ return tr > ticks; }
 
 template<typename T, typename A>
 inline bool
-operator>=(T increments, const TrimmedRational<A>& tr)
-{ return tr < increments; }
+operator>=(T ticks, const TickPrice<A>& tr)
+{ return tr < ticks; }
 
 template<typename T, typename A>
 inline bool
-operator<(T increments, const TrimmedRational<A>& tr)
-{ return tr >= increments; }
+operator<(T ticks, const TickPrice<A>& tr)
+{ return tr >= ticks; }
 
 
 #endif
