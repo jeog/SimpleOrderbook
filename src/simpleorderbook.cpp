@@ -93,6 +93,9 @@ to_string(const callback_msg& cm)
     case callback_msg::cancel: return "cancel";
     case callback_msg::fill: return "fill";
     case callback_msg::stop_to_limit: return "stop-to-limit";
+    case callback_msg::stop_to_market: return "stop-to-market";
+    case callback_msg::trigger_OCO: return "trigger-OCO";
+    case callback_msg::trigger_OTO: return "trigger-OTO";
     default:
         throw std::logic_error( "bad callback_msg: " +
                 std::to_string(static_cast<int>(cm)) );
@@ -113,6 +116,19 @@ to_string(const side_of_market& s)
 }
 
 std::string
+to_string(const side_of_trade& s)
+{
+    switch(s){
+    case side_of_trade::buy: return "buy";
+    case side_of_trade::sell: return "sell";
+    case side_of_trade::all: return "all";
+    default:
+        throw std::logic_error( "bad side_of_trade: " +
+                std::to_string(static_cast<int>(s)) );
+    }
+}
+
+std::string
 to_string(const clock_type::time_point& tp)
 {
     auto sys_tp = std::chrono::system_clock::now() + (tp - clock_type::now());
@@ -123,17 +139,14 @@ to_string(const clock_type::time_point& tp)
 }
 
 std::string
-to_string(const order_info_type& oi)
+to_string(const order_info& oi)
 {
-    bool is_buy = std::get<1>(oi);
-    double limit = std::get<2>(oi);
-    double stop = std::get<3>(oi);
     std::stringstream ss;
-    ss << (is_buy ? "buy" : "sell") << " "
-       << std::get<0>(oi) << " "
-       << std::get<4>(oi) << " "
-       << (limit ? ("[limit: " + std::to_string(limit) + "]") : "") << " "
-       << (stop ? ("[stop: " + std::to_string(stop) + "]") : "");
+    ss << (oi.is_buy ? "buy" : "sell") << " "
+       << oi.type << " "
+       << oi.size << " "
+       << (oi.limit ? ("[limit: " + std::to_string(oi.limit) + "]") : "") << " "
+       << (oi.stop ? ("[stop: " + std::to_string(oi.stop) + "]") : "");
     return ss.str();
 }
 
@@ -159,13 +172,20 @@ operator<<(std::ostream& out, const side_of_market& s)
 }
 
 std::ostream&
+operator<<(std::ostream& out, const side_of_trade& s)
+{
+    out << to_string(s);
+    return out;
+}
+
+std::ostream&
 operator<<(std::ostream& out, const clock_type::time_point& tp)
 {
     out << to_string(tp);
     return out;
 }
 std::ostream&
-operator<<(std::ostream& out, const order_info_type& oi)
+operator<<(std::ostream& out, const order_info& oi)
 {
     out << to_string(oi);
     return out;

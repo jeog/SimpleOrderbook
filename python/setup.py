@@ -17,8 +17,13 @@
 
 from distutils.core import setup,Extension
 
-cpp_sources = ["../src/simpleorderbook.cpp", "src/simpleorderbook_py.cpp",
-               "src/callback_py.cpp", "src/argparse_py.cpp"]
+cpp_sources = [
+    "../src/simpleorderbook.cpp",
+    "../src/advanced_order.cpp",
+    "src/simpleorderbook_py.cpp",
+    "src/callback_py.cpp", 
+    "src/argparse_py.cpp"
+]
 
 _setup_dict = {
     "name":'simpleorderbook',
@@ -32,7 +37,7 @@ _cpp_ext = Extension(
     "simpleorderbook",
     sources = cpp_sources,
     include_dirs = ["../include, ./include"],
-    extra_compile_args=["-fPIC","-std=c++11", "-g", "-O0"]
+    extra_compile_args=["-fPIC","-std=c++11"] #, "-g", "-O0"]
  )
 
 setup( ext_modules=[_cpp_ext], **_setup_dict )    

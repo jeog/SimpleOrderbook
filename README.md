@@ -7,6 +7,12 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 #### Features 
 
 - market, limit, stop-market, and stop-limit order types
+- advanced orders/conditions: ***IN DEVELOPMENT (NOT STABLE)***
+    - one-cancels-other (OCO) 
+    - one-triggers-other (OTO)
+- advanced condition triggers: ***IN DEVELOPMENT (NOT STABLE)***
+    - fill-partial 
+    - fill-full 
 - cancel/replace orders by ID
 - pass callbacks that are triggered on execution and/or successful order insert
 - query market state(bid size, volume etc.), dump orders to stdout, view Time & Sales 
@@ -33,16 +39,20 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
  
         // example_code.cpp
 
-        #include "simpleoderbook.hpp"
+        #include "simpleorderbook.hpp"
 
         void 
         execution_callback(sob::callback_msg msg, 
-                           sob::id_type id,
+                           sob::id_type id1,
+                           sob::id_type id2,
                            double price,
                            size_t size);
 
         void 
         insert_orders(sob::FullInterface *orderbook);
+
+        void 
+        insert_advanced_orders(sob::FullInterface *orderbook);
 
         void
         print_inside_market(sob::QueryInterface *orderbook);
@@ -63,12 +73,10 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
              * - uses the default factory 'create' function via (double,double) constructor
              * - with .25 price intervals       
              * 
-             * NOTICE the use of the copy constructor. Factory Proxies RESTRICT 
-             * DEFAULT CONSTRUCTION to insure non-null function pointer fields
+             * Proxies (implicitly) restrict default construction and assignment
              */         
-            SimpleOrderbook::FactoryProxy<> qt_def_proxy( 
-                SimpleOrderbook::BuildFactoryProxy<quarter_tick>()
-            );
+            SimpleOrderbook::FactoryProxy<> qt_def_proxy = 
+                SimpleOrderbook::BuildFactoryProxy<quarter_tick>();            
 
            /*
             * This approach(assuming we use the default FactoryProxy) 
@@ -78,7 +86,7 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
             std::map<std::string, SimpleOrderbook::FactoryProxy<>> 
             my_factory_proxies = { 
                 {"QT", qt_def_proxy},
-                {"TT", SimpleOrderbook::BuildFactoryProxy<tenth_tick>()}
+                {"TT", SimpleOrderbook::BuildFactoryProxy<tenth_tick>()},
                 {"HT", SimpleOrderbook::BuildFactoryProxy<std::ratio<1,2>>()}
             };
 
@@ -146,26 +154,25 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
                 && orderbook->ticks_in_range(.25, 150) == 599 
                 && orderbook->tick_memory_required(.25, 150) == orderbook->tick_memory_required() )
             {
-                // true
+                std::cout<< "good orderbook" << std::endl;
             }
+
+            /* use advanced orders (IN DEVELOPEMENT) */
+            insert_advanced_orders(orderbook);
 
             /* 
              * WHEN DONE...
              */
           
             /* use the proxy to destroy the orderbook it created */
-            bool success1 = my_factory_proxies.at("QT").destroy(orderbook);
+            my_factory_proxies.at("QT").destroy(orderbook);
 
-            /* (or) use the global version to destroy ANY orderbook */
-            bool success2 = SimpleOrderbook::Destroy(orderbook);
+            /* (or) use the global version to destroy ANY orderbook 
+               NOTE: orderbook should only be destroyed once (no-op in this case) */
+            SimpleOrderbook::Destroy(orderbook);
 
-            /* 
-             * NOTE: orderbook should only be destroyed once:
-             *       success1 == true, success2 == false
-             */  
-       
             /* use the proxy to destroy all the orderbooks it created */
-            my_factory_proxies.at("QT").destroy_all()
+            my_factory_proxies.at("QT").destroy_all();
 
             /* (or) use the global version to destroy ALL orderbooks */
             SimpleOrderbook::DestroyAll();
@@ -177,10 +184,13 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 
         void 
         execution_callback(sob::callback_msg msg, 
-                           sob::id_type id,
+                           sob::id_type id1,
+                           sob::id_type id2,
                            double price,
                            size_t size)
         {
+            std::cout<< msg << " " << id1 << " " << id2 << " " 
+                     << price << " " << size << std::endl;
             // define
         }
 
@@ -188,10 +198,30 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
         insert_orders(sob::FullInterface *orderbook)
         {
             /* buy 50 @ 49.75 or better */
-            auto id1 = orderbook->insert_limit_order(true, 49.75, 50, execution_callback);
+            sob::id_type id1 = orderbook->insert_limit_order(true, 49.75, 50, execution_callback);
             /* sell 10 @ market */
-            auto id2 = orderbook->insert_market_order(false, 10, execution_callback);
-            //...
+            sob::id_type id2 = orderbook->insert_market_order(false, 10, execution_callback);
+
+            /* pull orders */
+            orderbook->pull_order(id1);
+            orderbook->pull_order(id2);}
+
+        void 
+        insert_advanced_orders(sob::FullInterface *orderbook)
+        {
+            /* create a OCO (one-cancels-other) buy-limit/sell-limit order */
+
+            /* first create an AdvancedOrderTicket */
+            auto aot = sob::AdvancedOrderTicketOCO::build_limit(false, 50.00, 100, 
+                            sob::condition_trigger::fill_partial);
+
+            /* then insert it to the standard interface 
+               NOTE: it will call back when the condition is triggered,
+                     the new order id will be in field 'id2' */
+            sob::id_type id3 = orderbook->insert_limit_order(true, 49.50, 100, execution_callback, aot);
+
+            /* if either order fills the other is canceled */
+            orderbook->insert_market_order(false, 50);
         }
 
         void
@@ -213,7 +243,7 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
         >>> ob = sob.SimpleOrderbook(sob.SOB_QUARTER_TICK, .25, 100) 
         >>> print("%f to %f by %f" % (ob.min_price(), ob.max_price(), ob.tick_size()))
         0.250000 to 100.000000 by 0.250000
-        >>> cb = lambda a,b,c,d: print("+ msg:%i id:%i price:%f size:%i" % (a,b,c,d))
+        >>> cb = lambda a,b,c,d,e: print("+ msg:%i id_old:%i id_new:%i price:%f size:%i" % (a,b,c,d,e))
         >>> ob.buy_limit(limit=20.0, size=100, callback=cb) 
         1
         >>> ob.buy_limit(20.25, 100, cb)
@@ -231,15 +261,17 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
         >>> ob.sell_stop_limit(stop=21.0, limit=20.75, size=100, callback=cb) 
         5
         >>> ob.dump_sell_stops()
+        *** (sell) stops ***
         21 <S 50 @ MKT #4>  <S 100 @ 20.750000 #5> 
         >>> ob.dump_buy_limits()
+        *** (buy) limits ***
         21 <100 #3> 
         20.25 <100 #2> 
         20 <100 #1> 
         >>> ob.sell_market(50) 
-        + msg:1 id:3 price:21.0 size:50 # callback from order #3 (1 == FILL) 
-        + msg:2 id:5 price:20.75 size:100 # callback from order #5 (2 == STOP-TO-LIMIT)
-        + msg:1 id:3 price:21.0 size:50 # callback from order #3 (1 == FILL)
+        + msg:1 id_old:3 id_new:3 price:21.0 size:50 # callback from order #3 (1 == FILL) 
+        + msg:2 id_old:5 id_new:8 price:20.75 size:100 # callback from order #5 (2 == STOP-TO-LIMIT)
+        + msg:1 id_old:3 id_new:3 price:21.0 size:50 # callback from order #3 (1 == FILL)
         6
         >>> for ts in ob.time_and_sales():
         ...  ts
@@ -249,16 +281,18 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
         >>> ob.market_depth(10)
         {20.0: (100, 1), 20.25: (100, 1), 20.75: (100, -1)}  ## 1 == SIDE_BID, -1 == SIDE_ASK
         >>> ob.dump_buy_limits()
+        *** (buy) limits ***
         20.25 <100 #2> 
         20 <100 #1> 
         >>> ob.pull_order(id=2)
-        + msg:0 id:2 price:0.0 size:0 # callback from order #2 (0 == CANCEL)
+        + msg:0 id_old:2 id_new:2 price:0.0 size:0 # callback from order #2 (0 == CANCEL)
         True
         >>> ob.replace_with_buy_limit(id=1, limit=20.50, size=500) # callback=None
-        + msg:0 id:1 price:0.0 size:0 # callback from order #1 (0 == CANCEL)
-        7
+        + msg:0 id_old:1 id_new:1 price:0.0 size:0 # callback from order #1 (0 == CANCEL)
+        9
         >>> ob.dump_buy_limits()
-        20.5 <500 #7> 
+        *** (buy) limits ***
+        20.5 <500 #9> 
 
 #### Licensing & Warranty
 *SimpleOrderbook is released under the GNU General Public License(GPL); a copy (LICENSE.txt) should be included. If not, see http://www.gnu.org/licenses. The author reserves the right to issue current and/or future versions of SimpleOrderbook under other licensing agreements. Any party that wishes to use SimpleOrderbook, in whole or in part, in any way not explicitly stipulated by the GPL, is thereby required to obtain a separate license from the author. The author reserves all other rights.*

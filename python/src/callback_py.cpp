@@ -67,10 +67,11 @@ PyFuncWrap::~PyFuncWrap()
 }
 
 void
-ExecCallbackWrap::operator()(sob::callback_msg msg,
-           sob::id_type id,
-           double price,
-           size_t size) const
+ExecCallbackWrap::operator()( sob::callback_msg msg,
+                              sob::id_type id1,
+                              sob::id_type id2,
+                              double price,
+                              size_t size) const
 {
     if( !(*this) ){
         return;
@@ -84,7 +85,8 @@ ExecCallbackWrap::operator()(sob::callback_msg msg,
     }
     /* ignore race condition here for same reason as in destructor */
     PyGILState_STATE gs = PyGILState_Ensure();
-    PyObject *args = Py_BuildValue("kkdk", static_cast<int>(msg), id, price, size);
+    PyObject *args = Py_BuildValue("kkkdk",
+            static_cast<int>(msg), id1, id2, price, size);
     PyObject* res = PyObject_CallObject(cb, args);
     if( PyErr_Occurred() ){
         std::cerr<< "* callback(" << std::hex << reinterpret_cast<void*>(cb)

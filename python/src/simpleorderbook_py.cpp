@@ -28,8 +28,6 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #ifndef IGNORE_TO_DEBUG_NATIVE
 
-// TODO  dump ALL limits/stops
-
 namespace {
 
 struct pySOBBundle{
@@ -303,12 +301,11 @@ SOB_pull_order(pySOB *self, PyObject *args, PyObject *kwds)
 PyObject*
 timesales_to_list(const std::vector<sob::timesale_entry_type>& vec, size_t n)
 {
-    PyObject *list;
+    PyObject *list = PyList_New(n);
+    if( n == 0 ){
+        return list;
+    }
     try{
-        list = PyList_New(n);
-        if( n == 0 ){
-            return list;
-        }
         /* reverse the order */
         auto eiter = vec.cend() - 1;
         for(size_t i = 0; i < n; ++i, --eiter){
@@ -359,9 +356,8 @@ struct DepthHelper{
     static PyObject*
     to_dict(const std::map<double,T>& md)
     {
-        PyObject *dict;
+        PyObject *dict = PyDict_New();
         try{
-            dict = PyDict_New();
             for(auto& level : md){
                 auto p = build_pair(level.first, level.second);
                 PyDict_SetItem(dict, std::get<0>(p), std::get<1>(p));
@@ -674,7 +670,7 @@ PyMethodDef pySOB_methods[] = {
 " insert " arg1 " market order \n\n" \
 "    def " arg1 "_market(size, callback=None) -> order ID \n\n" \
 "    size     :: int   :: number of shares/contracts \n" \
-"    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
+"    callback :: (int,int,int,float,int)->(void) :: execution callback \n\n" \
 "    returns -> int \n"
 
     MDef::KeyArgs("buy_market",SOB_trade_market<true,false>,
@@ -688,7 +684,7 @@ PyMethodDef pySOB_methods[] = {
     "    def " arg1 "_" arg2 "(" arg2 ", size, callback=None) -> order ID \n\n" \
     "    " arg2 "     :: float :: " arg2 " price \n" \
     "    size     :: int   :: number of shares/contracts \n" \
-    "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
+    "    callback :: (int,int,int,float,int)->(void) :: execution callback \n\n" \
     "    returns -> int \n"
 
     MDef::KeyArgs("buy_limit",SOB_trade_limit<true,false>,
@@ -710,7 +706,7 @@ PyMethodDef pySOB_methods[] = {
     "    stop     :: float :: stop price \n" \
     "    limit    :: float :: limit price \n" \
     "    size     :: int   :: number of shares/contracts \n" \
-    "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
+    "    callback :: (int,int,int,float,int)->(void) :: execution callback \n\n" \
     "    returns -> int \n"
 
     MDef::KeyArgs("buy_stop_limit",SOB_trade_stop_limit<true,false>,
@@ -731,7 +727,7 @@ PyMethodDef pySOB_methods[] = {
     " -> new order ID \n\n" \
     "    id       :: int   :: old order ID \n" \
     "    size     :: int   :: number of shares/contracts \n" \
-    "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
+    "    callback :: (int,int,int,float,int)->(void) :: execution callback \n\n" \
     "    returns -> int \n"
 
     MDef::KeyArgs("replace_with_buy_market",SOB_trade_market<true,true>,
@@ -747,7 +743,7 @@ PyMethodDef pySOB_methods[] = {
     "    id       :: int   :: old order ID \n" \
     "    " arg2 "    :: float :: " arg2 " price \n" \
     "    size     :: int   :: number of shares/contracts \n" \
-    "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
+    "    callback :: (int,int,int,float,int)->(void) :: execution callback \n\n" \
     "    returns -> int \n"
 
     MDef::KeyArgs("replace_with_buy_limit",SOB_trade_limit<true,true>,
@@ -770,7 +766,7 @@ PyMethodDef pySOB_methods[] = {
     "    stop     :: float :: stop price \n" \
     "    limit    :: float :: limit price \n" \
     "    size     :: int   :: number of shares/contracts \n" \
-    "    callback :: (int,int,float,int)->(void) :: execution callback \n\n" \
+    "    callback :: (int,int,int,float,int)->(void) :: execution callback \n\n" \
     "    returns -> int \n"
 
     MDef::KeyArgs("replace_with_buy_stop_limit",SOB_trade_stop_limit<true,true>,

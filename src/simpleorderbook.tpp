@@ -35,15 +35,13 @@ SOB_CLASS::SimpleOrderbookImpl(TickPrice<TickRatio> min, size_t incr)
         /* actual orderbook object */
         _book(incr + 1), /*pad the beg side */
         /***************************************************************
-         :: our ersatz iterator approach ::
-         
-         i = [ 0, incr ) 
+                      *** our ersatz iterator approach ****
+                                i = [ 0, incr )
      
          vector iter    [begin()]                               [ end() ]
          internal pntr  [ _base ][ _beg ]           [ _end - 1 ][ _end  ]
          internal index [ NULL  ][   i  ][ i+1 ]...   [ incr-1 ][  NULL ]
-         external price [ THROW ][ min  ]              [  max  ][ THROW ]        
-    
+         external price [ THROW ][ min  ]              [  max  ][ THROW ]           
         *****************************************************************/
         _beg( &(*_book.begin()) + 1 ), 
         _end( &(*_book.end())), 
@@ -109,7 +107,7 @@ SOB_CLASS::~SimpleOrderbookImpl()
  * (note: _high_low specials inherit from non-special to access range_check())
  */
 SOB_TEMPLATE
-template<side_of_market Side, typename My> 
+template<side_of_market Side, typename Impl>
 struct SOB_CLASS::_high_low {
     typedef typename SOB_CLASS::plevel plevel;
 private:
@@ -118,36 +116,34 @@ private:
 
     template<typename Dummy> 
     struct _set_using_cached<typename SOB_CLASS::limit_chain_type,Dummy>{
-    public:
         static inline void 
-        call(const My* sob,plevel* ph,plevel *pl)
+        call(const Impl* sob,plevel* ph,plevel *pl)
         {   /* Nov 20 2016 - add min/max */
-            *pl = (plevel)min(sob->_low_buy_limit,sob->_ask);
-            *ph = (plevel)max(sob->_high_sell_limit,sob->_bid); 
+            *pl = (plevel)std::min(sob->_low_buy_limit,sob->_ask);
+            *ph = (plevel)std::max(sob->_high_sell_limit,sob->_bid);
         }
     };
 
     template<typename Dummy> 
     struct _set_using_cached<typename SOB_CLASS::stop_chain_type,Dummy>{
-    public:
         static inline void 
-        call(const My* sob,plevel* ph,plevel *pl)
+        call(const Impl* sob,plevel* ph,plevel *pl)
         {
-            *pl = (plevel)min( (plevel)min( sob->_low_sell_stop, 
+            *pl = (plevel)std::min( (plevel)std::min( sob->_low_sell_stop,
                                             sob->_low_buy_stop ),
-                               (plevel)min( sob->_high_sell_stop, 
+                               (plevel)std::min( sob->_high_sell_stop,
                                             sob->_high_buy_stop ) );
 
-            *ph = (plevel)max( (plevel)max( sob->_low_sell_stop, 
+            *ph = (plevel)std::max( (plevel)std::max( sob->_low_sell_stop,
                                             sob->_low_buy_stop ),
-                               (plevel)max( sob->_high_sell_stop, 
+                               (plevel)std::max( sob->_high_sell_stop,
                                             sob->_high_buy_stop ) ); 
         }
     };
 
 public:     
     static inline void 
-    range_check(const My* sob, plevel* ph, plevel* pl)
+    range_check(const Impl* sob, plevel* ph, plevel* pl)
     {
         *ph = (*ph >= sob->_end) ? sob->_end - 1 : *ph;
         *pl = (*pl < sob->_beg) ? sob->_beg : *pl;
@@ -155,28 +151,28 @@ public:
 
     template<typename ChainTy> 
     static void 
-    set_using_depth(const My* sob, plevel* ph, plevel* pl, size_t depth )
+    set_using_depth(const Impl* sob, plevel* ph, plevel* pl, size_t depth )
     {
         _set_using_cached<ChainTy>::call(sob,ph,pl); 
-        *ph = (plevel)min(sob->_ask + depth - 1, *ph);
-        *pl = (plevel)max(sob->_bid - depth + 1, *pl);    
-        _high_low<Side,My>::range_check(sob,ph,pl);
+        *ph = (plevel)std::min(sob->_ask + depth - 1, *ph);
+        *pl = (plevel)std::max(sob->_bid - depth + 1, *pl);
+        _high_low<Side,Impl>::range_check(sob,ph,pl);
     }
 
     template<typename ChainTy> 
     static inline void 
-    set_using_cached(const My* sob, plevel* ph, plevel *pl)
+    set_using_cached(const Impl* sob, plevel* ph, plevel *pl)
     {
         _set_using_cached<ChainTy>::call(sob,ph,pl);
-        _high_low<Side,My>::range_check(sob,ph,pl);
+        _high_low<Side,Impl>::range_check(sob,ph,pl);
     }
 };
 
 
 SOB_TEMPLATE
-template<typename My> 
-struct SOB_CLASS::_high_low<side_of_market::bid,My>
-        : public _high_low<side_of_market::both,My> {
+template<typename Impl>
+struct SOB_CLASS::_high_low<side_of_market::bid,Impl>
+        : public _high_low<side_of_market::both,Impl> {
     typedef typename SOB_CLASS::plevel plevel;
 private:
     template<typename DummyChainTY, typename Dummy=void> 
@@ -184,9 +180,8 @@ private:
 
     template<typename Dummy> 
     struct _set_using_cached<typename SOB_CLASS::limit_chain_type,Dummy>{
-    public:
         static inline void 
-        call(const My* sob,plevel* ph,plevel *pl)
+        call(const Impl* sob,plevel* ph,plevel *pl)
         {
             *pl = sob->_low_buy_limit;
             *ph = sob->_bid; 
@@ -195,11 +190,11 @@ private:
 
     template<typename Dummy> 
     struct _set_using_cached<typename SOB_CLASS::stop_chain_type,Dummy>{
-    public: /* use the side_of_market::both version in base */
+        /* use the side_of_market::both version in base */
         static inline void 
-        call(const My* sob,plevel* ph,plevel *pl)
+        call(const Impl* sob,plevel* ph,plevel *pl)
         {            
-            _high_low<side_of_market::both,My>::template
+            _high_low<side_of_market::both,Impl>::template
             set_using_cached<typename SOB_CLASS::stop_chain_type>::call(sob,ph,pl);
         }
     };
@@ -207,28 +202,28 @@ private:
 public: 
     template<typename ChainTy> 
     static void 
-    set_using_depth(const My* sob, plevel* ph, plevel* pl, size_t depth)
+    set_using_depth(const Impl* sob, plevel* ph, plevel* pl, size_t depth)
     {
         _set_using_cached<ChainTy>::call(sob,ph,pl);     
         *ph = sob->_bid;     
         *pl = (plevel)max(sob->_bid - depth +1, *pl);
-        _high_low<side_of_market::both,My>::range_check(sob,ph,pl);
+        _high_low<side_of_market::both,Impl>::range_check(sob,ph,pl);
     }
 
     template<typename ChainTy> 
     static inline void 
-    set_using_cached(const My* sob, plevel* ph, plevel *pl)
+    set_using_cached(const Impl* sob, plevel* ph, plevel *pl)
     {
         _set_using_cached<ChainTy>::call(sob,ph,pl);
-        _high_low<side_of_market::both,My>::range_check(sob,ph,pl);
+        _high_low<side_of_market::both,Impl>::range_check(sob,ph,pl);
     }
 };
 
 
 SOB_TEMPLATE
-template<typename My> 
-struct SOB_CLASS::_high_low<side_of_market::ask,My>
-        : public _high_low<side_of_market::both,My> {
+template<typename Impl>
+struct SOB_CLASS::_high_low<side_of_market::ask,Impl>
+        : public _high_low<side_of_market::both,Impl> {
     typedef typename SOB_CLASS::plevel plevel;
 private:
     template<typename DummyChainTY, typename Dummy=void> 
@@ -236,9 +231,8 @@ private:
 
     template<typename Dummy> 
     struct _set_using_cached<typename SOB_CLASS::limit_chain_type,Dummy>{
-    public:
         static inline void 
-        call(const My* sob,plevel* ph,plevel *pl)
+        call(const Impl* sob,plevel* ph,plevel *pl)
         {
             *pl = sob->_ask;
             *ph = sob->_high_sell_limit; 
@@ -247,11 +241,11 @@ private:
 
     template<typename Dummy> 
     struct _set_using_cached<typename SOB_CLASS::stop_chain_type,Dummy>{
-    public: /* use the side_of_market::both version in base */
+        /* use the side_of_market::both version in base */
         static inline void 
-        call(const My* sob,plevel* ph,plevel *pl)
+        call(const Impl* sob,plevel* ph,plevel *pl)
         {            
-            _high_low<side_of_market::both,My>::template 
+            _high_low<side_of_market::both,Impl>::template
             set_using_cached<typename SOB_CLASS::stop_chain_type>::call(sob,ph,pl);
         }
     };
@@ -259,43 +253,43 @@ private:
 public: 
     template<typename ChainTy> 
     static void 
-    set_using_depth(const My* sob, plevel* ph, plevel* pl, size_t depth)
+    set_using_depth(const Impl* sob, plevel* ph, plevel* pl, size_t depth)
     {
         _set_using_cached<ChainTy>::call(sob,ph,pl);    
         *pl = sob->_ask;
-        *ph = (plevel)min(sob->_ask + depth - 1, *ph);
-        _high_low<side_of_market::both,My>::range_check(sob,ph,pl);
+        *ph = (plevel)std::min(sob->_ask + depth - 1, *ph);
+        _high_low<side_of_market::both,Impl>::range_check(sob,ph,pl);
     }
 
     template<typename ChainTy> 
     static inline void 
-    set_using_cached(const My* sob, plevel* ph, plevel *pl)
+    set_using_cached(const Impl* sob, plevel* ph, plevel *pl)
     {
         _set_using_cached<ChainTy>::call(sob,ph,pl);
-        _high_low<side_of_market::both,My>::range_check(sob,ph,pl);
+        _high_low<side_of_market::both,Impl>::range_check(sob,ph,pl);
     }
 };
 
 SOB_TEMPLATE
-template<side_of_market Side, typename My>
+template<side_of_market Side, typename Impl>
 struct SOB_CLASS::_depth{
     typedef size_t mapped_type;
     
     static inline 
     size_t 
-    build_value(const My* sob, typename SOB_CLASS::plevel p, size_t d){
+    build_value(const Impl* sob, typename SOB_CLASS::plevel p, size_t d){
         return d;
     }    
 };
 
 SOB_TEMPLATE
-template<typename My>
-struct SOB_CLASS::_depth<side_of_market::both, My>{
+template<typename Impl>
+struct SOB_CLASS::_depth<side_of_market::both, Impl>{
     typedef std::pair<size_t, side_of_market> mapped_type;
     
     static inline 
     mapped_type 
-    build_value(const My* sob, typename SOB_CLASS::plevel p, size_t d){
+    build_value(const Impl* sob, typename SOB_CLASS::plevel p, size_t d){
         auto s = (p >= sob->_ask) ? side_of_market::ask : side_of_market::bid;
         return std::make_pair(d,s);          
     }
@@ -303,59 +297,144 @@ struct SOB_CLASS::_depth<side_of_market::both, My>{
 
 
 /*
- * _order_info::generate : generate specialized order_info_type tuples
- */ 
+ * _order: utilities for individual orders
+ */
 SOB_TEMPLATE
-template<typename ChainTy, typename My> 
-struct SOB_CLASS::_order_info{
-    static inline order_info_type 
-    generate()
-    { return order_info_type(order_type::null,false,0,0,0); }
-};
-
-
-SOB_TEMPLATE
-template<typename My> 
-struct SOB_CLASS::_order_info<typename SOB_CLASS::limit_chain_type, My>{
-    typedef typename SOB_CLASS::plevel plevel;
-
-    static inline order_info_type 
-    generate(const My* sob, 
-             id_type id, 
-             plevel p, 
-             typename SOB_CLASS::limit_chain_type* c)
+struct SOB_CLASS::_order {
+    template<typename ChainTy>
+    static typename ChainTy::mapped_type&
+    find( plevel p, id_type id)
     {
-        return order_info_type(
-                    order_type::limit, (p < sob->_ask), sob->_itop(p), 
-                    0, c->at(id).sz
-                );
-    } 
-};
+        ChainTy *c = _chain<ChainTy>::get(p);
+        if( c ){
+            try{
+                return c->at(id);
+            }catch(std::out_of_range&){}
+        }
+        return ChainTy::mapped_type::null;
+    }
 
-
-SOB_TEMPLATE
-template<typename My> 
-struct SOB_CLASS::_order_info<typename SOB_CLASS::stop_chain_type, My>{    
-    typedef typename SOB_CLASS::plevel plevel;
-
-    static order_info_type 
-    generate(const My* sob, 
-             id_type id, 
-             plevel p, 
-             typename SOB_CLASS::stop_chain_type* c)
+    inline static _order_bndl&
+    as_base_bndl(plevel p, id_type id, bool is_limit)
     {
-        auto bndl = c->at(id);   
-        if( bndl.limit != 0 ){    
-            return order_info_type(
-                        order_type::stop_limit, bndl.is_buy, sob->_itop(p), 
-                        bndl.limit, bndl.sz
-                   );
-        }        
-        return order_info_type(
-                    order_type::stop, bndl.is_buy, sob->_itop(p), 0, bndl.sz
-               );
+        return is_limit
+            ? dynamic_cast<_order_bndl&>(find<limit_chain_type>(p, id))
+            : dynamic_cast<_order_bndl&>(find<stop_chain_type>(p, id));
+    }
+
+    template<typename ChainTy, typename Dummy=void>
+    struct _info{
+        static inline order_info
+        generate()
+        { return {order_type::null,false,0,0,0}; }
+    };
+
+    template<typename Dummy>
+    struct _info<limit_chain_type, Dummy> {
+        static inline order_info
+        generate(const SimpleOrderbookImpl *sob,
+                 id_type id,
+                 typename SOB_CLASS::plevel p,
+                 typename SOB_CLASS::limit_chain_type* c)
+        { return {order_type::limit, (p < sob->_ask), sob->_itop(p), 0, c->at(id).sz}; }
+    };
+
+    template<typename Dummy>
+    struct _info<stop_chain_type, Dummy> {
+        static order_info
+        generate(const SimpleOrderbookImpl *sob,
+                 id_type id,
+                 typename SOB_CLASS::plevel p,
+                 typename SOB_CLASS::stop_chain_type* c)
+        {
+            auto& bndl = c->at(id);
+            if( bndl.limit != 0 ){
+                return {order_type::stop_limit, bndl.is_buy, bndl.limit,
+                        sob->_itop(p), bndl.sz};
+            }
+            return {order_type::stop, bndl.is_buy, 0, sob->_itop(p), bndl.sz};
+        }
+    };
+
+    template<typename ChainTy,typename Dummy=void>
+    struct _dump {};
+
+    template<typename Dummy>
+    struct _dump<limit_chain_type, Dummy> {
+        static inline void
+        dump( std::ostream& out,
+              const std::pair<id_type, SOB_CLASS::limit_bndl>& p )
+        { out << " <" << p.second.sz << " #" << p.first << "> "; }
+    };
+
+    template<typename Dummy>
+    struct _dump<stop_chain_type, Dummy> {
+        static inline void
+        dump( std::ostream& out,
+              const std::pair< id_type, SOB_CLASS::stop_bndl>& p )
+        {
+            double limit = p.second.limit;
+            out << " <" << (p.second.is_buy ? "B " : "S ")
+                        << p.second.sz << " @ "
+                        << (limit ? std::to_string(limit) : "MKT")
+                        << " #" << p.first << "> ";
+        }
+    };
+
+    /* return an order_info struct for that order id */
+    template<typename ChainTy>
+    static order_info
+    info(const SimpleOrderbookImpl *sob,id_type id)
+    {
+        plevel p = _chain<ChainTy>::find(sob,id);
+        if( p ){
+            return info<ChainTy>(sob, id, p);
+        }
+        return _info<void>::generate();
+    }
+
+    /* return an order_info struct for id ONLY at plevel p (FAST) */
+    template<typename ChainTy>
+    static order_info
+    info(const SimpleOrderbookImpl *sob, id_type id, plevel p)
+    {
+        ChainTy *c = _chain<ChainTy>::get(p);
+        if( c ){
+            try{
+                return _info<ChainTy>::generate(sob, id, p, c);
+            }catch(std::out_of_range&){}
+        }
+        return _info<void>::generate();
+    }
+
+    template<typename PrimaryChainTy, typename SecondaryChainTy>
+    inline static order_info
+    info(const SimpleOrderbookImpl *sob, id_type id, plevel p)
+    {
+        auto oi =  info<PrimaryChainTy>(sob, id, p);
+        if( !oi ){
+            oi = info<SecondaryChainTy>(sob, id, p);
+        }
+        return oi;
+    }
+
+    template<typename PrimaryChainTy, typename SecondaryChainTy>
+    inline static order_info
+    info(const SimpleOrderbookImpl *sob, id_type id, double price)
+    { return info<PrimaryChainTy, SecondaryChainTy>(sob, id, sob->_ptoi(price)); }
+
+    template<typename PrimaryChainTy, typename SecondaryChainTy>
+    inline static order_info
+    info(const SimpleOrderbookImpl *sob, id_type id)
+    {
+        auto oi =  info<PrimaryChainTy>(sob, id);
+        if( !oi ){
+            oi = info<SecondaryChainTy>(sob, id);
+        }
+        return oi;
     }
 };
+
 
 /*
  * _chain::get : get appropriate chain from plevel
@@ -366,11 +445,11 @@ struct SOB_CLASS::_order_info<typename SOB_CLASS::stop_chain_type, My>{
  */
 SOB_TEMPLATE
 template<typename ChainTy, typename Dummy> 
-struct SOB_CLASS::_chain { 
+struct SOB_CLASS::_chain {    
 protected:
-    template<typename InnerChainTy, typename My>
-    static std::pair<typename SOB_CLASS::plevel,InnerChainTy*> 
-    find(const My* sob, id_type id)
+    template<typename InnerChainTy, typename Impl>
+    static typename SOB_CLASS::plevel 
+    find(const Impl* sob, id_type id)
     {         
         InnerChainTy* c;
         plevel beg;
@@ -380,12 +459,23 @@ protected:
             c = _chain<InnerChainTy>::get(beg);
             for( auto & e : *c) {
                 if( e.first == id ){ 
-                    return std::pair<plevel,InnerChainTy*>(beg,c);
+                    return beg;
                 }
             }
         }       
-        return std::pair<typename SOB_CLASS::plevel,InnerChainTy*>(nullptr,nullptr);
+        return nullptr;
     }
+    
+    template<typename InnerChainTy>
+    static size_t 
+    size(InnerChainTy *c)
+    { 
+        size_t sz = 0;
+        for( const typename InnerChainTy::value_type& e : *c ){
+            sz += e.second.sz;
+        }
+        return sz;
+    }  
 };
 
 
@@ -401,18 +491,16 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::limit_chain_type, Dummy>
 
     static size_t 
     size(chain_type* c)
-    { 
-        size_t sz = 0;
-        for( auto & e : *c ){
-            sz += e.second.sz;
-        }
-        return sz;
-    }  
+    { return _chain<void>::template size(c); }  
   
-    template<typename My>
-    static inline std::pair<typename SOB_CLASS::plevel,chain_type*>    
-    find(const My* sob, id_type id)
+    template<typename Impl>
+    static inline typename SOB_CLASS::plevel    
+    find(const Impl* sob, id_type id)
     { return _chain<void>::template find<chain_type>(sob,id); }
+
+    static inline order_type
+    as_order_type()
+    { return order_type::limit; }
 };
 
 
@@ -421,26 +509,25 @@ template<typename Dummy>
 struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>
         : public _chain<void> { 
     typedef typename SOB_CLASS::stop_chain_type chain_type;
-
+    
     static inline chain_type* 
     get(typename SOB_CLASS::plevel p)
     { return &(p->second); }
 
-    static size_t 
-    size(chain_type* c)  // CAN COMBINE WITH BASE VERSION
-    {
-        size_t sz = 0;
-        for( auto & e : *c ){
-            sz += e.second.sz;
-        }
-        return sz;
-    }    
+    static inline size_t
+    size(chain_type* c)
+    { return _chain<void>::template size(c); }
 
-    template<typename My>
-    static inline std::pair<typename SOB_CLASS::plevel,chain_type*> 
-    find(const My* sob, id_type id)
+    template<typename Impl>
+    static inline typename SOB_CLASS::plevel
+    find(const Impl* sob, id_type id)
     { return _chain<void>::template find<chain_type>(sob,id); }
+
+    static inline order_type
+    as_order_type()
+    { return order_type::stop; }
 };
+
 
 
 /*
@@ -455,20 +542,20 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>
 SOB_TEMPLATE
 template<bool BidSide, bool Redirect> /* SELL, hit bids */
 struct SOB_CLASS::_core_exec {
-    template<typename My>
+    template<typename Impl>
     static inline bool
-    is_executable_chain(const My* sob, typename SOB_CLASS::plevel p) 
+    is_executable_chain(const Impl* sob, typename SOB_CLASS::plevel p)
     { return (p <= sob->_bid || !p) && (sob->_bid >= sob->_beg); }
 
-    template<typename My>
+    template<typename Impl>
     static inline typename SOB_CLASS::plevel
-    get_inside(const My* sob) 
+    get_inside(const Impl* sob)
     { return sob->_bid; }
 
     /* THIS WILL GET IMPORTED BY THE <false> specialization */
-    template<typename My>
+    template<typename Impl>
     static bool
-    find_new_best_inside(My* sob) 
+    find_new_best_inside(Impl* sob)
     {
         /* if on an empty chain 'jump' to next that isn't, reset _ask as we go */ 
         _core_exec<Redirect>::_jump_to_nonempty_chain(sob);             
@@ -481,9 +568,9 @@ struct SOB_CLASS::_core_exec {
     }
 
 private:
-    template<typename My>
+    template<typename Impl>
     static inline void
-    _jump_to_nonempty_chain(My* sob) 
+    _jump_to_nonempty_chain(Impl* sob)
     {
         for( ; 
              sob->_bid->first.empty() && (sob->_bid >= sob->_beg); 
@@ -492,9 +579,9 @@ private:
            } 
     }
 
-    template<typename My>
+    template<typename Impl>
     static bool
-    _check_and_reset_size(My* sob)
+    _check_and_reset_size(Impl* sob)
     {
         if(sob->_bid < sob->_beg){
             sob->_bid_size = 0;             
@@ -506,9 +593,9 @@ private:
         return true;
     }
 
-    template<typename My>
+    template<typename Impl>
     static inline void
-    _adjust_limit_cache(My* sob) 
+    _adjust_limit_cache(Impl* sob)
     {       
         if( sob->_bid < sob->_low_buy_limit ){
             sob->_low_buy_limit = sob->_bid;
@@ -524,20 +611,20 @@ struct SOB_CLASS::_core_exec<false,Redirect>
         : public _core_exec<true,false> {  
     friend _core_exec<true,false>;
 
-    template<typename My>
+    template<typename Impl>
     static inline bool
-    is_executable_chain(const My* sob, typename SOB_CLASS::plevel p) 
+    is_executable_chain(const Impl* sob, typename SOB_CLASS::plevel p)
     { return (p >= sob->_ask || !p) && (sob->_ask < sob->_end); }
 
-    template<typename My>
+    template<typename Impl>
     static inline typename SOB_CLASS::plevel
-    get_inside(const My* sob) 
+    get_inside(const Impl* sob)
     { return sob->_ask; }
 
 private:
-    template<typename My>
+    template<typename Impl>
     static inline void
-    _jump_to_nonempty_chain(My* sob) 
+    _jump_to_nonempty_chain(Impl* sob)
     {
         for( ; 
              sob->_ask->first.empty() && (sob->_ask < sob->_end); 
@@ -546,9 +633,9 @@ private:
             }  
     }
 
-    template<typename My>
+    template<typename Impl>
     static bool
-    _check_and_reset_size(My* sob) 
+    _check_and_reset_size(Impl* sob)
     {
         if( sob->_ask >= sob->_end ){
             sob->_ask_size = 0;          
@@ -560,9 +647,9 @@ private:
         return true;
     }
 
-    template<typename My>
+    template<typename Impl>
     static inline void
-    _adjust_limit_cache(My* sob) 
+    _adjust_limit_cache(Impl* sob)
     {       
         if( sob->_ask > sob->_high_sell_limit ){
             sob->_high_sell_limit = sob->_ask;
@@ -574,24 +661,22 @@ private:
 SOB_TEMPLATE
 template<bool BuyLimit, typename Dummy> 
 struct SOB_CLASS::_limit_exec {
-    template<typename My>
+    template<typename Impl>
     static void
-    adjust_state_after_pull(My* sob, SOB_CLASS::plevel limit) 
-    {
-        if( limit < sob->_low_buy_limit ){ 
-            throw std::runtime_error("can't remove limit lower than cached val");
-        }
+    adjust_state_after_pull(Impl* sob, SOB_CLASS::plevel limit)
+    {   /* working on guarantee that this is the *last* order at this level*/
+        assert( limit >= sob->_low_buy_limit );
         if( limit == sob->_low_buy_limit ){
-            ++sob->_low_buy_limit;  /*dont look for next valid plevel*/
+            ++sob->_low_buy_limit;
         } 
         if( limit == sob->_bid ){
             SOB_CLASS::_core_exec<true>::find_new_best_inside(sob);
         }
     }
 
-    template<typename My>
+    template<typename Impl>
     static void
-    adjust_state_after_insert(My* sob, 
+    adjust_state_after_insert(Impl* sob,
                               SOB_CLASS::plevel limit, 
                               SOB_CLASS::limit_chain_type* orders) 
     {
@@ -611,24 +696,22 @@ struct SOB_CLASS::_limit_exec {
 SOB_TEMPLATE 
 template<typename Dummy>
 struct SOB_CLASS::_limit_exec<false, Dummy> {
-    template<typename My>
+    template<typename Impl>
     static void
-    adjust_state_after_pull(My* sob, SOB_CLASS::plevel limit) 
-    {
-        if( limit > sob->_high_sell_limit ){ 
-            throw std::runtime_error("can't remove limit higher than cached val");
-        }
+    adjust_state_after_pull(Impl* sob, SOB_CLASS::plevel limit)
+    {   /* working on guarantee that this is the *last* order at this level*/
+        assert( limit <= sob->_high_sell_limit );
         if( limit == sob->_high_sell_limit ){
-            --sob->_high_sell_limit;  /*dont look for next valid plevel*/
+            --sob->_high_sell_limit;
         }
         if( limit == sob->_ask ){
             SOB_CLASS::_core_exec<false>::find_new_best_inside(sob);
         }
     }
 
-    template<typename My>
+    template<typename Impl>
     static void
-    adjust_state_after_insert(My* sob, 
+    adjust_state_after_insert(Impl* sob,
                               SOB_CLASS::plevel limit, 
                               SOB_CLASS::limit_chain_type* orders) 
     {
@@ -643,33 +726,31 @@ struct SOB_CLASS::_limit_exec<false, Dummy> {
     }
 };
 
-
+// TODO mechanism to jump to new stop cache vals ??
 SOB_TEMPLATE
 template<bool BuyStop, bool Redirect /* = BuyStop */> 
 struct SOB_CLASS::_stop_exec {
-    template<typename My> 
+    template<typename Impl>
     static void
-    adjust_state_after_pull(My* sob, SOB_CLASS::plevel stop) 
-    {
-        // COULD WE ACCIDENTALLY ADJUST TWICE IN HERE ???
-        if( stop > sob->_high_buy_stop ){                  
-            throw std::runtime_error("can't remove stop higher than cached val");
-        }
-        if( stop < sob->_low_buy_stop ){
-            throw std::runtime_error("can't remove stop lower than cached val");
-        }
-        
-        if( stop == sob->_high_buy_stop ){
-            --sob->_high_buy_stop; /*dont look for next valid plevel*/
-        }     
-        if( stop == sob->_low_buy_stop ){
-            ++sob->_low_buy_stop; /*dont look for next valid plevel*/
+    adjust_state_after_pull(Impl* sob, SOB_CLASS::plevel stop)
+    {   /* working on guarantee that this is the *last* order at this level*/
+        assert( stop <= sob->_high_buy_stop );
+        assert( stop >= sob->_low_buy_stop );
+        if( sob->_high_buy_stop == sob->_low_buy_stop ){
+            /* last order, reset to 'null' levels */
+            assert(stop == sob->_high_buy_stop);
+            sob->_high_buy_stop = sob->_beg - 1;
+            sob->_low_buy_stop = sob->_end;
+        }else if( stop == sob->_high_buy_stop ){
+            --sob->_high_buy_stop;
+        }else if( stop == sob->_low_buy_stop ){
+            ++sob->_low_buy_stop;
         }
     }
 
-    template<typename My> 
+    template<typename Impl>
     static void
-    adjust_state_after_insert(My* sob, SOB_CLASS::plevel stop) 
+    adjust_state_after_insert(Impl* sob, SOB_CLASS::plevel stop)
     {
         if( stop < sob->_low_buy_stop ){    
             sob->_low_buy_stop = stop;
@@ -679,9 +760,9 @@ struct SOB_CLASS::_stop_exec {
         }
     }
 
-    template<typename My> 
+    template<typename Impl>
     static void
-    adjust_state_after_trigger(My* sob, SOB_CLASS::plevel stop) 
+    adjust_state_after_trigger(Impl* sob, SOB_CLASS::plevel stop)
     {    
         sob->_low_buy_stop = stop + 1;              
         if( sob->_low_buy_stop > sob->_high_buy_stop ){            
@@ -691,9 +772,9 @@ struct SOB_CLASS::_stop_exec {
     }
 
     /* THIS WILL GET IMPORTED BY THE <false> specialization */
-    template<typename My>
+    template<typename Impl>
     static bool
-    stop_chain_is_empty(My* sob, SOB_CLASS::stop_chain_type* c)
+    stop_chain_is_empty(Impl* sob, SOB_CLASS::stop_chain_type* c)
     {
         static auto ifcond = 
             [](const typename SOB_CLASS::stop_chain_type::value_type & v) 
@@ -712,28 +793,26 @@ SOB_TEMPLATE
 template<bool Redirect /* = false */> 
 struct SOB_CLASS::_stop_exec<false,Redirect> 
         : public _stop_exec<true,false> {
-    template<typename My> 
+    template<typename Impl>
     static void
-    adjust_state_after_pull(My* sob, SOB_CLASS::plevel stop) 
-    {
-        if( stop > sob->_high_sell_stop ){ 
-            throw std::runtime_error("can't remove stop higher than cached val");
-        }
-        if( stop < sob->_low_sell_stop ){ 
-            throw std::runtime_error("can't remove stop lower than cached val");
-        }
-        
-        if( stop == sob->_high_sell_stop ){
-            --sob->_high_sell_stop; /*dont look for next valid plevel */
-        }              
-        if( stop == sob->_low_sell_stop ){
-            ++sob->_low_sell_stop; /*dont look for next valid plevel*/
+    adjust_state_after_pull(Impl* sob, SOB_CLASS::plevel stop)
+    {   /* working on guarantee that this is the *last* order at this level*/
+        assert( stop <= sob->_high_sell_stop );
+        assert( stop >= sob->_low_sell_stop );
+        if( sob->_high_sell_stop == sob->_low_sell_stop ){
+            assert(stop == sob->_high_sell_stop);
+            sob->_high_sell_stop = sob->_beg - 1;
+            sob->_low_sell_stop = sob->_end;
+        }else if( stop == sob->_high_sell_stop ){
+            --sob->_high_sell_stop;
+        }else if( stop == sob->_low_sell_stop ){
+            ++sob->_low_sell_stop;
         }
     }
 
-    template<typename My> 
+    template<typename Impl>
     static void
-    adjust_state_after_insert(My* sob, SOB_CLASS::plevel stop) 
+    adjust_state_after_insert(Impl* sob, SOB_CLASS::plevel stop)
     {
         if( stop > sob->_high_sell_stop ){ 
             sob->_high_sell_stop = stop;
@@ -743,9 +822,9 @@ struct SOB_CLASS::_stop_exec<false,Redirect>
         }
     }
 
-    template<typename My> 
+    template<typename Impl>
     static void
-    adjust_state_after_trigger(My* sob, SOB_CLASS::plevel stop) 
+    adjust_state_after_trigger(Impl* sob, SOB_CLASS::plevel stop)
     {  
         sob->_high_sell_stop = stop - 1;        
         if( sob->_high_sell_stop < sob->_low_sell_stop ){            
@@ -805,12 +884,17 @@ SOB_CLASS::_hit_chain( plevel plev,
     /* check each order, FIFO, for this plevel */
     for( auto& elem : plev->first ){        
         amount = std::min(size, elem.second.sz);
-        /* push callbacks into queue; update state */
+        /* push callbacks onto queue; update state */
         _trade_has_occured( plev, amount, id, elem.first, exec_cb, 
-                            elem.second.exec_cb, true );
+                            elem.second.exec_cb );
+
         /* reduce the amount left to trade */ 
         size -= amount;    
         rmndr = elem.second.sz - amount;
+
+        /* deal with advanced order conditions */
+        _handle_advanced_order(elem.second, elem.first, rmndr);
+
         if( rmndr > 0 ){ 
             elem.second.sz = rmndr; /* adjust outstanding order size */
         }else{                    
@@ -826,33 +910,91 @@ SOB_CLASS::_hit_chain( plevel plev,
 
 
 SOB_TEMPLATE
-void 
+void
 SOB_CLASS::_trade_has_occured( plevel plev,
                                size_t size,
                                id_type idbuy,
                                id_type idsell,
                                order_exec_cb_type& cbbuy,
-                               order_exec_cb_type& cbsell,
-                               bool took_offer )
-{  
+                               order_exec_cb_type& cbsell )
+{
     /* CAREFUL: we can't insert orders from here since we have yet to finish
-       processing the initial order (possible infinite loop); */  
-    double p = _itop(plev);  
-    
-    /* buy side */
-    _deferred_callbacks.push_back( 
-        dfrd_cb_elem{ callback_msg::fill, cbbuy, idbuy, p, size }
-    );
-    /* sell side */
-    _deferred_callbacks.push_back( 
-        dfrd_cb_elem{ callback_msg::fill, cbsell, idsell, p, size }
-    );
+       processing the initial order (possible infinite loop); */
+    double p = _itop(plev);
+
+    /* buy and sell sides */
+    _push_exec_callback(callback_msg::fill, cbbuy, idbuy, idbuy, p, size);
+    _push_exec_callback(callback_msg::fill, cbsell, idsell, idsell, p, size);
 
     _timesales.push_back( std::make_tuple(clock_type::now(), p, size) );
     _last = plev;
     _total_volume += size;
     _last_size = size;
     _need_check_for_stops = true;
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_handle_advanced_order(_order_bndl& bndl, id_type id, size_t rmndr)
+{
+    if( bndl.trigger == condition_trigger::none ){
+        assert(bndl.cond == order_condition::none);
+        return;
+    }
+    assert(bndl.cond != order_condition::none);
+
+    if( bndl.trigger == condition_trigger::fill_full && rmndr > 0 ){
+        return;
+    };
+
+    switch(bndl.cond){
+    case order_condition::one_cancels_other:
+        _handle_OCO(bndl, id);
+        break;
+    case order_condition::one_triggers_other:
+         _handle_OTO(bndl, id);
+        break;
+    default:
+        throw std::runtime_error("invalid order condition");
+    }
+
+    /* SHOULD ONLY GET HERE IF HANDLED ADVANCED ORDER */
+    bndl.cond = order_condition::none;
+    bndl.trigger = condition_trigger::none;
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id)
+{
+    order_location *loc = bndl.linked_order;
+    assert(loc);
+    id_type id_old = loc->primary ? loc->id : id;
+    /* if we need to remove primary order, indicate new order # */
+    _push_OCO_callback( bndl.exec_cb, id_old, id, 0, 0);
+    _pull_order(loc->id, loc->price, false, loc->limit_chain);
+    delete loc;
+    bndl.linked_order = nullptr;
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_handle_OTO(_order_bndl& bndl, id_type id)
+{
+    id_type id_new = _generate_id();
+    _push_OTO_callback(bndl.exec_cb, id, id_new, 0, 0);
+    OrderParamaters *params = bndl.contingent_order;
+    assert(params);
+    _push_order_no_wait( params->get_order_type(), params->is_buy(),
+                         params->limit(), params->stop(),
+                         params->size(), bndl.exec_cb,
+                         order_condition::none, condition_trigger::none,
+                         nullptr, nullptr, id_new );
+    delete params;
+    bndl.contingent_order = nullptr;
 }
 
 
@@ -886,8 +1028,11 @@ SOB_CLASS::_threaded_order_dispatcher()
         }
         
         try{
-            _route_order(e,id);
-        }catch(...){          
+            std::lock_guard<std::mutex> lock(_master_mtx); 
+            /* --- CRITICAL SECTION --- */
+            _insert_order(e, id);
+            /* --- CRITICAL SECTION --- */
+        }catch(...){        
             --_noutstanding_orders;
             p.set_exception( std::current_exception() );
             continue;
@@ -900,38 +1045,59 @@ SOB_CLASS::_threaded_order_dispatcher()
 
 
 SOB_TEMPLATE
-void 
-SOB_CLASS::_route_order(order_queue_elem& e, id_type& id)
+void
+SOB_CLASS::_insert_order(order_queue_elem& e, id_type& id)
 {
-    std::lock_guard<std::mutex> lock(_master_mtx); 
-    /* --- CRITICAL SECTION --- */
+    assert(id > 0);
+    if( e.cond == order_condition::none ){
+        _route_basic_order(e, id);
+        return;
+    }
+    _route_advanced_order(e, id);
+}
+
+
+SOB_TEMPLATE
+fill_type
+SOB_CLASS::_route_basic_order(order_queue_elem& e, id_type& id)
+{
+    fill_type fill = fill_type::none;
     try{    
         /* note the _ptoi() conversions HOLDING THE LOCK */            
         switch( e.type ){            
-        case order_type::limit:         
-            e.is_buy ? _insert_limit_order<true>(_ptoi(e.limit), e.sz, e.exec_cb, id)
-                     : _insert_limit_order<false>(_ptoi(e.limit), e.sz, e.exec_cb, id); 
+        case order_type::limit:  
+            fill =  e.is_buy
+                ? _insert_limit_order<true>(_ptoi(e.limit), e.sz, e.exec_cb, id)
+                : _insert_limit_order<false>(_ptoi(e.limit), e.sz, e.exec_cb, id);
             break;
        
         case order_type::market:                
             e.is_buy ? _insert_market_order<true>(e.sz, e.exec_cb, id)
-                     : _insert_market_order<false>(e.sz, e.exec_cb, id);  
+                     : _insert_market_order<false>(e.sz, e.exec_cb, id);
+            fill = fill_type::immediate_full;
             break;
       
         case order_type::stop:        
             e.is_buy ? _insert_stop_order<true>(_ptoi(e.stop), e.sz, e.exec_cb, id)
-                     : _insert_stop_order<false>(_ptoi(e.stop), e.sz, e.exec_cb, id);            
+                     : _insert_stop_order<false>(_ptoi(e.stop), e.sz, e.exec_cb, id);
             break;
          
         case order_type::stop_limit:        
             e.is_buy ? _insert_stop_order<true>(_ptoi(e.stop), e.limit, e.sz, e.exec_cb, id)
-                     : _insert_stop_order<false>(_ptoi(e.stop), e.limit, e.sz, e.exec_cb, id);           
+                     : _insert_stop_order<false>(_ptoi(e.stop), e.limit, e.sz, e.exec_cb, id);
             break;
          
         case order_type::null: 
             /* not the cleanest but most effective/thread-safe 
-               e[1] indicates to check limits first (not buy/sell) */
-            id = (id_type)_pull_order(id, e.is_buy);
+               e.is_buy indicates to check limits first (not buy/sell)
+               success/fail is returned in the in e.id*/
+            if( e.limit && is_valid_price(e.limit) ){ // if hint
+                id = (id_type)_pull_order(id, e.limit, true, e.is_buy);
+                if( id ){
+                    break;
+                }
+            }
+            id = (id_type)_pull_order(id, true, e.is_buy);
             break;
         
         default: 
@@ -947,97 +1113,199 @@ SOB_CLASS::_route_order(order_queue_elem& e, id_type& id)
     }catch(...){                
         _look_for_triggered_stops(true); /* no throw */
         throw;
-    }             
-    /* --- CRITICAL SECTION --- */
+    }           
+    return fill;
 }
 
 
 SOB_TEMPLATE
-id_type 
-SOB_CLASS::_push_order_and_wait( order_type oty, 
-                                 bool buy, 
-                                 double limit,
-                                 double stop,
-                                 size_t size,
-                                 order_exec_cb_type cb,                                              
-                                 order_admin_cb_type admin_cb,
+void
+SOB_CLASS::_route_advanced_order(order_queue_elem& e, id_type& id)
+{
+    OrderParamaters *op = e.cond_order_params.get();
+    assert(op);
+    switch(e.cond){
+    case order_condition::one_cancels_other:
+        _insert_OCO_order(e, id, op);
+        break;
+    case order_condition::one_triggers_other:
+        _insert_OTO_order(e, id, op);
+        break;
+    default:
+        throw std::runtime_error("invalid advanced order condition");
+    }
+}
+
+
+SOB_TEMPLATE
+bool
+SOB_CLASS::_inject_order( order_queue_elem& e, id_type id, bool partial_ok )
+{
+    fill_type f = _route_basic_order(e, id);
+    return ( f == fill_type::immediate_full
+             || (partial_ok && f == fill_type::immediate_partial) );
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_insert_OCO_order(order_queue_elem& e, id_type id, OrderParamaters *op)
+{
+    assert(e.cond == order_condition::one_cancels_other);
+    assert(e.type != order_type::market);
+    assert(e.type != order_type::null);
+    assert(op->get_order_type() != order_type::market);
+    assert(op->get_order_type() != order_type::null);
+
+    bool partial_ok = (e.cond_trigger == condition_trigger::fill_partial);
+
+    /* if we fill immediately, no need to enter 2nd order */
+    if( _inject_order(e, id, partial_ok) ){
+        _push_OCO_callback(e.exec_cb, id, id, 0, 0);
+        return;
+    }
+
+    bool primary_is_limit = (e.type == order_type::limit);
+    bool secondary_is_limit = (op->get_order_type() == order_type::limit);
+
+    id_type id2 = _generate_id();
+    order_queue_elem e2 = {
+        op->get_order_type(), op->is_buy(), op->limit(), op->stop(),
+        op->size(), e.exec_cb, e.cond, e.cond_trigger,
+        nullptr, e.admin_cb, id2,
+        std::move(std::promise<id_type>())
+    };
+
+    double p1 = primary_is_limit ? e.limit : e.stop;
+
+    /* if we fill second order immediately, remove first */
+    if( _inject_order(e2, id2, partial_ok) ){
+        _push_OCO_callback(e.exec_cb, id, id2, 0, 0);
+        _pull_order(id, p1, false, primary_is_limit);
+        return;
+    }
+
+    auto& o1 = _order::as_base_bndl(_ptoi(p1), id, primary_is_limit);
+    assert(o1);
+
+    double p2 = secondary_is_limit ? op->limit() : op->stop();
+    auto& o2 = _order::as_base_bndl(_ptoi(p2), id2, primary_is_limit);
+    assert(o2);
+
+    o1.linked_order = new order_location{p2, id2, secondary_is_limit, false};
+    o2.linked_order = new order_location{p1, id, primary_is_limit, true};
+
+    o1.cond = o2.cond = order_condition::one_cancels_other;
+    o1.trigger = o2.trigger = e.cond_trigger;
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_insert_OTO_order(order_queue_elem& e, id_type id, OrderParamaters *op)
+{
+    assert(e.cond == order_condition::one_triggers_other);
+
+    bool partial_ok = (e.cond_trigger == condition_trigger::fill_partial);
+
+    if( _inject_order(e, id, partial_ok) ){
+        id_type id2 = _generate_id();
+        _push_OTO_callback(e.exec_cb, id, id2, 0, 0);
+        _push_order_no_wait( op->get_order_type(), op->is_buy(),
+                             op->limit(), op->stop(), op->size(),
+                             e.exec_cb, order_condition::none,
+                             condition_trigger::none, nullptr,
+                             nullptr, id2);
+        return;
+    }
+
+    bool is_limit = (e.type == order_type::limit);
+    double price = is_limit ? e.limit : e.stop;
+    auto& o = _order::as_base_bndl( _ptoi(price), id, is_limit);
+    assert(o);
+
+    o.contingent_order = new OrderParamaters(*op);
+    o.cond = order_condition::one_triggers_other;
+    o.trigger = e.cond_trigger;
+}
+
+
+SOB_TEMPLATE
+template<bool BuyLimit>
+sob::fill_type
+SOB_CLASS::_insert_limit_order( plevel limit,
+                                size_t size,
+                                order_exec_cb_type exec_cb,
+                                id_type id )
+{
+    fill_type fill = fill_type::none;
+    size_t rmndr = size;
+    if( (BuyLimit && limit >= _ask) || (!BuyLimit && limit <= _bid) ){
+        /* If there are matching orders on the other side fill @ market
+               - pass ref to callback functor, we'll copy later if necessary
+               - return what we couldn't fill @ market */
+        rmndr = _trade<!BuyLimit>(limit, id, size, exec_cb);
+    }
+
+    if( rmndr > 0) {
+        /* insert what remains as limit order
+           copy callback functor, needs to persist */
+        limit_chain_type *orders = &limit->first;
+        orders->emplace( id, limit_bndl(rmndr, exec_cb) );
+        _limit_exec<BuyLimit>::adjust_state_after_insert(this, limit, orders);
+        if( rmndr < size ){
+            fill = fill_type::immediate_partial;
+        }
+    }else{
+        fill = fill_type::immediate_full;
+    }
+
+    return fill;
+}
+
+
+SOB_TEMPLATE
+template<bool BuyMarket>
+void
+SOB_CLASS::_insert_market_order( size_t size,
+                                 order_exec_cb_type exec_cb,
                                  id_type id )
 {
-    
-    std::promise<id_type> p;
-    std::future<id_type> f(p.get_future());    
-    {
-         std::lock_guard<std::mutex> lock(_order_queue_mtx);
-         /* --- CRITICAL SECTION --- */
-         _order_queue.push(
-             order_queue_elem{
-                 oty, buy, limit, stop, size, cb, id, admin_cb, std::move(p)
-             }
-         );
-         ++_noutstanding_orders;
-         /* --- CRITICAL SECTION --- */
-    }    
-    _order_queue_cond.notify_one();
-    
-    id_type ret_id;
-    try{         
-        ret_id = f.get(); /* BLOCKING */            
-    }catch(...){
-        _block_on_outstanding_orders(); /* BLOCKING */         
-        _clear_callback_queue(); 
-        throw;
+    size_t rmndr = _trade<!BuyMarket>(nullptr, id, size, exec_cb);
+    if( rmndr > 0 ){
+        throw liquidity_exception( size, rmndr, id, "_insert_market_order()" );
     }
-        
-    _block_on_outstanding_orders(); /* BLOCKING */         
-    _clear_callback_queue(); 
-    return ret_id;
 }
 
 
 SOB_TEMPLATE
-void 
-SOB_CLASS::_push_order_no_wait( order_type oty, 
-                                bool buy, 
-                                double limit,
-                                double stop, 
-                                size_t size,
-                                order_exec_cb_type cb,                                       
-                                order_admin_cb_type admin_cb,
-                                id_type id )
-{ 
-    {
-        std::lock_guard<std::mutex> lock(_order_queue_mtx);
-        /* --- CRITICAL SECTION --- */
-        _order_queue.push(
-            order_queue_elem{
-                oty, buy, limit, stop, size, cb, id, admin_cb,
-                std::move( std::promise<id_type>() ) /* dummy promise */
-            } 
-        );
-        ++_noutstanding_orders;
-        /* --- CRITICAL SECTION --- */
-    }    
-    _order_queue_cond.notify_one();
-}
-
-
-SOB_TEMPLATE
-void 
-SOB_CLASS::_block_on_outstanding_orders()
+template<bool BuyStop>
+void
+SOB_CLASS::_insert_stop_order( plevel stop,
+                               size_t size,
+                               order_exec_cb_type exec_cb,
+                               id_type id )
 {
-    while(1){
-        {
-            std::lock_guard<std::mutex> lock(_order_queue_mtx);
-            /* --- CRITICAL SECTION --- */
-            if( _noutstanding_orders < 0 ){
-                throw std::runtime_error("_noutstanding_orders < 0");
-            }else if( _noutstanding_orders == 0 ){
-                break;
-            }
-            /* --- CRITICAL SECTION --- */
-        }
-        std::this_thread::yield();
-    }
+    /* use stop_limit overload; 0 as limit */
+    _insert_stop_order<BuyStop>( stop, 0, size, std::move(exec_cb), id );
+}
+
+
+SOB_TEMPLATE
+template<bool BuyStop>
+void
+SOB_CLASS::_insert_stop_order( plevel stop,
+                               double limit,
+                               size_t size,
+                               order_exec_cb_type exec_cb,
+                               id_type id )
+{
+   /*  we need an actual trade @/through the stop, i.e can't assume
+       it's already been triggered by where last/bid/ask is...
+         - simply pass the order to the appropriate stop chain
+         - copy callback functor, needs to persist)                */
+    stop->second.emplace( id, stop_bndl(BuyStop, limit, size, exec_cb) );
+    _stop_exec<BuyStop>::adjust_state_after_insert(this, stop);
 }
 
 
@@ -1067,7 +1335,7 @@ SOB_CLASS::_clear_callback_queue()
     
     for( const auto & e : cb_elems ){           
         if( e.exec_cb ){ 
-            e.exec_cb( e.msg, e.id, e.price, e.sz );
+            e.exec_cb( e.msg, e.id1, e.id2, e.price, e.sz );
         }
     }        
     _busy_with_callbacks.store(false);
@@ -1120,146 +1388,202 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     order_exec_cb_type cb;
     double limit;         
     size_t sz;
+    id_type id_new;
     /*
      * need to copy the relevant chain, delete original, THEN insert
      * if not we can hit the same order more than once / go into infinite loop
      */
-    stop_chain_type cchain = plev->second;
+    stop_chain_type cchain = std::move(plev->second);
     plev->second.clear();
+
     _stop_exec<BuyStops>::adjust_state_after_trigger(this, plev);
 
     for( auto & e : cchain ){
         limit = e.second.limit;
-        cb = e.second.exec_cb;
+        cb = e.second.exec_cb; 
         sz = e.second.sz;
+        id_new = _generate_id();
+        
+        /* first we handle any advanced conditions */       
+        _handle_advanced_order(e.second, e.first, 0);
+        
        /*
-        * note we are keeping the old id
+        * UPDATE! we are creating new id for new exec_cb type (Jan 18)
         * 
         * we can't use the blocking version of _push_order or we'll deadlock
         * the order_queue; we simply increment _noutstanding_orders instead
         * and block on that when necessary.
         */    
         if( limit != 0 ){ /* stop to limit */        
-            if( cb ){ 
-                /*** PROTECTED BY _master_mtx ***/
-                _deferred_callbacks.push_back( 
-                    dfrd_cb_elem{
-                        callback_msg::stop_to_limit, cb, e.first, limit, sz
-                    }
-                );  
-                /*** PROTECTED BY _master_mtx ***/          
+            if( cb ){
+                _push_exec_callback(callback_msg::stop_to_limit, cb, e.first,
+                                    id_new, limit, sz);
             }
             _push_order_no_wait(order_type::limit, e.second.is_buy, limit, 
-                                0, sz, cb, nullptr, e.first);     
+                                0, sz, cb, order_condition::none, 
+                                condition_trigger::fill_partial, nullptr,
+                                nullptr, id_new);     
         }else{ /* stop to market */
+            if( cb ){ 
+                _push_exec_callback(callback_msg::stop_to_market, cb, e.first,
+                                    id_new, 0, sz);
+            }
             _push_order_no_wait(order_type::market, e.second.is_buy, 0, 
-                                0, sz, cb, nullptr, e.first);
+                                0, sz, cb, order_condition::none, 
+                                condition_trigger::fill_partial, nullptr,
+                                nullptr, id_new);
         }
+        // NOTE the new stop drops the advanced order_condition
     }
 }
 
 
 SOB_TEMPLATE
-template<bool BuyLimit>
-void 
-SOB_CLASS::_insert_limit_order( plevel limit,
-                                size_t size,
-                                order_exec_cb_type exec_cb,
-                                id_type id )
-{
-    size_t rmndr = size; 
-    if( (BuyLimit && limit >= _ask) || (!BuyLimit && limit <= _bid) ){
-        /* If there are matching orders on the other side fill @ market
-               - pass ref to callback functor, we'll copy later if necessary 
-               - return what we couldn't fill @ market */
-        rmndr = _trade<!BuyLimit>(limit, id, size, exec_cb);
-    }
- 
-    if( rmndr > 0) {
-        /* insert what remains as limit order
-           copy callback functor, needs to persist */  
-        limit_chain_type *orders = &limit->first; 
-        orders->insert( 
-            std::make_pair(id, limit_bndl{rmndr, exec_cb}) 
-        );        
-        _limit_exec<BuyLimit>::adjust_state_after_insert(this, limit, orders);         
-    }
-}
-
-
-SOB_TEMPLATE
-template<bool BuyMarket>
-void 
-SOB_CLASS::_insert_market_order( size_t size,
-                                 order_exec_cb_type exec_cb,
+id_type
+SOB_CLASS::_push_order_and_wait( order_type oty,
+                                 bool buy,
+                                 double limit,
+                                 double stop,
+                                 size_t size,
+                                 order_exec_cb_type cb,
+                                 order_condition cond,
+                                 condition_trigger cond_trigger,
+                                 std::unique_ptr<OrderParamaters>&& cond_order_params,
+                                 order_admin_cb_type admin_cb,
                                  id_type id )
 {
-    size_t rmndr = _trade<!BuyMarket>(nullptr, id, size, exec_cb);
-    if( rmndr > 0 ){               
-        throw liquidity_exception( size, rmndr, id, "_insert_market_order()" );
+
+    std::promise<id_type> p;
+    std::future<id_type> f(p.get_future());
+    _push_order(oty, buy, limit, stop, size, cb, cond, cond_trigger,
+                std::move(cond_order_params), admin_cb, id, std::move(p) );
+
+    id_type ret_id;
+    try{
+        ret_id = f.get(); /* BLOCKING */
+    }catch(...){
+        _block_on_outstanding_orders(); /* BLOCKING */
+        _clear_callback_queue();
+        throw;
+    }
+
+    _block_on_outstanding_orders(); /* BLOCKING */
+    _clear_callback_queue();
+    return ret_id;
+}
+
+
+SOB_TEMPLATE
+void 
+SOB_CLASS::_push_order_no_wait( order_type oty,
+                                bool buy,
+                                double limit,
+                                double stop,
+                                size_t size,
+                                order_exec_cb_type cb,
+                                order_condition cond,
+                                condition_trigger cond_trigger,
+                                std::unique_ptr<OrderParamaters>&& cond_order_params,
+                                order_admin_cb_type admin_cb,
+                                id_type id )
+{
+    _push_order( oty, buy, limit, stop, size, cb, cond, cond_trigger,
+                std::move(cond_order_params), admin_cb, id,
+                /* dummy */ std::move( std::promise<id_type>() ) );
+}
+
+
+SOB_TEMPLATE
+void 
+SOB_CLASS::_push_order( order_type oty,
+                        bool buy,
+                        double limit,
+                        double stop,
+                        size_t size,
+                        order_exec_cb_type cb,
+                        order_condition cond,
+                        condition_trigger cond_trigger,
+                        std::unique_ptr<OrderParamaters>&& cond_order_params,
+                        order_admin_cb_type admin_cb,
+                        id_type id,
+                        std::promise<id_type>&& p )
+{
+    {
+        std::lock_guard<std::mutex> lock(_order_queue_mtx);
+        /* --- CRITICAL SECTION --- */
+        _order_queue.push(
+            { oty, buy, limit, stop, size, cb, cond, cond_trigger,
+              std::move(cond_order_params), admin_cb, id, std::move(p) }
+        );
+        ++_noutstanding_orders;
+        /* --- CRITICAL SECTION --- */
+    }
+    _order_queue_cond.notify_one();
+}
+
+
+SOB_TEMPLATE
+void 
+SOB_CLASS::_block_on_outstanding_orders()
+{
+    while(1){
+        {
+            std::lock_guard<std::mutex> lock(_order_queue_mtx);
+            /* --- CRITICAL SECTION --- */
+            if( _noutstanding_orders < 0 ){
+                throw std::runtime_error("_noutstanding_orders < 0");
+            }else if( _noutstanding_orders == 0 ){
+                break;
+            }
+            /* --- CRITICAL SECTION --- */
+        }
+        std::this_thread::yield();
     }
 }
 
-
-SOB_TEMPLATE
-template<bool BuyStop>
-void 
-SOB_CLASS::_insert_stop_order( plevel stop,
-                               size_t size,
-                               order_exec_cb_type exec_cb,
-                               id_type id )
-{
-    /* use stop_limit overload; 0 as limit */
-    _insert_stop_order<BuyStop>( stop, 0, size, std::move(exec_cb), id );
-}
-
-
-SOB_TEMPLATE
-template<bool BuyStop>
-void 
-SOB_CLASS::_insert_stop_order( plevel stop,
-                               double limit,
-                               size_t size,
-                               order_exec_cb_type exec_cb,
-                               id_type id )
-{  
-   /*  we need an actual trade @/through the stop, i.e can't assume
-       it's already been triggered by where last/bid/ask is...
-     
-           - simply pass the order to the appropriate stop chain     
-           - copy callback functor, needs to persist)                */
-    stop->second.insert( 
-        std::make_pair( id, stop_bndl{BuyStop, limit, size, exec_cb} ) 
-    );   
-    _stop_exec<BuyStop>::adjust_state_after_insert(this, stop); 
-}
 
 
 SOB_TEMPLATE
 bool
-SOB_CLASS::_pull_order(id_type id, bool limits_first)
+SOB_CLASS::_pull_order(id_type id, bool pull_linked, bool limits_first)
 {
     return limits_first 
-        ? (_pull_order<limit_chain_type>(id) || _pull_order<stop_chain_type>(id))
-        : (_pull_order<stop_chain_type>(id) || _pull_order<limit_chain_type>(id));    
+        ? (_pull_order<limit_chain_type>(id, pull_linked)
+                || _pull_order<stop_chain_type>(id, pull_linked))
+        : (_pull_order<stop_chain_type>(id, pull_linked)
+                || _pull_order<limit_chain_type>(id, pull_linked));
 }
 
 
 SOB_TEMPLATE
 template<typename ChainTy>
 bool 
-SOB_CLASS::_pull_order(id_type id)
+SOB_CLASS::_pull_order(id_type id, bool pull_linked)
 { 
      /*** CALLER MUST HOLD LOCK ON _master_mtx OR RACE CONDTION WITH CALLBACK QUEUE ***/    
-    plevel p;
-    ChainTy *c;
-    std::tie(p, c) = _chain<ChainTy>::find(this,id); 
-    if(!c || !p){
+    plevel p = _chain<ChainTy>::find(this,id); 
+    if( !p ){
         return false;
     }
+    _assert_plevel(p);    
+    return _pull_order<ChainTy>(id, p, pull_linked);
+}
 
-    /* copy the bndl before erasing */
-    typename ChainTy::mapped_type bndl( c->at(id) );
+
+SOB_TEMPLATE
+template<typename ChainTy>
+bool 
+SOB_CLASS::_pull_order(id_type id, plevel p, bool pull_linked)
+{ 
+     /*** CALLER MUST HOLD LOCK ON _master_mtx OR RACE CONDTION WITH CALLBACK QUEUE ***/    
+
+    ChainTy *c = _chain<ChainTy>::get(p);   
+    if( !c ){
+        return false;
+    }
+    
+    /* copy bndl before erasing */
+    typename ChainTy::mapped_type bndl = c->at(id);
     c->erase(id);
     
     /* adjust cache vals as necessary */
@@ -1271,13 +1595,13 @@ SOB_CLASS::_pull_order(id_type id)
         (p <= _bid) ? _limit_exec<true>::adjust_state_after_pull(this, p)
                     : _limit_exec<false>::adjust_state_after_pull(this, p);
         
-    }else if( !is_limit_chain<ChainTy>() && is_buy_stop(bndl) ){        
+    }else if( !is_limit_chain<ChainTy>() && is_buy_stop(bndl) ){
         if( _stop_exec<true>::stop_chain_is_empty( 
                 this, reinterpret_cast<stop_chain_type*>(c) ) )
         {
             _stop_exec<true>::adjust_state_after_pull(this, p);
         }
-    }else if( !is_limit_chain<ChainTy>() && !is_buy_stop(bndl) ){       
+    }else if( !is_limit_chain<ChainTy>() && !is_buy_stop(bndl) ){
         if( _stop_exec<false>::stop_chain_is_empty(
                 this, reinterpret_cast<stop_chain_type*>(c)) )
         {
@@ -1285,12 +1609,26 @@ SOB_CLASS::_pull_order(id_type id)
         }
     }
        
-    /*** PROTECTED BY _master_mtx ***/    
-    _deferred_callbacks.push_back( /* callback with cancel msg */ 
-            dfrd_cb_elem{callback_msg::cancel, bndl.exec_cb, id, 0, 0} 
-    ); 
+    _push_exec_callback(callback_msg::cancel, bndl.exec_cb, id, id, 0, 0);
     
+    if( pull_linked ){
+        _pull_linked_order<ChainTy>(bndl);
+    }
     return true;
+}
+
+
+SOB_TEMPLATE
+template<typename ChainTy>
+void
+SOB_CLASS::_pull_linked_order(typename ChainTy::mapped_type& bndl)
+{
+    order_location *loc = bndl.linked_order;
+    if( loc && bndl.cond == order_condition::one_cancels_other ){
+        /* pass false to pull_linked since, ostensibly, *this*
+           side is in process of being pulled */
+        _pull_order(loc->id, loc->price, false, loc->limit_chain);
+    }
 }
 
 
@@ -1341,83 +1679,27 @@ SOB_CLASS::_total_depth() const
 
 
 SOB_TEMPLATE
-template<typename FirstChainTy, typename SecondChainTy>
-order_info_type 
-SOB_CLASS::_get_order_info(id_type id) const
+template<typename ChainTy>
+void
+SOB_CLASS::_dump_orders(std::ostream& out,
+                        plevel l,
+                        plevel h,
+                        side_of_trade sot) const
 {
-    std::lock_guard<std::mutex> lock(_master_mtx); 
-    /* --- CRITICAL SECTION --- */    
-    plevel p;
-    FirstChainTy *fc;    
-    
-    std::tie(p, fc) = _chain<FirstChainTy>::find(this,id);    
-    if( !p || !fc ){
-        SecondChainTy *sc;
-        std::tie(p, sc) = _chain<SecondChainTy>::find(this,id);    
-        return ( !p || !sc )
-            ? _order_info<void>::generate() /* null version */
-            : _order_info<SecondChainTy>::generate(this, id, p, sc); 
-    }
-
-    return _order_info<FirstChainTy>::generate(this, id, p, fc);         
-    /* --- CRITICAL SECTION --- */ 
-}
-
-
-SOB_TEMPLATE
-template<bool BuyNotSell>
-void 
-SOB_CLASS::_dump_limits(std::ostream& out) const
-{ 
-    std::lock_guard<std::mutex> lock(_master_mtx); 
-    /* --- CRITICAL SECTION --- */
-    
-    /* from high to low */
-    plevel h = BuyNotSell ? _bid : _high_sell_limit;
-    plevel l = BuyNotSell ? _low_buy_limit : _ask;
+    std::lock_guard<std::mutex> lock(_master_mtx);
     _high_low<>::range_check(this, &h, &l);
-    
-    out << "*** " << (BuyNotSell ? "BUY" : "SELL") << " LIMITS ***" << std::endl;
-    for( ; h >= l; --h){    
-        if( h->first.empty() ){
-            continue;
-        }
-        out << _itop(h);
-        for( const auto& e : h->first ){
-            out << " <" << e.second.sz << " #" << e.first << "> ";
-        }
-        out << std::endl;         
-    }
-    /* --- CRITICAL SECTION --- */
-}
 
-SOB_TEMPLATE
-template< bool BuyNotSell >
-void SOB_CLASS::_dump_stops(std::ostream& out) const
-{ 
-    std::lock_guard<std::mutex> lock(_master_mtx); 
-    /* --- CRITICAL SECTION --- */
-    
-    /* from high to low */
-    plevel h = BuyNotSell ? _high_buy_stop : _high_sell_stop;
-    plevel l = BuyNotSell ? _low_buy_stop : _low_sell_stop;
-    _high_low<>::range_check(this,&h,&l);    
-    
-    out << "*** " << (BuyNotSell ? "BUY" : "SELL") << " STOPS ***" << std::endl; 
-    double limit;
-    for( ; h >= l; --h){ 
-        if( h->second.empty() ){
-            continue;
+    out << "*** (" << sot << ") " << _chain<ChainTy>::as_order_type()
+        << "s ***" << std::endl;
+    for( ; h >= l; --h){
+        auto c = _chain<ChainTy>::get(h);
+        if( !c->empty() ){
+            out << _itop(h);
+            for( const auto& e : *c ){
+               _order::template _dump<ChainTy>::dump(out, e);
+            }
+            out << std::endl;
         }
-        out << _itop(h);
-        for( const auto & e : h->second ){
-            limit = e.second.limit;
-            out << " <" << (e.second.is_buy ? "B " : "S ")
-                        << e.second.sz << " @ "
-                        << (limit ? std::to_string(limit) : "MKT")
-                        << " #" << e.first << "> ";
-        }
-        out << std::endl;        
     }
     /* --- CRITICAL SECTION --- */
 }
@@ -1446,7 +1728,18 @@ TickPrice<TickRatio>
 SOB_CLASS::_itop(plevel p) const
 {   
     _assert_plevel(p); // internal range and align check
-    return _base + (p - _beg);
+    return _base + plevel_offset(p, _beg);
+}
+
+
+SOB_TEMPLATE
+double
+SOB_CLASS::_tick_price_or_throw(double price, std::string msg) const
+{
+    if( !is_valid_price(price) ){
+        throw std::invalid_argument(msg);
+    }
+    return price_to_tick(price);
 }
 
 
@@ -1568,15 +1861,68 @@ SOB_CLASS::_assert_internal_pointers() const
             assert( _high_sell_limit > _low_buy_limit );
         }
     }
-    if( _low_buy_stop != _end && _high_buy_stop != (_beg-1) ){
+    if( _low_buy_stop != _end || _high_buy_stop != (_beg-1) ){  // OR
         assert( _high_buy_stop >= _low_buy_stop );
     }
-    if( _low_sell_stop != _end && _high_sell_stop != (_beg-1) ){
+    if( _low_sell_stop != _end || _high_sell_stop != (_beg-1) ){ // OR
         assert( _high_sell_stop >= _low_sell_stop );
     }
 #endif
 }
 
+SOB_TEMPLATE
+std::unique_ptr<OrderParamaters>
+SOB_CLASS::_build_aot_order(const OrderParamaters& order) const
+{
+    // _master_mtx should needs to be held for this
+    double limit = 0.0;
+    double stop = 0.0;
+    try{
+        switch( order.get_order_type() ){
+        case order_type::stop_limit:
+            stop = _tick_price_or_throw(order.stop(), "invalid stop price");
+            /* no break */
+        case order_type::limit:
+            limit = _tick_price_or_throw(order.limit(), "invalid limit price");
+            break;
+        case order_type::stop:
+            stop = _tick_price_or_throw(order.stop(), "invalid stop price");
+            break;
+        case order_type::market:
+            break;
+        default:
+            throw advanced_order_error("invalid order type");
+        };
+    }catch(std::invalid_argument& e){
+        throw advanced_order_error(e);
+    }
+    return std::unique_ptr<OrderParamaters>(
+            new OrderParamaters(order.is_buy(), order.size(), limit, stop)
+    );
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_check_oco_limit_order( bool buy,
+                                   double limit,
+                                   std::unique_ptr<OrderParamaters> & op )
+{
+    order_type ot = op->get_order_type();
+    if( ot == order_type::market ){
+        throw advanced_order_error("OCO limit/market not valid order type");
+    }else if( ot != order_type::limit ){
+        return;
+    }
+
+    if( buy && !op->is_buy() && limit >= op->limit() ){
+        throw advanced_order_error("OCO limit/limit buy price >= sell price");
+    }else if( !buy && op->is_buy() && limit <= op->limit() ){
+        throw advanced_order_error("OCO limit/limit sell price <= buy price");
+    }else if( op->limit() == limit ){
+         throw advanced_order_error("OCO limit/limit of same price" );
+    }
+}
 
 SOB_TEMPLATE
 id_type 
@@ -1584,24 +1930,30 @@ SOB_CLASS::insert_limit_order( bool buy,
                                double limit,
                                size_t size,
                                order_exec_cb_type exec_cb,
+                               const AdvancedOrderTicket& advanced,
                                order_admin_cb_type admin_cb ) 
 {      
     if(size == 0){
         throw std::invalid_argument("invalid order size");
     }
    
+    std::unique_ptr<OrderParamaters> cond_order_params;
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
         /* --- CRITICAL SECTION --- */
-        if( !is_valid_price(limit) ){
-            throw std::invalid_argument("invalid limit price");
-        }  
-        limit = price_to_tick(limit);
+        limit = _tick_price_or_throw(limit, "invalid limit price");
+        if( advanced ){
+            cond_order_params = _build_aot_order(advanced.order1());
+            if( advanced.condition() == order_condition::one_cancels_other ){
+                 _check_oco_limit_order(buy, limit, cond_order_params);
+            }
+        }
         /* --- CRITICAL SECTION --- */
     }
  
-    return _push_order_and_wait(order_type::limit, buy, limit, 0, 
-                                size, exec_cb, admin_cb);    
+    return _push_order_and_wait(order_type::limit, buy, limit, 0, size, exec_cb, 
+                                advanced.condition(), advanced.trigger(),
+                                std::move(cond_order_params), admin_cb);    
 }
 
 
@@ -1610,13 +1962,27 @@ id_type
 SOB_CLASS::insert_market_order( bool buy,
                                 size_t size,
                                 order_exec_cb_type exec_cb,
+                                const AdvancedOrderTicket& advanced,
                                 order_admin_cb_type admin_cb )
 {    
     if(size == 0){
         throw std::invalid_argument("invalid order size");
     }
-    return _push_order_and_wait(order_type::market, buy, 0, 0, 
-                                size, exec_cb, admin_cb); 
+    if( advanced.condition() == order_condition::one_cancels_other ){
+        throw advanced_order_error("OCO invalid condition for market order");
+    }
+    std::unique_ptr<OrderParamaters> cond_order_params;
+    {
+        std::lock_guard<std::mutex> lock(_master_mtx);
+        /* --- CRITICAL SECTION --- */
+        if( advanced ){
+            cond_order_params = _build_aot_order(advanced.order1());
+        }
+        /* --- CRITICAL SECTION --- */
+    }
+    return _push_order_and_wait(order_type::market, buy, 0, 0, size, exec_cb, 
+                                advanced.condition(), advanced.trigger(),
+                                std::move(cond_order_params), admin_cb); 
 }
 
 
@@ -1626,9 +1992,10 @@ SOB_CLASS::insert_stop_order( bool buy,
                               double stop,
                               size_t size,
                               order_exec_cb_type exec_cb,
+                              const AdvancedOrderTicket& advanced,
                               order_admin_cb_type admin_cb )
 {
-    return insert_stop_order(buy, stop, 0, size, exec_cb, admin_cb);
+    return insert_stop_order(buy, stop, 0, size, exec_cb, advanced, admin_cb);
 }
 
 
@@ -1639,30 +2006,36 @@ SOB_CLASS::insert_stop_order( bool buy,
                               double limit,
                               size_t size,
                               order_exec_cb_type exec_cb,
+                              const AdvancedOrderTicket& advanced,
                               order_admin_cb_type admin_cb )
 {      
     if(size == 0){
         throw std::invalid_argument("invalid order size");
     }
     
-    order_type ot = order_type::stop;
+    std::unique_ptr<OrderParamaters> cond_order_params;
+    order_type ot = order_type::stop;    
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
         /* --- CRITICAL SECTION --- */
-        if( !is_valid_price(stop) ){
-            throw std::invalid_argument("invalid stop price");
-        }  
-        stop = price_to_tick(stop);        
+        stop = _tick_price_or_throw(stop, "invalid stop price");         
         if( limit != 0 ){
-            if( !is_valid_price(limit) ){    
-                throw std::invalid_argument("invalid limit price");
-            }
-            limit = price_to_tick(limit);
+            limit = _tick_price_or_throw(limit, "invalid limit price");
+
             ot = order_type::stop_limit;
+        }
+        if( advanced ){
+            cond_order_params = _build_aot_order(advanced.order1());
+            if( cond_order_params->stop() != 0.0
+                && cond_order_params->stop() == stop ){
+                throw advanced_order_error("stop orders of same price");
+            }
         }
         /* --- CRITICAL SECTION --- */
     }
-    return _push_order_and_wait(ot, buy, limit, stop, size, exec_cb, admin_cb);    
+    return _push_order_and_wait(ot, buy, limit, stop, size, exec_cb,
+                                advanced.condition(), advanced.trigger(),
+                                std::move(cond_order_params), admin_cb);    
 }
 
 
@@ -1674,17 +2047,58 @@ SOB_CLASS::pull_order(id_type id, bool search_limits_first)
         throw std::invalid_argument("invalid order id(0)");
     }
     return _push_order_and_wait(order_type::null, search_limits_first, 
-                                0, 0, 0, nullptr, nullptr, id); 
+                                0, 0, 0, nullptr, order_condition::none,
+                                condition_trigger::none, nullptr, nullptr, id); 
 }
 
 
 SOB_TEMPLATE
-order_info_type 
+bool
+SOB_CLASS::pull_order_hint(id_type id, double price, bool search_limits_first)
+{
+    if(id == 0){
+        throw std::invalid_argument("invalid order id(0)");
+    }
+    return _push_order_and_wait(order_type::null, search_limits_first,
+                                price, 0, 0, nullptr, order_condition::none,
+                                condition_trigger::none, nullptr, nullptr, id);
+}
+
+
+SOB_TEMPLATE
+order_info
 SOB_CLASS::get_order_info(id_type id, bool search_limits_first) const
-{           
+{
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
     return search_limits_first
-        ? _get_order_info<limit_chain_type, stop_chain_type>(id)        
-        : _get_order_info<stop_chain_type, limit_chain_type>(id);             
+            ? _order::template info<limit_chain_type, stop_chain_type>(this, id)
+            : _order::template info<stop_chain_type, limit_chain_type>(this, id);
+    /* --- CRITICAL SECTION --- */
+}
+
+
+SOB_TEMPLATE
+order_info
+SOB_CLASS::get_order_info_hint( id_type id,
+                                double price,
+                                bool search_limits_first ) const
+{
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+    order_info oi = {};
+    if( is_valid_price(price) ){
+        oi = search_limits_first
+            ? _order::template info<limit_chain_type, stop_chain_type>(this, id, price)
+            : _order::template info<stop_chain_type, limit_chain_type>(this, id, price);
+    }
+    if( !oi ){
+        oi = search_limits_first
+            ? _order::template info<limit_chain_type, stop_chain_type>(this, id)
+            : _order::template info<stop_chain_type, limit_chain_type>(this, id);
+    }
+    return oi;
+    /* --- CRITICAL SECTION --- */
 }
 
 
@@ -1695,11 +2109,13 @@ SOB_CLASS::replace_with_limit_order( id_type id,
                                      double limit,
                                      size_t size,
                                      order_exec_cb_type exec_cb,
+                                     const AdvancedOrderTicket& advanced,
                                      order_admin_cb_type admin_cb )
 {
     id_type id_new = 0;    
     if( pull_order(id) ){
-        id_new = insert_limit_order(buy, limit, size, exec_cb, admin_cb);
+        id_new = insert_limit_order(buy, limit, size, exec_cb, advanced, 
+                                    admin_cb);
     }    
     return id_new;
 }
@@ -1711,11 +2127,12 @@ SOB_CLASS::replace_with_market_order( id_type id,
                                       bool buy,
                                       size_t size,
                                       order_exec_cb_type exec_cb,
+                                      const AdvancedOrderTicket& advanced,
                                       order_admin_cb_type admin_cb )
 {
     id_type id_new = 0;    
     if( pull_order(id) ){
-        id_new = insert_market_order(buy, size, exec_cb, admin_cb);
+        id_new = insert_market_order(buy, size, exec_cb, advanced, admin_cb);
     }    
     return id_new;
 }
@@ -1728,11 +2145,12 @@ SOB_CLASS::replace_with_stop_order( id_type id,
                                     double stop,
                                     size_t size,
                                     order_exec_cb_type exec_cb,
+                                    const AdvancedOrderTicket& advanced,
                                     order_admin_cb_type admin_cb )
 {
     id_type id_new = 0;    
     if( pull_order(id) ){
-        id_new = insert_stop_order(buy, stop, size, exec_cb, admin_cb);
+        id_new = insert_stop_order(buy, stop, size, exec_cb, advanced, admin_cb);
     }    
     return id_new;
 }
@@ -1746,11 +2164,13 @@ SOB_CLASS::replace_with_stop_order( id_type id,
                                     double limit,
                                     size_t size,
                                     order_exec_cb_type exec_cb,
+                                    const AdvancedOrderTicket& advanced,
                                     order_admin_cb_type admin_cb)
 {
     id_type id_new = 0;    
     if( pull_order(id) ){
-        id_new = insert_stop_order(buy, stop, limit, size, exec_cb, admin_cb);
+        id_new = insert_stop_order(buy, stop, limit, size, exec_cb, advanced, 
+                                   admin_cb);
     }    
     return id_new;
 }
@@ -1782,7 +2202,7 @@ SOB_CLASS::grow_book_below(double new_min)
 
     TickPrice<TickRatio> new_base(new_min);
     if( new_base < 1 ){
-        new_base = TickPrice<TickRatio>(static_cast<long>(1));
+        new_base = TickPrice<TickRatio>(1);
     }
 
     auto diff = _base - new_base;
@@ -1832,6 +2252,162 @@ SOB_CLASS::dump_internal_pointers(std::ostream& out) const
     /* --- CRITICAL SECTION --- */
 }
 
+
+SOB_TEMPLATE
+SOB_CLASS::_order_bndl::_order_bndl()
+     :
+        _order_bndl(0, nullptr)
+     {    
+     }
+
+SOB_TEMPLATE
+SOB_CLASS::_order_bndl::_order_bndl( size_t sz,
+                                     order_exec_cb_type exec_cb,
+                                     order_condition cond,
+                                     condition_trigger trigger )
+    :
+        sz(sz),
+        exec_cb(exec_cb),
+        cond(cond),
+        trigger(trigger)
+    {
+        switch(cond){
+        case order_condition::one_cancels_other:
+            linked_order = nullptr;
+            break;
+        case order_condition::one_triggers_other:
+            contingent_order = nullptr;
+            break;
+        case order_condition::none:
+            _reserved = nullptr;         
+            break;
+        default:
+            throw new std::runtime_error("invalid order condition");
+        }       
+    }
+
+SOB_TEMPLATE
+SOB_CLASS::_order_bndl::_order_bndl(const _order_bndl& bndl)
+   :
+       sz(bndl.sz),
+       exec_cb(bndl.exec_cb),
+       cond(bndl.cond),
+       trigger(bndl.trigger)
+   {
+       switch(cond){
+       case order_condition::one_cancels_other:
+           linked_order = bndl.linked_order
+                        ? new order_location(*bndl.linked_order)
+                        : nullptr;
+           break;
+       case order_condition::one_triggers_other:
+           contingent_order = bndl.contingent_order
+                            ? new OrderParamaters(*bndl.contingent_order)
+                            : nullptr;
+           break;
+       case order_condition::none:           
+           assert( bndl._reserved == nullptr ); // NOT IMPLEMENTED
+           _reserved = nullptr;
+           break;
+       default:
+           throw new std::runtime_error("invalid order condition");
+       }   
+   }
+
+
+SOB_TEMPLATE
+SOB_CLASS::_order_bndl::_order_bndl(_order_bndl&& bndl)
+   :
+       sz(bndl.sz),
+       exec_cb(bndl.exec_cb),
+       cond(bndl.cond),
+       trigger(bndl.trigger)
+   {
+       switch(cond){
+       case order_condition::one_cancels_other:
+           linked_order = bndl.linked_order;
+           bndl.linked_order = nullptr;
+           break;
+       case order_condition::one_triggers_other:
+           contingent_order = bndl.contingent_order;
+           bndl.contingent_order = nullptr;
+           break;
+       case order_condition::none:
+           assert( bndl._reserved == nullptr ); // NOT IMPLEMENTED
+           _reserved = bndl._reserved;
+           //bndl._reserved = nullptr;
+           break;
+       default:
+           throw new std::runtime_error("invalid order condition");
+       }       
+   }
+
+
+SOB_TEMPLATE
+SOB_CLASS::_order_bndl::~_order_bndl()
+   {
+       switch(cond){
+       case order_condition::one_cancels_other:
+           if( linked_order ){
+               delete linked_order;
+           }
+           break;
+       case order_condition::one_triggers_other:
+           if( contingent_order ){
+               delete contingent_order;
+           }
+           break;
+       case order_condition::none:
+           assert( _reserved == nullptr ); // NOT IMPLEMENTED
+           //if( _reserved ){
+           //    delete _reserved;
+           //}
+           break;
+       default:
+           throw new std::runtime_error("invalid order condition");
+       }     
+   }
+
+SOB_TEMPLATE
+SOB_CLASS::stop_bndl::stop_bndl()
+    :
+        _order_bndl(),
+        is_buy(),
+        limit()
+    {
+    }
+
+SOB_TEMPLATE
+SOB_CLASS::stop_bndl::stop_bndl( bool is_buy, 
+                                 double limit, 
+                                 size_t sz,
+                                 order_exec_cb_type exec_cb, 
+                                 order_condition cond,
+                                 condition_trigger trigger )
+   :
+       _order_bndl(sz, exec_cb, cond),
+       is_buy(is_buy),
+       limit(limit)
+   {
+   }
+
+SOB_TEMPLATE
+SOB_CLASS::stop_bndl::stop_bndl( const stop_bndl& bndl )
+   :
+       _order_bndl(bndl),
+       is_buy(bndl.is_buy),
+       limit(bndl.limit)
+   {
+   }
+
+SOB_TEMPLATE
+SOB_CLASS::stop_bndl::stop_bndl( stop_bndl&& bndl )
+   :
+        _order_bndl( std::move(bndl) ),
+        is_buy(bndl.is_buy),
+        limit(bndl.limit)
+   {
+   }
 };
 
 #undef SOB_TEMPLATE

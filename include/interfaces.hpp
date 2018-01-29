@@ -22,6 +22,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <map>
 
 #include "common.hpp"
+#include "advanced_order.hpp"
 
 namespace sob{
 
@@ -114,8 +115,13 @@ public:
     virtual const std::vector<timesale_entry_type>&
     time_and_sales() const = 0;
 
-    virtual order_info_type 
+    virtual order_info
     get_order_info(id_type id, bool search_limits_first=true) const = 0;
+
+    virtual order_info
+    get_order_info_hint(id_type id,
+                        double price,
+                        bool search_limits_first=true) const = 0;
 };
 
 
@@ -132,6 +138,8 @@ public:
                        double limit, 
                        size_t size,
                        order_exec_cb_type exec_cb = nullptr,
+                       const AdvancedOrderTicket& advanced
+                           = AdvancedOrderTicket::null,
                        order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
@@ -140,10 +148,15 @@ public:
                              double limit,
                              size_t size, 
                              order_exec_cb_type exec_cb = nullptr,
+                             const AdvancedOrderTicket& advanced
+                                 = AdvancedOrderTicket::null,
                              order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual bool 
     pull_order(id_type id, bool search_limits_first=true) = 0;
+
+    virtual bool
+    pull_order_hint(id_type id, double price, bool search_limits_first=true) = 0;
 };
 
 
@@ -159,6 +172,8 @@ public:
     insert_market_order(bool buy, 
                         size_t size, 
                         order_exec_cb_type exec_cb = nullptr,
+                        const AdvancedOrderTicket& advanced
+                            = AdvancedOrderTicket::null,
                         order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
@@ -166,6 +181,8 @@ public:
                       double stop, 
                       size_t size,
                       order_exec_cb_type exec_cb = nullptr,
+                      const AdvancedOrderTicket& advanced
+                          = AdvancedOrderTicket::null,
                       order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
@@ -174,6 +191,8 @@ public:
                       double limit,
                       size_t size, 
                       order_exec_cb_type exec_cb = nullptr,
+                      const AdvancedOrderTicket& advanced
+                          = AdvancedOrderTicket::null,
                       order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
@@ -181,6 +200,8 @@ public:
                               bool buy, 
                               size_t size,
                               order_exec_cb_type exec_cb = nullptr,
+                              const AdvancedOrderTicket& advanced
+                                  = AdvancedOrderTicket::null,
                               order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
@@ -189,6 +210,8 @@ public:
                             double stop, 
                             size_t size,
                             order_exec_cb_type exec_cb = nullptr,
+                            const AdvancedOrderTicket& advanced
+                                = AdvancedOrderTicket::null,
                             order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual id_type
@@ -198,15 +221,23 @@ public:
                             double limit, 
                             size_t size,
                             order_exec_cb_type exec_cb = nullptr,
+                            const AdvancedOrderTicket& advanced
+                                = AdvancedOrderTicket::null,
                             order_admin_cb_type admin_cb = nullptr) = 0;
 
     virtual void 
+    dump_limits(std::ostream& out = std::cout) const = 0;
+
+    virtual void
     dump_buy_limits(std::ostream& out = std::cout) const = 0;
 
     virtual void 
     dump_sell_limits(std::ostream& out = std::cout) const = 0;
 
     virtual void 
+    dump_stops(std::ostream& out = std::cout) const = 0;
+
+    virtual void
     dump_buy_stops(std::ostream& out = std::cout) const = 0;
 
     virtual void 

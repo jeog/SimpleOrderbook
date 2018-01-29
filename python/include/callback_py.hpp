@@ -58,7 +58,8 @@ public:
 
     void
     operator()(sob::callback_msg msg,
-               sob::id_type id,
+               sob::id_type id1,
+               sob::id_type id2,
                double price,
                size_t size) const;
 };
