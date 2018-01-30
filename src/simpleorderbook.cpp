@@ -96,6 +96,7 @@ to_string(const callback_msg& cm)
     case callback_msg::stop_to_market: return "stop-to-market";
     case callback_msg::trigger_OCO: return "trigger-OCO";
     case callback_msg::trigger_OTO: return "trigger-OTO";
+    case callback_msg::kill: return "kill";
     default:
         throw std::logic_error( "bad callback_msg: " +
                 std::to_string(static_cast<int>(cm)) );

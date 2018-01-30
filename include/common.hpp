@@ -61,7 +61,8 @@ enum class order_type {
 enum class order_condition {
     none = 0,
     one_cancels_other,
-    one_triggers_other
+    one_triggers_other,
+    fill_or_kill,
     // bracket
     // fill_or_kill
     // all_or_nothing
@@ -83,6 +84,7 @@ enum class callback_msg{
     stop_to_market,
     trigger_OCO,
     trigger_OTO,
+    kill
 };
 
 enum class fill_type{

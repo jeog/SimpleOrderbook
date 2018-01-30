@@ -336,7 +336,7 @@ private:
          * is implemented as a class and creates a number of problems internally
          */
         typedef std::pair<limit_chain_type,stop_chain_type> chain_pair_type;
-        typedef std::pair<limit_chain_type,stop_chain_type> *plevel;
+        typedef chain_pair_type *plevel;
 
         /* (current) state fields */
         size_t _bid_size;
@@ -410,7 +410,7 @@ private:
         struct _core_exec;
 
         /* limit order execution helpers */
-        template<bool BuyLimit, typename Dummy = void>
+        template<bool BuyLimit=true, typename Dummy = void>
         struct _limit_exec;
 
         /* stop order execution helpers */
@@ -477,10 +477,13 @@ private:
         // TODO Consider allowing order_type::market as secondary order
         //      so primary can try to fill then default to market
         void
-        _insert_OCO_order(order_queue_elem& e, id_type id, OrderParamaters *op);
+        _insert_OCO_order(order_queue_elem& e, id_type id);
 
         void
-        _insert_OTO_order(order_queue_elem& e, id_type id, OrderParamaters *op);
+        _insert_OTO_order(order_queue_elem& e, id_type id);
+
+        void
+        _insert_FOK_order(order_queue_elem& e, id_type id);
 
         /* internal insert orders once/if we have an id */
         template<bool BuyLimit>
@@ -842,6 +845,7 @@ private:
         void
         dump_internal_pointers(std::ostream& out = std::cout) const;
 
+        // TODO differentiate buy/sell in output
         inline void
         dump_limits(std::ostream& out = std::cout) const
         { _dump_orders<limit_chain_type>(
@@ -858,6 +862,7 @@ private:
         { _dump_orders<limit_chain_type>(
                 out, _ask, _high_sell_limit, side_of_trade::sell); }
 
+        // TODO differentiate buy/sell in output
         inline void
         dump_stops(std::ostream& out = std::cout) const
         { _dump_orders<stop_chain_type>(

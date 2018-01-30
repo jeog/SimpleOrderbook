@@ -68,7 +68,7 @@ AdvancedOrderTicketOCO::AdvancedOrderTicketOCO( condition_trigger trigger,
                                                 double stop )
     :
         AdvancedOrderTicket( condition, trigger,
-                OrderParamaters(is_buy, size, limit, stop), OrderParamaters() )
+                OrderParamaters(is_buy, size, limit, stop) )
     {
         if( size == 0 ){
             throw advanced_order_error("invalid order size");
@@ -82,12 +82,13 @@ AdvancedOrderTicketOTO::AdvancedOrderTicketOTO( condition_trigger trigger,
                                                 double stop )
     :
         AdvancedOrderTicket( condition, trigger,
-                OrderParamaters(is_buy, size, limit, stop), OrderParamaters() )
+                OrderParamaters(is_buy, size, limit, stop) )
     {
         if( size == 0 ){
             throw advanced_order_error("invalid order size");
         }
     }
+
 
 const AdvancedOrderTicket AdvancedOrderTicket::null(
     order_condition::none,
@@ -103,6 +104,11 @@ const order_condition AdvancedOrderTicketOCO::condition =
 const order_condition AdvancedOrderTicketOTO::condition =
         order_condition::one_triggers_other;
 
+const condition_trigger AdvancedOrderTicketFOK::default_trigger =
+        condition_trigger::fill_full;
+
+const order_condition AdvancedOrderTicketFOK::condition =
+        order_condition::fill_or_kill;
 
 }; /* sob */
 

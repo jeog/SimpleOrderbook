@@ -23,7 +23,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 // TODO BRACKET orders
 // TODO TRAILING STOP orders
 // TODO AON orders
-// TODO FILL_OR_KILL orders
+
 // TODO change_order_size functionality to support partial_fill brackets
 
 namespace sob{
@@ -176,7 +176,7 @@ protected:
 public:
     static const order_condition condition;
 
-    static inline AdvancedOrderTicket
+    static inline AdvancedOrderTicketOCO
     build_limit( bool is_buy,
                  double limit,
                  size_t sz,
@@ -185,7 +185,7 @@ public:
         return AdvancedOrderTicketOCO(trigger, is_buy, sz, limit, 0.0);
     }
 
-    static inline AdvancedOrderTicket
+    static inline AdvancedOrderTicketOCO
     build_stop( bool is_buy,
                 double stop,
                 size_t sz,
@@ -194,7 +194,7 @@ public:
         return AdvancedOrderTicketOCO(trigger, is_buy, sz, 0.0, stop);
     }
 
-    static inline AdvancedOrderTicket
+    static inline AdvancedOrderTicketOCO
     build_stop_limit( bool is_buy,
                       double stop,
                       double limit,
@@ -216,7 +216,7 @@ protected:
 public:
     static const order_condition condition;
 
-    static inline AdvancedOrderTicket
+    static inline AdvancedOrderTicketOTO
     build_market( bool is_buy,
                   size_t sz,
                   condition_trigger trigger = default_trigger )
@@ -224,7 +224,7 @@ public:
         return AdvancedOrderTicketOTO(trigger, is_buy, sz, 0.0, 0.0);
     }
 
-    static inline AdvancedOrderTicket
+    static inline AdvancedOrderTicketOTO
     build_limit( bool is_buy,
                  double limit,
                  size_t sz,
@@ -233,7 +233,7 @@ public:
         return AdvancedOrderTicketOTO(trigger, is_buy, sz, limit, 0.0);
     }
 
-    static inline AdvancedOrderTicket
+    static inline AdvancedOrderTicketOTO
     build_stop( bool is_buy,
                 double stop,
                 size_t sz,
@@ -242,7 +242,7 @@ public:
         return AdvancedOrderTicketOTO(trigger, is_buy, sz, 0.0, stop);
     }
 
-    static inline AdvancedOrderTicket
+    static inline AdvancedOrderTicketOTO
     build_stop_limit( bool is_buy,
                       double stop,
                       double limit,
@@ -253,6 +253,22 @@ public:
     }
 };
 
+class AdvancedOrderTicketFOK
+        : public AdvancedOrderTicket {
+protected:
+    AdvancedOrderTicketFOK( condition_trigger trigger)
+        : AdvancedOrderTicket( condition, trigger )
+        {}
+public:
+    static const order_condition condition;
+    static const condition_trigger default_trigger;
+
+    static inline AdvancedOrderTicketFOK
+    build(condition_trigger trigger = default_trigger)
+    {
+        return AdvancedOrderTicketFOK(trigger);
+    }
+};
 }; /* sob */
 
 #endif

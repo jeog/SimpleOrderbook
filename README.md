@@ -10,6 +10,7 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 - advanced orders/conditions: ***IN DEVELOPMENT (NOT STABLE)***
     - one-cancels-other (OCO) 
     - one-triggers-other (OTO)
+    - fill-or-kill (FOK)
 - advanced condition triggers: ***IN DEVELOPMENT (NOT STABLE)***
     - fill-partial 
     - fill-full 

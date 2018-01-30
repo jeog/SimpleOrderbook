@@ -626,7 +626,7 @@ template<bool BuyLimit, typename Dummy>
 struct SOB_CLASS::_limit_exec {
     template<typename Impl>
     static void
-    adjust_state_after_pull(Impl* sob, SOB_CLASS::plevel limit)
+    adjust_state_after_pull(Impl *sob, SOB_CLASS::plevel limit)
     {   /* working on guarantee that this is the *last* order at this level*/
         assert( limit >= sob->_low_buy_limit );
         assert( limit <= sob->_bid );
@@ -640,7 +640,7 @@ struct SOB_CLASS::_limit_exec {
 
     template<typename Impl>
     static void
-    adjust_state_after_insert(Impl* sob,
+    adjust_state_after_insert(Impl *sob,
                               SOB_CLASS::plevel limit, 
                               SOB_CLASS::limit_chain_type* orders) 
     {
@@ -656,15 +656,43 @@ struct SOB_CLASS::_limit_exec {
             sob->_low_buy_limit = limit;  
         }
     }
+
+    template<typename Impl>
+    static inline bool /* slingshot back to protected fillable */
+    fillable(Impl *sob, SOB_CLASS::plevel p, size_t sz, bool is_buy)
+    { return is_buy ? _limit_exec<true>::fillable(sob, p, sz)
+                    : _limit_exec<false>::fillable(sob, p, sz); }
+
+    template<typename Impl>
+    static inline bool
+    fillable(Impl *sob, SOB_CLASS::plevel p, size_t sz)
+    { return (sob->_ask < sob->_end) && fillable(sob->_ask, p, sz); }
+
+protected:
+    static bool
+    fillable(SOB_CLASS::plevel l, SOB_CLASS::plevel h, size_t sz)
+    {
+        size_t tot = 0;
+        for( ; l <= h; ++l){
+            for( const auto& e : *_chain<limit_chain_type>::get(l) ){
+                tot += e.second.sz;
+                if( tot >= sz ){
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 };
 
 
 SOB_TEMPLATE 
 template<typename Dummy>
-struct SOB_CLASS::_limit_exec<false, Dummy> {
+struct SOB_CLASS::_limit_exec<false, Dummy>
+        : public _limit_exec<true, Dummy>{
     template<typename Impl>
     static void
-    adjust_state_after_pull(Impl* sob, SOB_CLASS::plevel limit)
+    adjust_state_after_pull(Impl *sob, SOB_CLASS::plevel limit)
     {   /* working on guarantee that this is the *last* order at this level*/
         assert( limit <= sob->_high_sell_limit );
         assert( limit >= sob->_ask );
@@ -678,7 +706,7 @@ struct SOB_CLASS::_limit_exec<false, Dummy> {
 
     template<typename Impl>
     static void
-    adjust_state_after_insert(Impl* sob,
+    adjust_state_after_insert(Impl *sob,
                               SOB_CLASS::plevel limit, 
                               SOB_CLASS::limit_chain_type* orders) 
     {
@@ -693,7 +721,14 @@ struct SOB_CLASS::_limit_exec<false, Dummy> {
             sob->_high_sell_limit = limit; 
         }
     }
+
+    template<typename Impl>
+    static inline bool
+    fillable(Impl *sob, SOB_CLASS::plevel p, size_t sz)
+    { return (sob->_bid >= sob->_beg)
+              && _limit_exec<true, Dummy>::fillable(p, sob->_bid, sz); }
 };
+
 
 // TODO mechanism to jump to new stop cache vals ??
 SOB_TEMPLATE
@@ -1091,14 +1126,15 @@ SOB_TEMPLATE
 void
 SOB_CLASS::_route_advanced_order(order_queue_elem& e, id_type& id)
 {
-    OrderParamaters *op = e.cond_order_params.get();
-    assert(op);
     switch(e.cond){
     case order_condition::one_cancels_other:
-        _insert_OCO_order(e, id, op);
+        _insert_OCO_order(e, id);
         break;
     case order_condition::one_triggers_other:
-        _insert_OTO_order(e, id, op);
+        _insert_OTO_order(e, id);
+        break;
+    case order_condition::fill_or_kill:
+        _insert_FOK_order(e,id);
         break;
     default:
         throw std::runtime_error("invalid advanced order condition");
@@ -1118,11 +1154,14 @@ SOB_CLASS::_inject_order( order_queue_elem& e, id_type id, bool partial_ok )
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_OCO_order(order_queue_elem& e, id_type id, OrderParamaters *op)
+SOB_CLASS::_insert_OCO_order(order_queue_elem& e, id_type id)
 {
     assert(e.cond == order_condition::one_cancels_other);
     assert(e.type != order_type::market);
     assert(e.type != order_type::null);
+
+    OrderParamaters *op = e.cond_order_params.get();
+    assert(op);
     assert(op->get_order_type() != order_type::market);
     assert(op->get_order_type() != order_type::null);
 
@@ -1171,9 +1210,12 @@ SOB_CLASS::_insert_OCO_order(order_queue_elem& e, id_type id, OrderParamaters *o
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_OTO_order(order_queue_elem& e, id_type id, OrderParamaters *op)
+SOB_CLASS::_insert_OTO_order(order_queue_elem& e, id_type id)
 {
     assert(e.cond == order_condition::one_triggers_other);
+
+    OrderParamaters *op = e.cond_order_params.get();
+    assert(op);
 
     bool partial_ok = (e.cond_trigger == condition_trigger::fill_partial);
 
@@ -1196,6 +1238,29 @@ SOB_CLASS::_insert_OTO_order(order_queue_elem& e, id_type id, OrderParamaters *o
     o.contingent_order = new OrderParamaters(*op);
     o.cond = order_condition::one_triggers_other;
     o.trigger = e.cond_trigger;
+}
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_insert_FOK_order(order_queue_elem& e, id_type id)
+{
+    assert(e.type == order_type::limit);
+    plevel p = _ptoi(e.limit);
+    assert(p);
+    size_t sz = (e.cond_trigger == condition_trigger::fill_partial)
+              ? 0
+              : e.sz;
+    /*
+     * a bit of trickery here; if all we need is partial fill we check
+     * if size of 0 is fillable; if p is <= _bid or >= _ask (and they are
+     * valid) we know there's at least 1 order available to trade against
+     */
+    if( !_limit_exec<>::fillable(this, p, sz, e.is_buy) ){
+        _push_exec_callback(callback_msg::kill, e.exec_cb, id, id,
+                e.limit, e.sz);
+        return;
+    }
+    _route_basic_order(e, id);
 }
 
 
@@ -1893,6 +1958,7 @@ SOB_CLASS::_check_oco_limit_order( bool buy,
     }
 }
 
+// TODO create a cleaner mechanism for checking aots/conds against insert calls
 SOB_TEMPLATE
 id_type 
 SOB_CLASS::insert_limit_order( bool buy,
@@ -1906,23 +1972,26 @@ SOB_CLASS::insert_limit_order( bool buy,
         throw std::invalid_argument("invalid order size");
     }
    
-    std::unique_ptr<OrderParamaters> cond_order_params;
+    std::unique_ptr<OrderParamaters> cparams;
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
         /* --- CRITICAL SECTION --- */
         limit = _tick_price_or_throw(limit, "invalid limit price");
-        if( advanced ){
-            cond_order_params = _build_aot_order(advanced.order1());
+        if( advanced
+            && (advanced.condition() != order_condition::fill_or_kill)
+            && (advanced.condition() != order_condition::none) )
+        {
+            cparams = _build_aot_order(advanced.order1());
             if( advanced.condition() == order_condition::one_cancels_other ){
-                 _check_oco_limit_order(buy, limit, cond_order_params);
+                _check_oco_limit_order(buy, limit, cparams);
             }
+
         }
         /* --- CRITICAL SECTION --- */
     }
- 
     return _push_order_and_wait(order_type::limit, buy, limit, 0, size, exec_cb, 
                                 advanced.condition(), advanced.trigger(),
-                                std::move(cond_order_params), admin_cb);    
+                                std::move(cparams), admin_cb);
 }
 
 
@@ -1937,21 +2006,29 @@ SOB_CLASS::insert_market_order( bool buy,
     if(size == 0){
         throw std::invalid_argument("invalid order size");
     }
-    if( advanced.condition() == order_condition::one_cancels_other ){
-        throw advanced_order_error("OCO invalid condition for market order");
-    }
-    std::unique_ptr<OrderParamaters> cond_order_params;
+    std::unique_ptr<OrderParamaters> cparams;
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
         /* --- CRITICAL SECTION --- */
         if( advanced ){
-            cond_order_params = _build_aot_order(advanced.order1());
+            switch( advanced.condition() ){
+            case order_condition::one_cancels_other:
+                throw advanced_order_error(
+                        "OCO invalid condition for market order"
+                        );
+            case order_condition::fill_or_kill:
+                throw advanced_order_error(
+                        "FOK invliad condition for market order"
+                        );
+            default:
+                cparams = _build_aot_order(advanced.order1());
+            };
         }
         /* --- CRITICAL SECTION --- */
     }
     return _push_order_and_wait(order_type::market, buy, 0, 0, size, exec_cb, 
                                 advanced.condition(), advanced.trigger(),
-                                std::move(cond_order_params), admin_cb); 
+                                std::move(cparams), admin_cb);
 }
 
 
@@ -1981,8 +2058,10 @@ SOB_CLASS::insert_stop_order( bool buy,
     if(size == 0){
         throw std::invalid_argument("invalid order size");
     }
-    
-    std::unique_ptr<OrderParamaters> cond_order_params;
+    if( advanced.condition() == order_condition::fill_or_kill ){
+        throw advanced_order_error("FOK invliad condition for market order");
+    }
+    std::unique_ptr<OrderParamaters> cparams;
     order_type ot = order_type::stop;    
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
@@ -1990,13 +2069,12 @@ SOB_CLASS::insert_stop_order( bool buy,
         stop = _tick_price_or_throw(stop, "invalid stop price");         
         if( limit != 0 ){
             limit = _tick_price_or_throw(limit, "invalid limit price");
-
             ot = order_type::stop_limit;
         }
         if( advanced ){
-            cond_order_params = _build_aot_order(advanced.order1());
-            if( cond_order_params->stop() != 0.0
-                && cond_order_params->stop() == stop ){
+            cparams = _build_aot_order(advanced.order1());
+            if( cparams->stop() != 0.0
+                && cparams->stop() == stop ){
                 throw advanced_order_error("stop orders of same price");
             }
         }
@@ -2004,7 +2082,7 @@ SOB_CLASS::insert_stop_order( bool buy,
     }
     return _push_order_and_wait(ot, buy, limit, stop, size, exec_cb,
                                 advanced.condition(), advanced.trigger(),
-                                std::move(cond_order_params), admin_cb);    
+                                std::move(cparams), admin_cb);
 }
 
 
