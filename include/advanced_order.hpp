@@ -20,80 +20,11 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #include "common.hpp"
 
-// TODO BRACKET orders
+// TODO BRACKET orders (use change_size())
 // TODO TRAILING STOP orders
 // TODO AON orders
 
-// TODO change_order_size functionality to support partial_fill brackets
-
 namespace sob{
-
-class OrderParamaters{
-    bool _is_buy;
-    size_t _size;
-    double _limit;
-    double _stop;
-
-public:
-    OrderParamaters(bool is_buy, size_t size, double limit, double stop)
-        :
-            _is_buy(is_buy),
-            _size(size),
-            _limit(limit),
-            _stop(stop)
-        {
-        }
-
-    OrderParamaters()
-        : OrderParamaters(0,0,0,0)
-        {}
-
-    inline bool
-    is_buy() const
-    { return _is_buy; }
-
-    inline size_t
-    size() const
-    { return _size; }
-
-    inline double
-    limit() const
-    { return _limit; }
-
-    inline double
-    stop() const
-    { return _stop; }
-
-    bool
-    operator==(const OrderParamaters& op) const;
-
-    inline bool
-    operator!=(const OrderParamaters& op) const
-    { return !(*this == op); }
-
-    inline
-    operator bool() const
-    { return _size != 0; }
-
-    inline bool
-    is_market_order() const
-    { return !(_stop || _limit); }
-
-    inline bool
-    is_limit_order() const
-    { return _limit && !_stop; }
-
-    inline bool
-    is_stop_order() const
-    { return _stop; }
-
-    inline bool
-    is_stop_limit_order() const
-    { return _stop && _limit; }
-
-    order_type
-    get_order_type() const;
-};
 
 class advanced_order_error
         : public std::invalid_argument {
@@ -111,9 +42,17 @@ class AdvancedOrderTicket{
     OrderParamaters _order1;
     OrderParamaters _order2;
 
+protected:
+    AdvancedOrderTicket( order_condition condition,
+                         condition_trigger trigger,
+                         OrderParamaters order1 = OrderParamaters(),
+                         OrderParamaters order2 = OrderParamaters());
+
 public:
     static const AdvancedOrderTicket null;
     static const condition_trigger default_trigger;
+
+    AdvancedOrderTicket(); // null ticket
 
     inline order_condition
     condition() const
@@ -156,13 +95,7 @@ public:
 
     inline
     operator bool() const
-    { return *this != null; }
-
-protected:
-    AdvancedOrderTicket( order_condition condition,
-                         condition_trigger trigger,
-                         OrderParamaters order1 = OrderParamaters(),
-                         OrderParamaters order2 = OrderParamaters());
+    { return _condition != order_condition::none; }
 };
 
 class AdvancedOrderTicketOCO

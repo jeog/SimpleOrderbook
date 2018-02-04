@@ -33,8 +33,9 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 namespace sob{
 
-/* container class forward decl */
-class SimpleOrderbook;
+class SimpleOrderbook; /* simpleoderbook.hpp */
+struct order_info; /* simpleoderbook.hpp */
+class AdvancedOrderTicket; /* advanced_order.hpp */
 
 typedef unsigned long id_type;
 
@@ -48,7 +49,6 @@ typedef std::ratio<1,10000> ten_thousandth_tick;
 typedef std::chrono::steady_clock clock_type;
 
 typedef std::tuple<clock_type::time_point, double, size_t> timesale_entry_type;
-
 
 enum class order_type {
     null = 0,
@@ -64,7 +64,6 @@ enum class order_condition {
     one_triggers_other,
     fill_or_kill,
     // bracket
-    // fill_or_kill
     // all_or_nothing
     // trailing_stop
 };
@@ -75,7 +74,6 @@ enum class condition_trigger {
     fill_full
     // fill x% etc.
 };
-
 
 enum class callback_msg{
     cancel = 0,
@@ -107,20 +105,74 @@ enum class side_of_trade {
     all = 0
 };
 
-
 typedef std::function<void(callback_msg,id_type,id_type,double,size_t)>  order_exec_cb_type;
 typedef std::function<void(id_type)> order_admin_cb_type;
 
-/* < order type, is buy, limit price, stop price, size > */
-//typedef std::tuple<order_type,bool,double, double, size_t> order_info_type;
+class OrderParamaters{
+    bool _is_buy;
+    size_t _size;
+    double _limit;
+    double _stop;
 
-struct order_info { // TODO merge with OrderParamaters
-    order_type type;
-    bool is_buy;
-    double limit;
-    double stop;
-    size_t size;
-    operator bool(){ return type != order_type::null; }
+public:
+    OrderParamaters(bool is_buy, size_t size, double limit, double stop)
+        :
+            _is_buy(is_buy),
+            _size(size),
+            _limit(limit),
+            _stop(stop)
+        {
+        }
+
+    OrderParamaters()
+        : OrderParamaters(0,0,0,0)
+        {}
+
+    inline bool
+    is_buy() const
+    { return _is_buy; }
+
+    inline size_t
+    size() const
+    { return _size; }
+
+    inline double
+    limit() const
+    { return _limit; }
+
+    inline double
+    stop() const
+    { return _stop; }
+
+    bool
+    operator==(const OrderParamaters& op) const;
+
+    inline bool
+    operator!=(const OrderParamaters& op) const
+    { return !(*this == op); }
+
+    inline
+    operator bool() const
+    { return _size != 0; }
+
+    inline bool
+    is_market_order() const
+    { return !(_stop || _limit); }
+
+    inline bool
+    is_limit_order() const
+    { return _limit && !_stop; }
+
+    inline bool
+    is_stop_order() const
+    { return _stop; }
+
+    inline bool
+    is_stop_limit_order() const
+    { return _stop && _limit; }
+
+    order_type
+    get_order_type() const;
 };
 
 std::string to_string(const order_type& ot);
@@ -128,14 +180,22 @@ std::string to_string(const callback_msg& cm);
 std::string to_string(const side_of_market& s);
 std::string to_string(const side_of_trade& s);
 std::string to_string(const clock_type::time_point& tp);
+std::string to_string(const order_condition& oc);
+std::string to_string(const condition_trigger& ct);
 std::string to_string(const order_info& oi);
+std::string to_string(const OrderParamaters& op);
+std::string to_string(const AdvancedOrderTicket& aot);
 
 std::ostream& operator<<(std::ostream& out, const order_type& ot);
 std::ostream& operator<<(std::ostream& out, const callback_msg& cm);
 std::ostream& operator<<(std::ostream& out, const side_of_market& s);
 std::ostream& operator<<(std::ostream& out, const side_of_trade& s);
 std::ostream& operator<<(std::ostream& out, const clock_type::time_point& tp);
+std::ostream& operator<<(std::ostream& out, const order_condition& oc);
+std::ostream& operator<<(std::ostream& out, const condition_trigger& ct);
 std::ostream& operator<<(std::ostream& out, const order_info& oi);
+std::ostream& operator<<(std::ostream& out, const OrderParamaters& op);
+std::ostream& operator<<(std::ostream& out, const AdvancedOrderTicket& op);
 
 class liquidity_exception
         : public std::logic_error{

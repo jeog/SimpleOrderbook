@@ -52,6 +52,15 @@ AdvancedOrderTicket::AdvancedOrderTicket( order_condition condition,
     {
     }
 
+AdvancedOrderTicket::AdvancedOrderTicket() // null ticket
+    :
+        _condition(order_condition::none),
+        _trigger(condition_trigger::none),
+        _order1(),
+        _order2()
+    {
+    }
+
 bool
 AdvancedOrderTicket::operator==(const AdvancedOrderTicket& aot) const
 {
@@ -90,10 +99,7 @@ AdvancedOrderTicketOTO::AdvancedOrderTicketOTO( condition_trigger trigger,
     }
 
 
-const AdvancedOrderTicket AdvancedOrderTicket::null(
-    order_condition::none,
-    condition_trigger::none
-);
+const AdvancedOrderTicket AdvancedOrderTicket::null;
 
 const condition_trigger AdvancedOrderTicket::default_trigger =
         condition_trigger::fill_partial;

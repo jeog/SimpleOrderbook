@@ -117,11 +117,6 @@ public:
 
     virtual order_info
     get_order_info(id_type id, bool search_limits_first=true) const = 0;
-
-    virtual order_info
-    get_order_info_hint(id_type id,
-                        double price,
-                        bool search_limits_first=true) const = 0;
 };
 
 
@@ -154,9 +149,6 @@ public:
 
     virtual bool 
     pull_order(id_type id, bool search_limits_first=true) = 0;
-
-    virtual bool
-    pull_order_hint(id_type id, double price, bool search_limits_first=true) = 0;
 };
 
 

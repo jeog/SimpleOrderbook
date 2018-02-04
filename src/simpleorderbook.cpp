@@ -130,6 +130,34 @@ to_string(const side_of_trade& s)
 }
 
 std::string
+to_string(const order_condition& oc)
+{
+    switch(oc){
+    case order_condition::one_cancels_other: return "one-cancels-other";
+    case order_condition::one_triggers_other: return "one-triggers-other";
+    case order_condition::fill_or_kill: return "fill-or-kill";
+    case order_condition::none: return "none";
+    default:
+        throw std::logic_error( "bad order_condition: " +
+                std::to_string(static_cast<int>(oc)) );
+    }
+}
+
+std::string
+to_string(const condition_trigger& ct)
+{
+    switch(ct){
+    case condition_trigger::fill_partial: return "fill-partial";
+    case condition_trigger::fill_full: return "fill-full";
+    case condition_trigger::none: return "none";
+    default:
+        throw std::logic_error( "bad condition_trigger: " +
+                std::to_string(static_cast<int>(ct)) );
+    }
+}
+
+
+std::string
 to_string(const clock_type::time_point& tp)
 {
     auto sys_tp = std::chrono::system_clock::now() + (tp - clock_type::now());
@@ -143,58 +171,77 @@ std::string
 to_string(const order_info& oi)
 {
     std::stringstream ss;
-    ss << (oi.is_buy ? "buy" : "sell") << " "
-       << oi.type << " "
-       << oi.size << " "
-       << (oi.limit ? ("[limit: " + std::to_string(oi.limit) + "]") : "") << " "
-       << (oi.stop ? ("[stop: " + std::to_string(oi.stop) + "]") : "");
+    ss << OrderParamaters(oi.is_buy, oi.size, oi.limit, oi.stop);
+    if( oi.advanced ){
+       ss << " " << oi.advanced;
+    }
+    return ss.str();
+}
+
+std::string
+to_string(const OrderParamaters& op)
+{
+    std::stringstream ss;
+    ss << (op.is_buy() ? "buy" : "sell") << " "
+       << op.get_order_type() << " "
+       << op.size() << " "
+       << (op.limit() ? ("[limit: " + std::to_string(op.limit()) + "]") : "") << " "
+       << (op.stop() ? ("[stop: " + std::to_string(op.stop()) + "]") : "");
+    return ss.str();
+}
+
+std::string
+to_string(const AdvancedOrderTicket& aot){
+    std::stringstream ss;
+    ss << to_string(aot.condition()) << " " << to_string(aot.trigger());
+    const OrderParamaters& o1 = aot.order1();
+    const OrderParamaters& o2 = aot.order2();
+    if( o1 ){
+        ss << " " << o1;
+    }
+    if( o2 ){
+        ss << " " << o2;
+    }
     return ss.str();
 }
 
 std::ostream&
 operator<<(std::ostream& out, const order_type& ot)
-{
-    out << to_string(ot);
-    return out;
-}
+{ return ( out << to_string(ot)); }
 
 std::ostream&
 operator<<(std::ostream& out, const callback_msg& cm)
-{
-    out << to_string(cm);
-    return out;
-}
+{ return (out << to_string(cm)); }
 
 std::ostream&
 operator<<(std::ostream& out, const side_of_market& s)
-{
-    out << to_string(s);
-    return out;
-}
+{ return (out << to_string(s)); }
 
 std::ostream&
 operator<<(std::ostream& out, const side_of_trade& s)
-{
-    out << to_string(s);
-    return out;
-}
+{ return (out << to_string(s)); }
 
 std::ostream&
 operator<<(std::ostream& out, const clock_type::time_point& tp)
-{
-    out << to_string(tp);
-    return out;
-}
+{ return (out << to_string(tp)); }
+
+std::ostream&
+operator<<(std::ostream& out, const order_condition& oc)
+{ return (out << to_string(oc)); }
+std::ostream&
+operator<<(std::ostream& out, const condition_trigger& ct)
+{ return (out << to_string(ct)); }
+
 std::ostream&
 operator<<(std::ostream& out, const order_info& oi)
-{
-    out << to_string(oi);
-    return out;
-}
+{ return (out << to_string(oi)); }
+std::ostream&
+operator<<(std::ostream& out, const OrderParamaters& op)
+{ return (out << to_string(op)); }
 
-
-
-
+std::ostream&
+operator<<(std::ostream& out, const AdvancedOrderTicket& aot)
+{ return (out << to_string(aot)); }
 
 }; /* sob */
 
