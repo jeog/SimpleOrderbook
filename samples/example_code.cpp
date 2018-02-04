@@ -1,6 +1,9 @@
 // example_code.cpp
 
+#include <unordered_map>
 #include "simpleorderbook.hpp"
+
+std::unordered_map<sob::id_type, sob::id_type> advanced_ids;
 
 void 
 execution_callback(sob::callback_msg msg, 
@@ -150,6 +153,11 @@ execution_callback(sob::callback_msg msg,
                    double price,
                    size_t size)
 {
+    /* if we use OCO order need to be aware of potential ID# change on trigger */
+    if( msg == sob::callback_msg::trigger_OCO ){
+        std::cout<< "order #" << id1 << " is now #" << id2 << std::endl;
+        advanced_ids[id1] = id2;
+    }
     std::cout<< msg << " " << id1 << " " << id2 << " " 
              << price << " " << size << std::endl;
     // define
@@ -164,8 +172,11 @@ insert_orders(sob::FullInterface *orderbook)
     sob::id_type id2 = orderbook->insert_market_order(false, 10, execution_callback);
 
     /* pull orders */
-    orderbook->pull_order(id1);
-    orderbook->pull_order(id2);}
+    std::cout<< "pull order #1 (should be true): " << std::boolalpha 
+             << orderbook->pull_order(id1) << std::endl;
+    std::cout<< "pull order #2 (should be false): " 
+             << orderbook->pull_order(id2) << std::endl;
+}
 
 void 
 insert_advanced_orders(sob::FullInterface *orderbook)
@@ -179,10 +190,17 @@ insert_advanced_orders(sob::FullInterface *orderbook)
     /* then insert it to the standard interface 
        NOTE: it will call back when the condition is triggered,
              the new order id will be in field 'id2' */
-    sob::id_type id3 = orderbook->insert_limit_order(true, 49.50, 100, execution_callback, aot);
+    sob::id_type id = orderbook->insert_limit_order(true, 49.50, 100, execution_callback, aot);
+    advanced_ids[id] = id;
+    std::cout<< "ORDER #" << id << ": " << orderbook->get_order_info(id) << std::endl;
 
-    /* if either order fills the other is canceled */
-    orderbook->insert_market_order(false, 50);
+    /* if either order fills the other is canceled (and ID# may have changed)*/
+    orderbook->insert_market_order(true, 50);
+    sob::order_info oi = orderbook->get_order_info(advanced_ids[id]);
+    std::cout<< "ORDER #" << advanced_ids[id] << ": " << oi << std::endl;
+
+    orderbook->dump_buy_limits();
+    orderbook->dump_sell_limits();
 }
 
 void

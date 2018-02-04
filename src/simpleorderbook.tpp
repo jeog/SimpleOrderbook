@@ -234,28 +234,22 @@ private:
 SOB_TEMPLATE
 struct SOB_CLASS::_order {
     template<typename ChainTy>
-    static typename ChainTy::iterator
+    static typename ChainTy::value_type&
     find(ChainTy *c, id_type id)
     {
-        return std::find_if(c->begin(), c->end(),
-                [&](const typename ChainTy::value_type& v){
-                    return v.id == id;
-                });
-    }
-
-    template<typename ChainTy>
-    static typename ChainTy::value_type&
-    find(plevel p, id_type id)
-    {
-        ChainTy *c = _chain<ChainTy>::get(p);
         if( c ){
-            auto i = find<ChainTy>(c, id);
+            auto i = find_pos(c, id);
             if( i != c->cend() ){
                 return *i;
             }
         }
         return ChainTy::value_type::null;
     }
+
+    template<typename ChainTy>
+    static typename ChainTy::value_type&
+    find(plevel p, id_type id)
+    { return find(_chain<ChainTy>::get(p), id); }
 
     template<typename ChainTy>
     static typename ChainTy::value_type&
@@ -266,6 +260,16 @@ struct SOB_CLASS::_order {
             return find<ChainTy>(p, id);
         }
         return ChainTy::value_type::null;
+    }
+
+    template<typename ChainTy>
+    static typename ChainTy::iterator
+    find_pos(ChainTy *c, id_type id)
+    {
+        return std::find_if(c->begin(), c->end(),
+                [&](const typename ChainTy::value_type& v){
+                    return v.id == id;
+                });
     }
 
     static inline double
@@ -300,65 +304,62 @@ struct SOB_CLASS::_order {
     as_order_params(const SimpleOrderbookImpl *sob,
                     plevel p,
                     const limit_bndl& bndl)
-    { return OrderParamaters( (p <= sob->_ask), bndl.sz,
+    { return OrderParamaters( (p < sob->_ask), bndl.sz,
             limit_price(sob, p, bndl), stop_price(sob, p, bndl) ); }
+
+    static order_info
+    as_order_info(bool is_buy,
+                  double price,
+                  const limit_bndl& bndl,
+                  const AdvancedOrderTicket& aot)
+    { return {order_type::limit, is_buy, price, 0, bndl.sz, aot}; }
+
+    static order_info
+    as_order_info(bool is_buy,
+                  double price,
+                  const stop_bndl& bndl,
+                  const AdvancedOrderTicket& aot)
+    {
+        if( !bndl.limit ){
+            return {order_type::stop, is_buy, 0, price, bndl.sz, aot};
+        }
+        return {order_type::stop_limit, is_buy, bndl.limit, price, bndl.sz, aot };
+    }
 
     /* return an order_info struct for that order id */
     template<typename ChainTy>
     static order_info
-    info(const SimpleOrderbookImpl *sob,id_type id)
+    as_order_info(const SimpleOrderbookImpl *sob, id_type id)
     {
         plevel p = sob->_id_to_plevel<ChainTy>(id);
-        if( p ){
-            return _info<ChainTy>::build(sob, id, p);
+        if( !p ){
+            return {order_type::null, false, 0, 0, 0, AdvancedOrderTicket::null};
         }
-        return _info<void>::build();
+        ChainTy *c = _chain<ChainTy>::get(p);
+        const typename ChainTy::value_type& bndl = _order::find(c, id);
+        AdvancedOrderTicket aot =  sob->_bndl_to_aot<ChainTy>(bndl);
+        bool is_buy = is_buy_order<ChainTy>(sob, p, bndl);
+        return as_order_info(is_buy, sob->_itop(p), bndl, aot);
     }
 
     template<typename PrimaryChainTy, typename SecondaryChainTy>
     inline static order_info
-    info(const SimpleOrderbookImpl *sob, id_type id)
+    as_order_info(const SimpleOrderbookImpl *sob, id_type id)
     {
-        auto oi =  info<PrimaryChainTy>(sob, id);
+        auto oi =  as_order_info<PrimaryChainTy>(sob, id);
         if( !oi ){
-            oi = info<SecondaryChainTy>(sob, id);
+            oi = as_order_info<SecondaryChainTy>(sob, id);
         }
         return oi;
     }
 
-    template<typename ChainTy, typename Dummy=void>
-    struct _info{
-        static inline order_info
-        build()
-        { return {order_type::null,false,0,0,0, AdvancedOrderTicket::null}; }
-    };
+    static inline order_type
+    as_order_type(const stop_bndl& bndl)
+    { return (bndl && bndl.limit) ? order_type::stop_limit : order_type::stop; }
 
-    template<typename Dummy>
-    struct _info<limit_chain_type, Dummy> {
-        static inline order_info
-        build(const SimpleOrderbookImpl *sob, id_type id,  plevel p)
-        {
-            const limit_bndl& bndl = _order::find<limit_chain_type>(p, id);
-            AdvancedOrderTicket aot = sob->_bndl_to_aot<limit_chain_type>(bndl);
-            return {order_type::limit, (p < sob->_ask), sob->_itop(p), 0,
-                    bndl.sz, aot};
-        }
-    };
-
-    template<typename Dummy>
-    struct _info<stop_chain_type, Dummy> {
-        static order_info
-        build(const SimpleOrderbookImpl *sob, id_type id, plevel p)
-        {
-            const stop_bndl& bndl = _order::find<stop_chain_type>(p, id);
-            AdvancedOrderTicket aot =  sob->_bndl_to_aot<stop_chain_type>(bndl);
-            if( bndl.limit != 0 ){
-                return {order_type::stop_limit, bndl.is_buy, bndl.limit,
-                        sob->_itop(p), bndl.sz, aot };
-            }
-            return {order_type::stop, bndl.is_buy, 0, sob->_itop(p), bndl.sz, aot};
-        }
-    };
+    static inline order_type
+    as_order_type(const limit_bndl& bndl)
+    { return order_type::limit; }
 
     static inline void
     dump(std::ostream& out, const SOB_CLASS::limit_bndl& bndl )
@@ -395,7 +396,7 @@ protected:
     static typename InnerChainTy::value_type
     pop(SOB_CLASS *sob, InnerChainTy *c, id_type id)
     {
-        auto i = _order::template find<InnerChainTy>(c, id);
+        auto i = _order::template find_pos(c, id);
         if( i == c->cend() ){
             return InnerChainTy::value_type::null;
         }
@@ -424,8 +425,8 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::limit_chain_type, Dummy>
     { return _chain<void>::template size(c); }
 
     static inline order_type
-    as_order_type(const bndl_type& bndl = bndl_type::null)
-    { return order_type::limit; }
+    as_order_type()
+    { return SOB_CLASS::_order::as_order_type(bndl_type()); }
 
     template<bool IsBuy>
     static void
@@ -473,8 +474,8 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>
     { return _chain<void>::template size(c); }
 
     static inline order_type
-    as_order_type(const bndl_type& bndl= bndl_type::null)
-    { return (bndl && bndl.limit) ? order_type::stop_limit : order_type::stop; }
+    as_order_type() // doesn't differentiate between stop & stop/limit
+    { return SOB_CLASS::_order::as_order_type(bndl_type()); }
 
     template<bool IsBuy>
     static void
@@ -2096,8 +2097,8 @@ SOB_CLASS::get_order_info(id_type id, bool search_limits_first) const
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
     return search_limits_first
-            ? _order::template info<limit_chain_type, stop_chain_type>(this, id)
-            : _order::template info<stop_chain_type, limit_chain_type>(this, id);
+            ? _order::template as_order_info<limit_chain_type, stop_chain_type>(this, id)
+            : _order::template as_order_info<stop_chain_type, limit_chain_type>(this, id);
     /* --- CRITICAL SECTION --- */
 }
 

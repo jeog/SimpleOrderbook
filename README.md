@@ -11,11 +11,15 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
     - one-cancels-other (OCO) 
     - one-triggers-other (OTO)
     - fill-or-kill (FOK)
+    - trailing stop ***(not available yet)***
+    - bracket ***(not available yet)***
+    - all-or-none (AON) ***(not available yet)***
 - advanced condition triggers: ***IN DEVELOPMENT (NOT STABLE)***
     - fill-partial 
     - fill-full 
+    - fill-n-percent ***(not available yet)***
 - cancel/replace orders by ID
-- pass callbacks that are triggered on execution and/or successful order insert
+- user-defined callbacks on order execution/cancelation/advanced triggers etc.
 - query market state(bid size, volume etc.), dump orders to stdout, view Time & Sales 
 - extensible backend resource management(global and type-specific) via factory proxies 
 - tick sizing/rounding/math handled implicity by TickPrice\<std::ratio\> objects
@@ -27,7 +31,7 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 
 - **C++** 
 
-        user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -Iinclude -lpthread src/simpleorderbook.cpp src/advanced_order.cpp example_code.cpp -o example_code.out
+        user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -Iinclude -lpthread src/simpleorderbook.cpp src/advanced_order.cpp samples/example_code.cpp -o example_code.out
         user@host:/usr/local/SimpleOrderbook$ ./example_code.out  
 
 - **python**
@@ -40,7 +44,10 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
  
         // example_code.cpp
 
+        #include <unordered_map>
         #include "simpleorderbook.hpp"
+
+        std::unordered_map<sob::id_type, sob::id_type> advanced_ids;
 
         void 
         execution_callback(sob::callback_msg msg, 
@@ -190,6 +197,11 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
                            double price,
                            size_t size)
         {
+            /* if we use OCO order need to be aware of potential ID# change on trigger */
+            if( msg == sob::callback_msg::trigger_OCO ){
+                std::cout<< "order #" << id1 << " is now #" << id2 << std::endl;
+                advanced_ids[id1] = id2;
+            }
             std::cout<< msg << " " << id1 << " " << id2 << " " 
                      << price << " " << size << std::endl;
             // define
@@ -204,8 +216,11 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
             sob::id_type id2 = orderbook->insert_market_order(false, 10, execution_callback);
 
             /* pull orders */
-            orderbook->pull_order(id1);
-            orderbook->pull_order(id2);}
+            std::cout<< "pull order #1 (should be true): " << std::boolalpha 
+                     << orderbook->pull_order(id1) << std::endl;
+            std::cout<< "pull order #2 (should be false): " 
+                     << orderbook->pull_order(id2) << std::endl;
+        }
 
         void 
         insert_advanced_orders(sob::FullInterface *orderbook)
@@ -219,10 +234,17 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
             /* then insert it to the standard interface 
                NOTE: it will call back when the condition is triggered,
                      the new order id will be in field 'id2' */
-            sob::id_type id3 = orderbook->insert_limit_order(true, 49.50, 100, execution_callback, aot);
+            sob::id_type id = orderbook->insert_limit_order(true, 49.50, 100, execution_callback, aot);
+            advanced_ids[id] = id;
+            std::cout<< "ORDER #" << id << ": " << orderbook->get_order_info(id) << std::endl;
 
-            /* if either order fills the other is canceled */
-            orderbook->insert_market_order(false, 50);
+            /* if either order fills the other is canceled (and ID# may have changed)*/
+            orderbook->insert_market_order(true, 50);
+            sob::order_info oi = orderbook->get_order_info(advanced_ids[id]);
+            std::cout<< "ORDER #" << advanced_ids[id] << ": " << oi << std::endl;
+
+            orderbook->dump_buy_limits();
+            orderbook->dump_sell_limits();
         }
 
         void

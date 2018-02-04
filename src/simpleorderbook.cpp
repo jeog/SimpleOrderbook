@@ -184,9 +184,9 @@ to_string(const OrderParamaters& op)
     std::stringstream ss;
     ss << (op.is_buy() ? "buy" : "sell") << " "
        << op.get_order_type() << " "
-       << op.size() << " "
-       << (op.limit() ? ("[limit: " + std::to_string(op.limit()) + "]") : "") << " "
-       << (op.stop() ? ("[stop: " + std::to_string(op.stop()) + "]") : "");
+       << op.size()
+       << (op.limit() ? (" [limit: " + std::to_string(op.limit()) + "]") : "")
+       << (op.stop() ? (" [stop: " + std::to_string(op.stop()) + "]") : "");
     return ss.str();
 }
 

@@ -405,13 +405,15 @@ private:
 
         /*
          * order utilities
-         *   ::find : get reference or iterator to order bndl for a particular
-         *            chain pointer/id, plevel/id, or id
+         *   ::find : get reference to order bndl for a particular
+         *            chain/id, plevel/id, or id
+         *   ::find_pos : like 'find' but returns an iterator
          *   ::limit_price : convert order bndl to limit price
          *   ::stop_price : covert order bndl to stop price
          *   ::as_base_bndl : find order and upcast to _order_bndl ref
          *   ::as_order_params : convert order bndl to OrderParamaters object
-         *   ::info : return appropriate order_info struct from order ID
+         *   ::as_order_info : return appropriate order_info struct from order ID
+         *   ::as_order_type: convert bndl to order type (stop, limit, stop-limit)
          *   ::dump : dump appropriate order bndl info to ostream
          */
         struct _order;
@@ -420,8 +422,8 @@ private:
          * chain utilities:
          *   ::get : get appropriate chain from plevel
          *   ::size : get size of chain
-         *   ::as_order_type: conver chain type to order type
-         *   ::push : push order bndl onto chain
+         *   ::as_order_type: convert chain type to order type (stop or limit)
+         *   ::push : push (move) order bndl onto chain
          *   ::pop : pop (and return) order bundle from chain
          */
         template<typename ChainTy, typename Dummy = void>
@@ -800,7 +802,7 @@ private:
         is_buy_order(const SimpleOrderbookImpl *sob,
                plevel p,
                const typename ChainTy::value_type& o)
-        { return is_limit_chain<ChainTy>() ? (p <= sob->_bid) : is_buy_stop(o); }
+        { return is_limit_chain<ChainTy>() ? (p < sob->_ask) : is_buy_stop(o); }
 
     public:
         id_type
