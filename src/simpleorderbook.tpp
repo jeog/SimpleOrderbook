@@ -338,7 +338,7 @@ struct SOB_CLASS::_order {
         ChainTy *c = _chain<ChainTy>::get(p);
         const typename ChainTy::value_type& bndl = _order::find(c, id);
         AdvancedOrderTicket aot =  sob->_bndl_to_aot<ChainTy>(bndl);
-        bool is_buy = is_buy_order<ChainTy>(sob, p, bndl);
+        bool is_buy = sob->_is_buy_order(p, bndl);
         return as_order_info(is_buy, sob->_itop(p), bndl, aot);
     }
 

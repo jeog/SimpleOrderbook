@@ -757,6 +757,14 @@ private:
         _push_OTO_callback(order_exec_cb_type& cb, id_type id1, id_type id2)
         { _push_exec_callback(callback_msg::trigger_OTO, cb, id1, id2, 0, 0); }
 
+        inline bool
+        _is_buy_order(plevel p, const limit_bndl& o) const
+        { return (p < _ask); }
+
+        inline bool
+        _is_buy_order(plevel p, const stop_bndl& o) const
+        { return is_buy_stop(o); }
+
         static inline void
         execute_admin_callback(order_admin_cb_type& cb, id_type id)
         { if( cb ) cb(id); }
@@ -796,13 +804,6 @@ private:
         static constexpr bool
         is_limit_bndl(const BndlTy& bndl)
         { return std::is_same<BndlTy,limit_bndl>::value; }
-
-        template<typename ChainTy>
-        static inline bool
-        is_buy_order(const SimpleOrderbookImpl *sob,
-               plevel p,
-               const typename ChainTy::value_type& o)
-        { return is_limit_chain<ChainTy>() ? (p < sob->_ask) : is_buy_stop(o); }
 
     public:
         id_type
