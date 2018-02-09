@@ -98,11 +98,73 @@ AdvancedOrderTicketOTO::AdvancedOrderTicketOTO( condition_trigger trigger,
         }
     }
 
+AdvancedOrderTicketBRACKET
+AdvancedOrderTicketBRACKET::build_sell_stop_limit( double loss_stop,
+                                                   double loss_limit,
+                                                   double target_limit,
+                                                   size_t sz,
+                                                   condition_trigger trigger )
+{
+    if( target_limit <= loss_stop ){
+        throw std::invalid_argument("target_limit <= loss_stop");
+    }
+    if( loss_limit > loss_stop ){
+        throw std::invalid_argument("loss_limit > loss_stop");
+    }
+    return AdvancedOrderTicketBRACKET(trigger, false, sz, loss_limit,
+            loss_stop, target_limit);
+}
+
+AdvancedOrderTicketBRACKET
+AdvancedOrderTicketBRACKET::build_sell_stop( double loss_stop,
+                                             double target_limit,
+                                             size_t sz,
+                                             condition_trigger trigger )
+{
+    if( target_limit <= loss_stop ){
+        throw std::invalid_argument("target_limit <= loss_stop");
+    }
+    return AdvancedOrderTicketBRACKET(trigger, false, sz, 0, loss_stop,
+            target_limit);
+}
+
+AdvancedOrderTicketBRACKET
+AdvancedOrderTicketBRACKET::build_buy_stop_limit( double loss_stop,
+                                                  double loss_limit,
+                                                  double target_limit,
+                                                  size_t sz,
+                                                  condition_trigger trigger )
+{
+    if( target_limit >= loss_stop ){
+        throw std::invalid_argument("target_limit >= loss_stop");
+    }
+    if( loss_limit < loss_stop ){
+        throw std::invalid_argument("loss_limit < loss_stop");
+    }
+    return AdvancedOrderTicketBRACKET(trigger, true, sz, loss_limit,
+            loss_stop, target_limit);
+}
+
+AdvancedOrderTicketBRACKET
+AdvancedOrderTicketBRACKET::build_buy_stop( double loss_stop,
+                                            double target_limit,
+                                            size_t sz,
+                                            condition_trigger trigger )
+{
+    if( target_limit >= loss_stop ){
+        throw std::invalid_argument("target_limit >= loss_stop");
+    }
+    return AdvancedOrderTicketBRACKET(trigger, true, sz, 0, loss_stop,
+            target_limit);
+}
 
 const AdvancedOrderTicket AdvancedOrderTicket::null;
 
 const condition_trigger AdvancedOrderTicket::default_trigger =
         condition_trigger::fill_partial;
+
+const condition_trigger AdvancedOrderTicketFOK::default_trigger =
+        condition_trigger::fill_full;
 
 const order_condition AdvancedOrderTicketOCO::condition =
         order_condition::one_cancels_other;
@@ -110,12 +172,11 @@ const order_condition AdvancedOrderTicketOCO::condition =
 const order_condition AdvancedOrderTicketOTO::condition =
         order_condition::one_triggers_other;
 
-const condition_trigger AdvancedOrderTicketFOK::default_trigger =
-        condition_trigger::fill_full;
-
 const order_condition AdvancedOrderTicketFOK::condition =
         order_condition::fill_or_kill;
 
+const order_condition AdvancedOrderTicketBRACKET::condition =
+        order_condition::bracket;
 }; /* sob */
 
 

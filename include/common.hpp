@@ -63,7 +63,8 @@ enum class order_condition {
     one_cancels_other,
     one_triggers_other,
     fill_or_kill,
-    // bracket
+    bracket,
+    _bracket_active, // <- 'private' (basically an OCO now)
     // all_or_nothing
     // trailing_stop
 };
@@ -82,6 +83,8 @@ enum class callback_msg{
     stop_to_market,
     trigger_OCO,
     trigger_OTO,
+    trigger_BRACKET_open,
+    trigger_BRACKET_close,
     kill
 };
 

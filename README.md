@@ -11,8 +11,8 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
     - one-cancels-other (OCO) 
     - one-triggers-other (OTO)
     - fill-or-kill (FOK)
+    - bracket
     - trailing stop ***(not available yet)***
-    - bracket ***(not available yet)***
     - all-or-none (AON) ***(not available yet)***
 - advanced condition triggers: ***IN DEVELOPMENT (NOT STABLE)***
     - fill-partial 

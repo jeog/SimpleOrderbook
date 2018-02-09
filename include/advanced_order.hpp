@@ -202,6 +202,54 @@ public:
         return AdvancedOrderTicketFOK(trigger);
     }
 };
+
+class AdvancedOrderTicketBRACKET
+        : public AdvancedOrderTicket {
+protected:
+    AdvancedOrderTicketBRACKET( condition_trigger trigger,
+                                bool is_buy,
+                                size_t sz,
+                                double loss_limit,
+                                double loss_stop,
+                                double target_limit )
+        :
+            AdvancedOrderTicket( condition, trigger,
+                    OrderParamaters(is_buy, sz, loss_limit, loss_stop),
+                    OrderParamaters(is_buy, sz, target_limit, 0)
+                    )
+        {
+        }
+
+public:
+    static const order_condition condition;
+
+    static AdvancedOrderTicketBRACKET
+    build_sell_stop_limit( double loss_stop,
+                           double loss_limit,
+                           double target_limit,
+                           size_t sz,
+                           condition_trigger trigger = default_trigger );
+
+    static AdvancedOrderTicketBRACKET
+    build_sell_stop( double loss_stop,
+                     double target_limit,
+                     size_t sz,
+                     condition_trigger trigger = default_trigger );
+
+    static AdvancedOrderTicketBRACKET
+    build_buy_stop_limit( double loss_stop,
+                           double loss_limit,
+                           double target_limit,
+                           size_t sz,
+                           condition_trigger trigger = default_trigger );
+
+    static AdvancedOrderTicketBRACKET
+    build_buy_stop( double loss_stop,
+                    double target_limit,
+                    size_t sz,
+                    condition_trigger trigger = default_trigger );
+};
+
 }; /* sob */
 
 #endif

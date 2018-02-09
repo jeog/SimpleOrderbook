@@ -243,13 +243,38 @@ private:
         /* manage instances created by factory proxy */
         static SOB_RESOURCE_MANAGER<FullInterface, ImplDeleter> rmanager;
 
+        /* info held for each order in the execution queue */
+        typedef struct{
+            order_type type;
+            bool is_buy;
+            double limit;
+            double stop;
+            size_t sz;
+            order_exec_cb_type exec_cb;
+            order_condition cond;
+            condition_trigger cond_trigger;
+            std::unique_ptr<OrderParamaters> cparams1;
+            std::unique_ptr<OrderParamaters> cparams2;
+            order_admin_cb_type admin_cb;
+            id_type id;
+            std::promise<id_type> promise;
+        } order_queue_elem;
+
         /* one order to (quickly) find another */
-        typedef struct{ // WHY NOT JUST POINT AT THE OBJECT ?
+        struct order_location{ // WHY NOT JUST POINT AT THE OBJECT ?
+            bool is_limit_chain;
             double price;
             id_type id;
-            bool limit_chain;
-            bool primary;
-        } order_location;
+            bool is_primary;
+            order_location(const order_queue_elem& elem, bool is_primary)
+                :
+                    is_limit_chain(elem.type == order_type::limit),
+                    price(is_limit_chain ? elem.limit : elem.stop),
+                    id(elem.id),
+                    is_primary(is_primary)
+                {
+                }
+        };
 
         /* base representation of orders internally (inside chains)
          * note: this is just an 'abstract' base for stop/limit bndls to
@@ -263,7 +288,7 @@ private:
             union {
                 order_location *linked_order;
                 OrderParamaters *contingent_order;
-                char* _reserved;
+                std::pair<OrderParamaters, OrderParamaters> *bracket_orders;
             };
             operator bool() const { return sz; }
             _order_bndl();
@@ -313,22 +338,6 @@ private:
             double price;
             size_t sz;
         } dfrd_cb_elem;
-
-        /* info held for each order in the execution queue */
-        typedef struct{
-            order_type type;
-            bool is_buy;
-            double limit;
-            double stop;
-            size_t sz;
-            order_exec_cb_type exec_cb;
-            order_condition cond;
-            condition_trigger cond_trigger;
-            std::unique_ptr<OrderParamaters> cond_order_params;
-            order_admin_cb_type admin_cb;
-            id_type id;
-            std::promise<id_type> promise;
-        } order_queue_elem;
 
         /* holds all limit orders at a price */
         typedef std::list<limit_bndl> limit_chain_type;
@@ -504,44 +513,44 @@ private:
         //      - what is the meaning of condition_trigger to a stop ?
         //
         void
-        _handle_advanced_order(_order_bndl& bndl, id_type id, size_t rmndr);
+        _handle_advanced_order(_order_bndl& bndl, id_type id);
 
         void
-        _handle_OCO(_order_bndl& bndl, id_type id);
+        _handle_OCO(_order_bndl& bndl, id_type id, bool is_bracket);
 
         void
-        _handle_OTO(_order_bndl& bndl, id_type id);
+        _handle_OTO(_order_bndl& bndl, id_type id, bool is_bracket);
 
         /* handles the async/consumer side of the order queue */
         void
         _threaded_order_dispatcher();
 
         /* all order types go through here */
-        void
-        _insert_order(order_queue_elem& e, id_type& id);
+        bool
+        _insert_order(order_queue_elem& e);
 
         /* basic order types */
         fill_type
-        _route_basic_order(order_queue_elem& e, id_type& id);
+        _route_basic_order(order_queue_elem& e);
 
         /* advanced order types */
         void
-        _route_advanced_order(order_queue_elem& e, id_type& id);
+        _route_advanced_order(order_queue_elem& e);
 
         /* if we need immediate (partial/full) fill info for basic order type*/
         bool
-        _inject_order(order_queue_elem& e, id_type id, bool partial_ok);
+        _inject_order(order_queue_elem& e, bool partial_ok);
 
         // TODO Consider allowing order_type::market as secondary order
         //      so primary can try to fill then default to market
         void
-        _insert_OCO_order(order_queue_elem& e, id_type id);
+        _insert_OCO_order(order_queue_elem& e);
 
         void
-        _insert_OTO_order(order_queue_elem& e, id_type id);
+        _insert_OTO_order(order_queue_elem& e);
 
         void
-        _insert_FOK_order(order_queue_elem& e, id_type id);
+        _insert_FOK_order(order_queue_elem& e);
 
         /* internal insert orders once/if we have an id */
         template<bool BuyLimit>
@@ -594,9 +603,9 @@ private:
                              order_condition cond = order_condition::none,
                              condition_trigger cond_trigger
                                  = condition_trigger::fill_partial,
-                             std::unique_ptr<OrderParamaters>&& cond_order_params
-                                 = nullptr,
-                             order_admin_cb_type admin_cb= nullptr,
+                             std::unique_ptr<OrderParamaters>&& cparams1=nullptr,
+                             std::unique_ptr<OrderParamaters>&& cparams2=nullptr,
+                             order_admin_cb_type admin_cb=nullptr,
                              id_type id = 0);
 
         /* push order onto the order queue, DONT block */
@@ -610,8 +619,8 @@ private:
                             order_condition cond = order_condition::none,
                             condition_trigger cond_trigger
                                 = condition_trigger::fill_partial,
-                            std::unique_ptr<OrderParamaters>&& cond_order_params
-                                = nullptr,
+                            std::unique_ptr<OrderParamaters>&& cparams1=nullptr,
+                            std::unique_ptr<OrderParamaters>&& cparams2=nullptr,
                             order_admin_cb_type admin_cb = nullptr,
                             id_type id = 0);
 
@@ -624,7 +633,8 @@ private:
                     order_exec_cb_type cb,
                     order_condition cond,
                     condition_trigger cond_trigger,
-                    std::unique_ptr<OrderParamaters>&& cond_order_params,
+                    std::unique_ptr<OrderParamaters>&& cparams1,
+                    std::unique_ptr<OrderParamaters>&& cparams2,
                     order_admin_cb_type admin_cb,
                     id_type id,
                     std::promise<id_type>&& p);
@@ -632,21 +642,21 @@ private:
         void
         _block_on_outstanding_orders();
 
-        /* remove a particular order (SLOW) */
+        /* remove a particular order by id... */
         template<typename ChainTy>
         bool
         _pull_order(id_type id, bool pull_linked);
 
-        /* optimize by checking limit or stop chains first (LESS SLOW) */
+        /* ...(optimized) by checking limit or stop chains first... */
         bool
         _pull_order(id_type id, bool pull_linked, bool limits_first);
 
-        /* once we have the plevel/chain (FAST) */
+        /* ...(optimized) if we already have plevel and order/chain type...*/
         template<typename ChainTy>
         bool
         _pull_order(id_type id, plevel p, bool pull_linked);
 
-        /* */
+        /* ...(optimized) if we know the order/chain type(at run-time) */
         inline bool
         _pull_order(id_type id, double price, bool pull_linked, bool is_limit)
         {
@@ -655,13 +665,31 @@ private:
                 : _pull_order<stop_chain_type>(id, _ptoi(price), pull_linked);
         }
 
+        /* pull OCO (linked) order */
         template<typename ChainTy>
         void
         _pull_linked_order(typename ChainTy::value_type& bndl);
 
-        template<typename InnerChainTy>
+        /* access the _id_cache hash table to find the plevel/chain */
+        template<typename ChainTy>
         plevel
         _id_to_plevel(id_type id) const;
+
+        template<typename ChainTy>
+        typename ChainTy::value_type&
+        _find(id_type id)
+        {
+            plevel p = _id_to_plevel<ChainTy>(id);
+            if( p ){
+                return _order::template find<ChainTy>(p, id);
+            }
+            return ChainTy::value_type::null;
+        }
+
+        _order_bndl&
+        _find(id_type id, bool is_limit)
+        { return is_limit ? dynamic_cast<_order_bndl&>(_find<limit_chain_type>(id))
+                          : dynamic_cast<_order_bndl&>(_find<stop_chain_type>(id)); }
 
         /* generate order ids; don't worry about overflow */
         inline id_type
@@ -709,53 +737,42 @@ private:
         void
         _grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg);
 
+        /* convert to valid tick price (throw invalid_argument if bad input) */
         double
         _tick_price_or_throw(double price, std::string msg) const;
 
+        /* check for valid plevel */
         void
         _assert_plevel(plevel p) const;
 
+        /* check all the internal order pointers */
         void
         _assert_internal_pointers() const;
 
+        /* build an advanced ticket from a linked/contingent order bndl (OCO/OTO) */
         template<typename ChainTy>
         AdvancedOrderTicket
         _bndl_to_aot(const typename _chain<ChainTy>::bndl_type& bndl) const;
 
+        /* check/build internal param object from user input for advanced
+         * order types (uses _tick_price_or_throw to check user input) */
         std::unique_ptr<OrderParamaters>
         _build_aot_order(const OrderParamaters& order) const;
 
-        inline std::tuple<std::unique_ptr<OrderParamaters>,
-                          std::unique_ptr<OrderParamaters>>
-        _build_aot_orders(const OrderParamaters& order1,
-                          const OrderParamaters& order2) const
-        {
-            return std::make_tuple(
-                    _build_aot_order(order1), _build_aot_order(order2)
-                    );
-        }
-
+        /* check prices levels for limit-OCO orders are valid */
         void
         _check_oco_limit_order(bool buy,
                                double limit,
-                               std::unique_ptr<OrderParamaters> & op);
+                               std::unique_ptr<OrderParamaters> & op) const;
 
         inline void
-        _push_exec_callback( callback_msg msg,
+        _push_callback( callback_msg msg,
                              order_exec_cb_type& cb,
                              id_type id1,
                              id_type id2,
                              double price,
                              size_t sz )
         { _deferred_callbacks.push_back({msg, cb, id1, id2, price, sz}); }
-
-        inline void
-        _push_OCO_callback(order_exec_cb_type& cb, id_type id1, id_type id2)
-        { _push_exec_callback(callback_msg::trigger_OCO, cb, id1, id2, 0, 0); }
-
-        inline void
-        _push_OTO_callback(order_exec_cb_type& cb, id_type id1, id_type id2)
-        { _push_exec_callback(callback_msg::trigger_OTO, cb, id1, id2, 0, 0); }
 
         inline bool
         _is_buy_order(plevel p, const limit_bndl& o) const

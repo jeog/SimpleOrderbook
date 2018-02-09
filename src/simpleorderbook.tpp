@@ -252,17 +252,6 @@ struct SOB_CLASS::_order {
     { return find(_chain<ChainTy>::get(p), id); }
 
     template<typename ChainTy>
-    static typename ChainTy::value_type&
-    find(id_type id)
-    {
-        plevel p = _id_to_plevel<ChainTy>(id);
-        if( p ){
-            return find<ChainTy>(p, id);
-        }
-        return ChainTy::value_type::null;
-    }
-
-    template<typename ChainTy>
     static typename ChainTy::iterator
     find_pos(ChainTy *c, id_type id)
     {
@@ -287,11 +276,6 @@ struct SOB_CLASS::_order {
     static inline double
     stop_price(const SimpleOrderbookImpl *sob, plevel p, const stop_bndl& bndl)
     { return sob->_itop(p); }
-
-    inline static _order_bndl&
-    as_base_bndl(plevel p, id_type id, bool is_limit)
-    { return is_limit ? dynamic_cast<_order_bndl&>(find<limit_chain_type>(p, id))
-                      : dynamic_cast<_order_bndl&>(find<stop_chain_type>(p, id)); }
 
     static inline OrderParamaters
     as_order_params(const SimpleOrderbookImpl *sob,
@@ -891,17 +875,26 @@ SOB_CLASS::_hit_chain( plevel plev,
         rmndr = elem.sz - amount;
 
         /* deal with advanced order conditions */
-        _handle_advanced_order(elem, elem.id, rmndr);
+        if( elem.cond != order_condition::none ){
+            assert(elem.trigger != condition_trigger::none);
+            if( elem.trigger != condition_trigger::fill_full || !rmndr ){
+                _handle_advanced_order(elem, elem.id);
+            }
+        }
 
+        /* adjust outstanding order size or indicate removal if none left */
         if( rmndr > 0 ){ 
-            elem.sz = rmndr; /* adjust outstanding order size */
+            elem.sz = rmndr;
         }else{                    
-            ++del_iter; /* indicate removal if we cleared bid */
+            ++del_iter;
         }     
+
+        /* if nothing left to trade*/
         if( size <= 0 ){ 
-            break; /* if we have nothing left to trade*/
+            break;
         }
     }
+
     plev->first.erase(plev->first.begin(),del_iter);
     return size;
 }
@@ -921,8 +914,8 @@ SOB_CLASS::_trade_has_occured( plevel plev,
     double p = _itop(plev);
 
     /* buy and sell sides */
-    _push_exec_callback(callback_msg::fill, cbbuy, idbuy, idbuy, p, size);
-    _push_exec_callback(callback_msg::fill, cbsell, idsell, idsell, p, size);
+    _push_callback(callback_msg::fill, cbbuy, idbuy, idbuy, p, size);
+    _push_callback(callback_msg::fill, cbsell, idsell, idsell, p, size);
 
     _timesales.push_back( std::make_tuple(clock_type::now(), p, size) );
     _last = plev;
@@ -934,30 +927,26 @@ SOB_CLASS::_trade_has_occured( plevel plev,
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_handle_advanced_order(_order_bndl& bndl, id_type id, size_t rmndr)
+SOB_CLASS::_handle_advanced_order(_order_bndl& bndl, id_type id)
 {
-    if( bndl.trigger == condition_trigger::none ){
-        assert(bndl.cond == order_condition::none);
-        return;
-    }
-    assert(bndl.cond != order_condition::none);
-
-    if( bndl.trigger == condition_trigger::fill_full && rmndr > 0 ){
-        return;
-    };
-
     switch(bndl.cond){
     case order_condition::one_cancels_other:
-        _handle_OCO(bndl, id);
+        _handle_OCO(bndl, id, false);
         break;
     case order_condition::one_triggers_other:
-         _handle_OTO(bndl, id);
+         _handle_OTO(bndl, id, false);
         break;
+    case order_condition::_bracket_active:
+        _handle_OCO(bndl, id, true);
+        break;
+    case order_condition::bracket:
+        _handle_OTO(bndl, id, true);
+        /* skip reset of cond/trigger below (bracket -> _bracket_active) */
+        return;
     default:
         throw std::runtime_error("invalid order condition");
     }
 
-    /* SHOULD ONLY GET HERE IF HANDLED ADVANCED ORDER */
     bndl.cond = order_condition::none;
     bndl.trigger = condition_trigger::none;
 }
@@ -965,14 +954,22 @@ SOB_CLASS::_handle_advanced_order(_order_bndl& bndl, id_type id, size_t rmndr)
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id)
+SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id, bool is_bracket)
 {
     order_location *loc = bndl.linked_order;
     assert(loc);
-    id_type id_old = loc->primary ? loc->id : id;
-    /* remove primary order, indicate new order # */
-    _push_OCO_callback(bndl.exec_cb, id_old, id);
-    _pull_order(loc->id, loc->price, false, loc->limit_chain);
+
+    id_type id_old = loc->is_primary ? loc->id : id;
+    /* issue callback with trigger_OCO or trigger_BRACKET_close msg,
+       indicate new order # */
+    callback_msg msg = is_bracket ? callback_msg::trigger_BRACKET_close
+                                  : callback_msg::trigger_OCO;
+    _push_callback(msg, bndl.exec_cb, id_old, id, 0, 0);
+
+    /* remove primary order, BE SURE pull_linked=false */
+    _pull_order(loc->id, loc->price, false, loc->is_limit_chain);
+
+    /* remove linked order from union */
     delete loc;
     bndl.linked_order = nullptr;
 }
@@ -980,19 +977,57 @@ SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id)
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_handle_OTO(_order_bndl& bndl, id_type id)
+SOB_CLASS::_handle_OTO(_order_bndl& bndl, id_type id, bool is_bracket)
 {
     id_type id_new = _generate_id();
-    _push_OTO_callback(bndl.exec_cb, id, id_new);
-    OrderParamaters *params = bndl.contingent_order;
-    assert(params);
-    _push_order_no_wait( params->get_order_type(), params->is_buy(),
-                         params->limit(), params->stop(),
-                         params->size(), bndl.exec_cb,
-                         order_condition::none, condition_trigger::none,
-                         nullptr, nullptr, id_new );
-    delete params;
-    bndl.contingent_order = nullptr;
+
+    callback_msg msg = is_bracket ? callback_msg::trigger_BRACKET_open
+                                  : callback_msg::trigger_OTO;
+    _push_callback(msg, bndl.exec_cb, id, id_new, 0, 0);
+
+    if( is_bracket ){
+        /*
+         * if triggered order is bracket we need to push order onto queue
+         * FOR FAIRNESS
+         *    1) use second order that bndl.bracket_orders points at,
+         *       which makes the 'target' order primary
+         *    2) the first order (stop/loss) is then used for cparams1
+         *    3) change the condition to _bracket_active (basically an OCO)
+         *    4) keep trigger_condition the same
+         *    5) use the new id
+         * when done delete what bracket_orders points at; we need to do this
+         * because now the order is of condition _bracket_active, which needs
+         * to be treated as an OCO, and use linked_order point in the anonymous
+         * union. (could be an issue w/ how we move/delete union!)
+         */
+        std::pair<OrderParamaters, OrderParamaters> *orders = bndl.bracket_orders;
+        assert(orders);
+        assert( orders->first.is_stop_order() );
+        assert( orders->second.is_limit_order() );
+
+        _push_order_no_wait( orders->second.get_order_type(),
+                             orders->second.is_buy(), orders->second.limit(),
+                             orders->second.stop(), orders->second.size(),
+                             bndl.exec_cb, order_condition::_bracket_active,
+                             bndl.trigger,
+                             std::unique_ptr<OrderParamaters>(
+                                     new OrderParamaters(orders->first)
+                             ),
+                             nullptr, nullptr, id_new );
+        delete orders;
+        bndl.bracket_orders = nullptr;
+
+    }else{
+        OrderParamaters *params = bndl.contingent_order;
+        assert(params);
+        _push_order_no_wait( params->get_order_type(), params->is_buy(),
+                             params->limit(), params->stop(), params->size(),
+                             bndl.exec_cb, order_condition::none,
+                             condition_trigger::none, nullptr, nullptr,
+                             nullptr, id_new );
+        delete params;
+        bndl.contingent_order = nullptr;
+    }
 }
 
 
@@ -1024,15 +1059,21 @@ SOB_CLASS::_threaded_order_dispatcher()
         if( !id ){ 
             id = _generate_id();
         }
+        assert(id > 0);
         
         try{
             std::lock_guard<std::mutex> lock(_master_mtx); 
             /* --- CRITICAL SECTION --- */
-            _insert_order(e, id);
+            e.id = id;
+            if( !_insert_order(e) ){
+                id = 0; // bad pull
+            }
+            _assert_internal_pointers();
             /* --- CRITICAL SECTION --- */
         }catch(...){        
             --_noutstanding_orders;
             p.set_exception( std::current_exception() );
+            std::cerr << "exception in order dispatcher" << std::endl;
             continue;
         }
      
@@ -1043,21 +1084,27 @@ SOB_CLASS::_threaded_order_dispatcher()
 
 
 SOB_TEMPLATE
-void
-SOB_CLASS::_insert_order(order_queue_elem& e, id_type& id)
+bool
+SOB_CLASS::_insert_order(order_queue_elem& e)
 {
-    assert(id > 0);
-    if( e.cond == order_condition::none ){
-        _route_basic_order(e, id);
-        return;
+    if( e.cond != order_condition::none ){
+        _route_advanced_order(e);
+        return true;
     }
-    _route_advanced_order(e, id);
+    if( e.type == order_type::null ){
+        /* not the cleanest but most effective/thread-safe
+           e.is_buy indicates to check limits first (not buy/sell)
+           success/fail is returned in the in e.id*/
+        return _pull_order(e.id, true, e.is_buy);
+    }
+    _route_basic_order(e);
+    return true;
 }
 
 
 SOB_TEMPLATE
 fill_type
-SOB_CLASS::_route_basic_order(order_queue_elem& e, id_type& id)
+SOB_CLASS::_route_basic_order(order_queue_elem& e)
 {
     fill_type fill = fill_type::none;
     try{    
@@ -1065,42 +1112,34 @@ SOB_CLASS::_route_basic_order(order_queue_elem& e, id_type& id)
         switch( e.type ){            
         case order_type::limit:  
             fill =  e.is_buy
-                ? _insert_limit_order<true>(_ptoi(e.limit), e.sz, e.exec_cb, id)
-                : _insert_limit_order<false>(_ptoi(e.limit), e.sz, e.exec_cb, id);
+                ? _insert_limit_order<true>(_ptoi(e.limit), e.sz, e.exec_cb, e.id)
+                : _insert_limit_order<false>(_ptoi(e.limit), e.sz, e.exec_cb, e.id);
             break;
        
         case order_type::market:                
-            e.is_buy ? _insert_market_order<true>(e.sz, e.exec_cb, id)
-                     : _insert_market_order<false>(e.sz, e.exec_cb, id);
+            e.is_buy ? _insert_market_order<true>(e.sz, e.exec_cb, e.id)
+                     : _insert_market_order<false>(e.sz, e.exec_cb, e.id);
             fill = fill_type::immediate_full;
             break;
       
         case order_type::stop:        
-            e.is_buy ? _insert_stop_order<true>(_ptoi(e.stop), e.sz, e.exec_cb, id)
-                     : _insert_stop_order<false>(_ptoi(e.stop), e.sz, e.exec_cb, id);
+            e.is_buy ? _insert_stop_order<true>(_ptoi(e.stop), e.sz, e.exec_cb,e. id)
+                     : _insert_stop_order<false>(_ptoi(e.stop), e.sz, e.exec_cb, e.id);
             break;
          
         case order_type::stop_limit:        
-            e.is_buy ? _insert_stop_order<true>(_ptoi(e.stop), e.limit, e.sz, e.exec_cb, id)
-                     : _insert_stop_order<false>(_ptoi(e.stop), e.limit, e.sz, e.exec_cb, id);
+            e.is_buy ? _insert_stop_order<true>(_ptoi(e.stop), e.limit, e.sz, e.exec_cb, e.id)
+                     : _insert_stop_order<false>(_ptoi(e.stop), e.limit, e.sz, e.exec_cb, e.id);
             break;
 
-        case order_type::null: 
-            /* not the cleanest but most effective/thread-safe 
-               e.is_buy indicates to check limits first (not buy/sell)
-               success/fail is returned in the in e.id*/
-            id = (id_type)_pull_order(id, true, e.is_buy);
-            break;
-        
         default: 
             throw std::runtime_error("invalid order type in order_queue");
         }
         
-        execute_admin_callback(e.admin_cb, id);
+        execute_admin_callback(e.admin_cb, e.id);
         if( e.type == order_type::limit || e.type == order_type::market){
             _look_for_triggered_stops(false); /* throw */
         }
-        _assert_internal_pointers();
         
     }catch(...){                
         _look_for_triggered_stops(true); /* no throw */
@@ -1109,20 +1148,25 @@ SOB_CLASS::_route_basic_order(order_queue_elem& e, id_type& id)
     return fill;
 }
 
-
+// TODO figure out how to handle race condition concerning callbacks and
+//      ID changes when an advanced order fills immediately(upon _inject)
+//      and we callback with new ID BEFORE the user gets the original ID
+//      from the initial call !
 SOB_TEMPLATE
 void
-SOB_CLASS::_route_advanced_order(order_queue_elem& e, id_type& id)
+SOB_CLASS::_route_advanced_order(order_queue_elem& e)
 {
     switch(e.cond){
+    case order_condition::_bracket_active: /* no break */
     case order_condition::one_cancels_other:
-        _insert_OCO_order(e, id);
+        _insert_OCO_order(e);
         break;
+    case order_condition::bracket: /* no break */
     case order_condition::one_triggers_other:
-        _insert_OTO_order(e, id);
+        _insert_OTO_order(e);
         break;
     case order_condition::fill_or_kill:
-        _insert_FOK_order(e,id);
+        _insert_FOK_order(e);
         break;
     default:
         throw std::runtime_error("invalid advanced order condition");
@@ -1132,9 +1176,9 @@ SOB_CLASS::_route_advanced_order(order_queue_elem& e, id_type& id)
 
 SOB_TEMPLATE
 bool
-SOB_CLASS::_inject_order( order_queue_elem& e, id_type id, bool partial_ok )
+SOB_CLASS::_inject_order(order_queue_elem& e, bool partial_ok)
 {
-    fill_type f = _route_basic_order(e, id);
+    fill_type f = _route_basic_order(e);
     return ( f == fill_type::immediate_full
              || (partial_ok && f == fill_type::immediate_partial) );
 }
@@ -1142,113 +1186,162 @@ SOB_CLASS::_inject_order( order_queue_elem& e, id_type id, bool partial_ok )
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_OCO_order(order_queue_elem& e, id_type id)
+SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
 {
-    assert(e.cond == order_condition::one_cancels_other);
+    bool is_bracket = (e.cond == order_condition::_bracket_active);
+    assert(is_bracket || (e.cond == order_condition::one_cancels_other));
     assert(e.type != order_type::market);
     assert(e.type != order_type::null);
 
-    OrderParamaters *op = e.cond_order_params.get();
+    OrderParamaters *op = e.cparams1.get();
     assert(op);
     assert(op->get_order_type() != order_type::market);
     assert(op->get_order_type() != order_type::null);
 
     bool partial_ok = (e.cond_trigger == condition_trigger::fill_partial);
-
     /* if we fill immediately, no need to enter 2nd order */
-    if( _inject_order(e, id, partial_ok) ){
-        _push_OCO_callback(e.exec_cb, id, id);
+    if( _inject_order(e, partial_ok) ){
+        /* if bracket issue trigger_BRACKET_close callback msg */
+        callback_msg msg = is_bracket ? callback_msg::trigger_BRACKET_close
+                                      : callback_msg::trigger_OCO;
+        _push_callback(msg, e.exec_cb, e.id, e.id, 0, 0);
         return;
     }
 
-    bool primary_is_limit = (e.type == order_type::limit);
-    bool secondary_is_limit = (op->get_order_type() == order_type::limit);
-
     id_type id2 = _generate_id();
+    /* if injection of primary order doesn't fill immediately, we need
+     * to construct a new queue elem from cparams1, with a new ID. */
     order_queue_elem e2 = {
-        op->get_order_type(), op->is_buy(), op->limit(), op->stop(),
-        op->size(), e.exec_cb, e.cond, e.cond_trigger,
-        nullptr, e.admin_cb, id2,
+        op->get_order_type(),
+        op->is_buy(),
+        op->limit(),
+        op->stop(),
+        op->size(),
+        e.exec_cb,
+        e.cond,
+        e.cond_trigger,
+        nullptr,
+        nullptr,
+        e.admin_cb,
+        id2,
         std::move(std::promise<id_type>())
     };
 
-    double p1 = primary_is_limit ? e.limit : e.stop;
-
     /* if we fill second order immediately, remove first */
-    if( _inject_order(e2, id2, partial_ok) ){
-        _push_OCO_callback(e.exec_cb, id, id2);
-        _pull_order(id, p1, false, primary_is_limit);
+    if( _inject_order(e2, partial_ok) ){
+        /* if we bracket issue trigger_BRACKET_close callback msg */
+        callback_msg msg = is_bracket ? callback_msg::trigger_BRACKET_close
+                                      : callback_msg::trigger_OCO;
+        _push_callback(msg, e.exec_cb, e.id, id2, 0, 0);
+        bool is_limit = (e.type == order_type::limit);
+        double price = is_limit ? e.limit : e.stop;
+        _pull_order(e.id, price, false, is_limit);
         return;
     }
 
-    auto& o1 = _order::as_base_bndl(_ptoi(p1), id, primary_is_limit);
+    /* find the relevant orders that were previously injected */
+    _order_bndl& o1 = _find(e.id, (e.type == order_type::limit));
+    _order_bndl& o2 = _find(id2, (e2.type == order_type::limit));
     assert(o1);
-
-    double p2 = secondary_is_limit ? op->limit() : op->stop();
-    auto& o2 = _order::as_base_bndl(_ptoi(p2), id2, primary_is_limit);
     assert(o2);
 
-    o1.linked_order = new order_location{p2, id2, secondary_is_limit, false};
-    o2.linked_order = new order_location{p1, id, primary_is_limit, true};
+    /* link each order with the other */
+    o1.linked_order = new order_location(e2, false);
+    o2.linked_order = new order_location(e, true);
 
-    o1.cond = o2.cond = order_condition::one_cancels_other;
+    /* if bracket set _bracket_active condition (basically an OCO) */
+    o1.cond = o2.cond = (is_bracket ? order_condition::_bracket_active
+                                    : order_condition::one_cancels_other);
+
     o1.trigger = o2.trigger = e.cond_trigger;
 }
 
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_OTO_order(order_queue_elem& e, id_type id)
+SOB_CLASS::_insert_OTO_order(order_queue_elem& e)
 {
-    assert(e.cond == order_condition::one_triggers_other);
+    bool is_bracket = (e.cond == order_condition::bracket);
+    assert(is_bracket || (e.cond == order_condition::one_triggers_other));
 
-    OrderParamaters *op = e.cond_order_params.get();
-    assert(op);
+    OrderParamaters *op = e.cparams1.get();
+    OrderParamaters *op2 = e.cparams2.get();
+    assert(op); // only assert first, second can be nullptr
 
+    id_type id = e.id; // be safe(in case we screw w/ e/e2
     bool partial_ok = (e.cond_trigger == condition_trigger::fill_partial);
 
-    if( _inject_order(e, id, partial_ok) ){
+    /* if we fill immediately we need to insert other order from here */
+    if( _inject_order(e, partial_ok) ){
+
         id_type id2 = _generate_id();
-        _push_OTO_callback(e.exec_cb, id, id2);
-        _push_order_no_wait( op->get_order_type(), op->is_buy(),
-                             op->limit(), op->stop(), op->size(),
-                             e.exec_cb, order_condition::none,
-                             condition_trigger::none, nullptr,
-                             nullptr, id2);
+
+        callback_msg msg = is_bracket ? callback_msg::trigger_BRACKET_open
+                                      : callback_msg::trigger_OTO;
+        _push_callback(msg, e.exec_cb, id, id2, 0, 0);
+
+        if( is_bracket ){
+            /*
+             * if triggered order is a bracket we need to push order onto queue
+             * FOR FAIRNESS
+             *    1) use cparams2, which makes the 'target' order primary.
+             *    2) The stop/loss (cparams1) order goes to cparams1.
+             *    3) change the condition to _bracket_active (basically an OCO)
+             *    4) keep trigger_condition the same
+             *    5) use the new id
+             */
+            assert(op2);
+            _push_order_no_wait( op2->get_order_type(), op2->is_buy(),
+                                 op2->limit(), op2->stop(), op2->size(),
+                                 e.exec_cb, order_condition::_bracket_active,
+                                 e.cond_trigger,
+                                 std::unique_ptr<OrderParamaters>(
+                                         new OrderParamaters(*op)
+                                 ),
+                                 nullptr, nullptr, id2);
+        }else{
+            _push_order_no_wait( op->get_order_type(), op->is_buy(),
+                                 op->limit(), op->stop(), op->size(),
+                                 e.exec_cb, order_condition::none,
+                                 condition_trigger::none, nullptr, nullptr,
+                                 nullptr, id2);
+        }
         return;
     }
 
-    bool is_limit = (e.type == order_type::limit);
-    double price = is_limit ? e.limit : e.stop;
-    auto& o = _order::as_base_bndl( _ptoi(price), id, is_limit);
+    _order_bndl& o = _find(id, (e.type == order_type::limit));
     assert(o);
 
-    o.contingent_order = new OrderParamaters(*op);
-    o.cond = order_condition::one_triggers_other;
+    if( is_bracket){
+        assert(op2);
+        o.bracket_orders = new std::pair<OrderParamaters, OrderParamaters>(*op, *op2);
+        o.cond = order_condition::bracket;
+    }else{
+        o.contingent_order = new OrderParamaters(*op);
+        o.cond = order_condition::one_triggers_other;
+    }
     o.trigger = e.cond_trigger;
 }
 
+
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_FOK_order(order_queue_elem& e, id_type id)
+SOB_CLASS::_insert_FOK_order(order_queue_elem& e)
 {
     assert(e.type == order_type::limit);
     plevel p = _ptoi(e.limit);
     assert(p);
-    size_t sz = (e.cond_trigger == condition_trigger::fill_partial)
-              ? 0
-              : e.sz;
+    size_t sz = (e.cond_trigger == condition_trigger::fill_partial) ? 0 : e.sz;
     /*
      * a bit of trickery here; if all we need is partial fill we check
      * if size of 0 is fillable; if p is <= _bid or >= _ask (and they are
      * valid) we know there's at least 1 order available to trade against
      */
     if( !_limit_exec<>::fillable(this, p, sz, e.is_buy) ){
-        _push_exec_callback(callback_msg::kill, e.exec_cb, id, id,
-                e.limit, e.sz);
+        _push_callback(callback_msg::kill, e.exec_cb, e.id, e.id, e.limit, e.sz);
         return;
     }
-    _route_basic_order(e, id);
+    _route_basic_order(e);
 }
 
 
@@ -1405,7 +1498,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     * PART OF THE ENCLOSING CRITICAL SECTION 
     */
     order_exec_cb_type cb;
-    double limit;         
+    double limit;
     size_t sz;
     id_type id, id_new;
     /*
@@ -1422,37 +1515,32 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         limit = e.limit;
         cb = e.exec_cb;
         sz = e.sz;
+
+        /* first we handle any advanced conditions */
+        if( e.cond != order_condition::none ){
+              assert(e.trigger != condition_trigger::none);
+              _handle_advanced_order(e, id);
+          }
+        
+       /* UPDATE! we are creating new id for new exec_cb type (Jan 18) */
         id_new = _generate_id();
-        
-        /* first we handle any advanced conditions */       
-        _handle_advanced_order(e, id, 0);
-        
+
+        if( cb ){
+            callback_msg msg = limit ? callback_msg::stop_to_limit
+                                     : callback_msg::stop_to_market;
+            _push_callback(msg, cb, id, id_new, (limit ? limit : 0), sz);
+        }
+
        /*
-        * UPDATE! we are creating new id for new exec_cb type (Jan 18)
-        * 
         * we can't use the blocking version of _push_order or we'll deadlock
         * the order_queue; we simply increment _noutstanding_orders instead
         * and block on that when necessary.
-        */    
-        if( limit != 0 ){ /* stop to limit */        
-            if( cb ){
-                _push_exec_callback(callback_msg::stop_to_limit, cb, id,
-                                    id_new, limit, sz);
-            }
-            _push_order_no_wait(order_type::limit, e.is_buy, limit,
-                                0, sz, cb, order_condition::none, 
-                                condition_trigger::fill_partial, nullptr,
-                                nullptr, id_new);     
-        }else{ /* stop to market */
-            if( cb ){ 
-                _push_exec_callback(callback_msg::stop_to_market, cb, id,
-                                    id_new, 0, sz);
-            }
-            _push_order_no_wait(order_type::market, e.is_buy, 0,
-                                0, sz, cb, order_condition::none, 
-                                condition_trigger::fill_partial, nullptr,
-                                nullptr, id_new);
-        }
+        */
+        order_type ot = limit ? order_type::limit : order_type::market;
+        _push_order_no_wait( ot, e.is_buy, limit, 0, sz, cb,
+                             order_condition::none, condition_trigger::none,
+                             nullptr, nullptr, nullptr, id_new );
+
         // NOTE the new stop drops the advanced order_condition
     }
 }
@@ -1468,7 +1556,8 @@ SOB_CLASS::_push_order_and_wait( order_type oty,
                                  order_exec_cb_type cb,
                                  order_condition cond,
                                  condition_trigger cond_trigger,
-                                 std::unique_ptr<OrderParamaters>&& cond_order_params,
+                                 std::unique_ptr<OrderParamaters>&& cparams1,
+                                 std::unique_ptr<OrderParamaters>&& cparams2,
                                  order_admin_cb_type admin_cb,
                                  id_type id )
 {
@@ -1476,7 +1565,7 @@ SOB_CLASS::_push_order_and_wait( order_type oty,
     std::promise<id_type> p;
     std::future<id_type> f(p.get_future());
     _push_order(oty, buy, limit, stop, size, cb, cond, cond_trigger,
-                std::move(cond_order_params), admin_cb, id, std::move(p) );
+            std::move(cparams1), std::move(cparams2), admin_cb, id, std::move(p) );
 
     id_type ret_id;
     try{
@@ -1503,12 +1592,13 @@ SOB_CLASS::_push_order_no_wait( order_type oty,
                                 order_exec_cb_type cb,
                                 order_condition cond,
                                 condition_trigger cond_trigger,
-                                std::unique_ptr<OrderParamaters>&& cond_order_params,
+                                std::unique_ptr<OrderParamaters>&& cparams1,
+                                std::unique_ptr<OrderParamaters>&& cparams2,
                                 order_admin_cb_type admin_cb,
                                 id_type id )
 {
     _push_order( oty, buy, limit, stop, size, cb, cond, cond_trigger,
-                std::move(cond_order_params), admin_cb, id,
+                std::move(cparams1), std::move(cparams2), admin_cb, id,
                 /* dummy */ std::move( std::promise<id_type>() ) );
 }
 
@@ -1523,7 +1613,8 @@ SOB_CLASS::_push_order( order_type oty,
                         order_exec_cb_type cb,
                         order_condition cond,
                         condition_trigger cond_trigger,
-                        std::unique_ptr<OrderParamaters>&& cond_order_params,
+                        std::unique_ptr<OrderParamaters>&& cparams1,
+                        std::unique_ptr<OrderParamaters>&& cparams2,
                         order_admin_cb_type admin_cb,
                         id_type id,
                         std::promise<id_type>&& p )
@@ -1533,7 +1624,8 @@ SOB_CLASS::_push_order( order_type oty,
         /* --- CRITICAL SECTION --- */
         _order_queue.push(
             { oty, buy, limit, stop, size, cb, cond, cond_trigger,
-              std::move(cond_order_params), admin_cb, id, std::move(p) }
+              std::move(cparams1), std::move(cparams2), admin_cb, id,
+              std::move(p) }
         );
         ++_noutstanding_orders;
         /* --- CRITICAL SECTION --- */
@@ -1602,7 +1694,7 @@ SOB_CLASS::_pull_order(id_type id, plevel p, bool pull_linked)
     if( !bndl ){
         return false;
     }
-    _push_exec_callback(callback_msg::cancel, bndl.exec_cb, id, id, 0, 0);
+    _push_callback(callback_msg::cancel, bndl.exec_cb, id, id, 0, 0);
     
     if( pull_linked ){
         _pull_linked_order<ChainTy>(bndl);
@@ -1620,19 +1712,19 @@ SOB_CLASS::_pull_linked_order(typename ChainTy::value_type& bndl)
     if( loc && bndl.cond == order_condition::one_cancels_other ){
         /* pass false to pull_linked since, ostensibly, *this*
            side is in process of being pulled */
-        _pull_order(loc->id, loc->price, false, loc->limit_chain);
+        _pull_order(loc->id, loc->price, false, loc->is_limit_chain);
     }
 }
 
 
 SOB_TEMPLATE
-template<typename InnerChainTy>
+template<typename ChainTy>
 typename SOB_CLASS::plevel
 SOB_CLASS::_id_to_plevel(id_type id) const
 {
     try{
         auto p = _id_cache.at(id);
-        if( is_limit_chain<InnerChainTy>() == p.second ){
+        if( is_limit_chain<ChainTy>() == p.second ){
             return _ptoi( p.first );
         }
     }catch(std::out_of_range&){}
@@ -1936,7 +2028,7 @@ SOB_TEMPLATE
 void
 SOB_CLASS::_check_oco_limit_order( bool buy,
                                    double limit,
-                                   std::unique_ptr<OrderParamaters> & op )
+                                   std::unique_ptr<OrderParamaters> & op ) const
 {
     order_type ot = op->get_order_type();
     if( ot == order_type::market ){
@@ -1968,26 +2060,44 @@ SOB_CLASS::insert_limit_order( bool buy,
         throw std::invalid_argument("invalid order size");
     }
    
-    std::unique_ptr<OrderParamaters> cparams;
+    std::unique_ptr<OrderParamaters> cparams1;
+    std::unique_ptr<OrderParamaters> cparams2;
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
         /* --- CRITICAL SECTION --- */
         limit = _tick_price_or_throw(limit, "invalid limit price");
-        if( advanced
-            && (advanced.condition() != order_condition::fill_or_kill)
-            && (advanced.condition() != order_condition::none) )
-        {
-            cparams = _build_aot_order(advanced.order1());
-            if( advanced.condition() == order_condition::one_cancels_other ){
-                _check_oco_limit_order(buy, limit, cparams);
-            }
+        if( advanced ){
+            order_condition cond = advanced.condition();
+            switch(cond){
+            case order_condition::bracket:
+                cparams2 = _build_aot_order(advanced.order2());
+                /* no break */
+            case order_condition::one_triggers_other:
+                /* no break */
+            case order_condition::one_cancels_other:
+                cparams1 = _build_aot_order(advanced.order1());
+                /* no break */
+            default:
+                assert( cond != order_condition::none );
+            };
 
+            switch(cond){
+            case order_condition::bracket:
+                _check_oco_limit_order(buy, limit, cparams2);
+                /* no break */
+            case order_condition::one_cancels_other:
+                _check_oco_limit_order(buy, limit, cparams1);
+                /* no break */
+            default:
+                assert( cond != order_condition::none );
+            };
         }
+
         /* --- CRITICAL SECTION --- */
     }
     return _push_order_and_wait(order_type::limit, buy, limit, 0, size, exec_cb, 
                                 advanced.condition(), advanced.trigger(),
-                                std::move(cparams), admin_cb);
+                                std::move(cparams1), std::move(cparams2), admin_cb);
 }
 
 
@@ -2002,7 +2112,8 @@ SOB_CLASS::insert_market_order( bool buy,
     if(size == 0){
         throw std::invalid_argument("invalid order size");
     }
-    std::unique_ptr<OrderParamaters> cparams;
+    std::unique_ptr<OrderParamaters> cparams1;
+    std::unique_ptr<OrderParamaters> cparams2;
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
         /* --- CRITICAL SECTION --- */
@@ -2011,16 +2122,20 @@ SOB_CLASS::insert_market_order( bool buy,
             case order_condition::one_cancels_other:
                 throw advanced_order_error("OCO invalid for market order");
             case order_condition::fill_or_kill:
-                throw advanced_order_error("FOK invliad for market order");
+                throw advanced_order_error("FOK invalid for market order");
+            case order_condition::bracket:
+                cparams2 = _build_aot_order(advanced.order2());
+                /* no break */
             default:
-                cparams = _build_aot_order(advanced.order1());
+                cparams1 = _build_aot_order(advanced.order1());
             };
         }
         /* --- CRITICAL SECTION --- */
     }
     return _push_order_and_wait(order_type::market, buy, 0, 0, size, exec_cb, 
                                 advanced.condition(), advanced.trigger(),
-                                std::move(cparams), admin_cb);
+                                std::move(cparams1), std::move(cparams2),
+                                admin_cb);
 }
 
 
@@ -2053,7 +2168,8 @@ SOB_CLASS::insert_stop_order( bool buy,
     if( advanced.condition() == order_condition::fill_or_kill ){
         throw advanced_order_error("FOK invalid for market order");
     }
-    std::unique_ptr<OrderParamaters> cparams;
+    std::unique_ptr<OrderParamaters> cparams1;
+    std::unique_ptr<OrderParamaters> cparams2;
     order_type ot = order_type::stop;    
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
@@ -2064,17 +2180,21 @@ SOB_CLASS::insert_stop_order( bool buy,
             ot = order_type::stop_limit;
         }
         if( advanced ){
-            cparams = _build_aot_order(advanced.order1());
-            if( cparams->stop() != 0.0
-                && cparams->stop() == stop ){
+            /* note: if bracket order1 is stop/loss side */
+            cparams1 = _build_aot_order(advanced.order1());
+            if( cparams1->is_stop_order() && cparams1->stop() == stop ){
                 throw advanced_order_error("stop orders of same price");
+            }
+            if( advanced.condition() == order_condition::bracket ){
+                cparams2 = _build_aot_order(advanced.order2());
             }
         }
         /* --- CRITICAL SECTION --- */
     }
     return _push_order_and_wait(ot, buy, limit, stop, size, exec_cb,
                                 advanced.condition(), advanced.trigger(),
-                                std::move(cparams), admin_cb);
+                                std::move(cparams1), std::move(cparams2),
+                                admin_cb);
 }
 
 
@@ -2087,7 +2207,8 @@ SOB_CLASS::pull_order(id_type id, bool search_limits_first)
     }
     return _push_order_and_wait(order_type::null, search_limits_first, 
                                 0, 0, 0, nullptr, order_condition::none,
-                                condition_trigger::none, nullptr, nullptr, id); 
+                                condition_trigger::none, nullptr, nullptr,
+                                nullptr, id);
 }
 
 SOB_TEMPLATE
@@ -2281,8 +2402,10 @@ SOB_CLASS::_order_bndl::_order_bndl( id_type id,
         case order_condition::one_triggers_other:
             contingent_order = nullptr;
             break;
+        case order_condition::bracket:
+            bracket_orders = nullptr;
+            break;
         case order_condition::none:
-            _reserved = nullptr;         
             break;
         default:
             throw new std::runtime_error("invalid order condition");
@@ -2353,6 +2476,8 @@ void
 SOB_CLASS::_order_bndl::_copy_union(const _order_bndl& bndl)
 {
     switch(cond){
+    case order_condition::_bracket_active:
+        /* no break */
     case order_condition::one_cancels_other:
         linked_order = bndl.linked_order
                      ? new order_location(*bndl.linked_order)
@@ -2363,9 +2488,14 @@ SOB_CLASS::_order_bndl::_copy_union(const _order_bndl& bndl)
                          ? new OrderParamaters(*bndl.contingent_order)
                          : nullptr;
         break;
+    case order_condition::bracket:
+        bracket_orders = bndl.bracket_orders
+                      ? new std::pair<OrderParamaters, OrderParamaters>(*bndl.bracket_orders)
+                      : nullptr;
+        break;
+
     case order_condition::none:
-        assert( bndl._reserved == nullptr ); // NOT IMPLEMENTED
-        _reserved = nullptr;
+        // TODO what do we want to assert here ?
         break;
     default:
         throw new std::runtime_error("invalid order condition");
@@ -2378,6 +2508,8 @@ void
 SOB_CLASS::_order_bndl::_move_union(_order_bndl& bndl)
 {
     switch(cond){
+    case order_condition::_bracket_active:
+        /* break */
     case order_condition::one_cancels_other:
         linked_order = bndl.linked_order;
         bndl.linked_order = nullptr;
@@ -2386,10 +2518,12 @@ SOB_CLASS::_order_bndl::_move_union(_order_bndl& bndl)
         contingent_order = bndl.contingent_order;
         bndl.contingent_order = nullptr;
         break;
+    case order_condition::bracket:
+        bracket_orders = bndl.bracket_orders;
+        bndl.bracket_orders = nullptr;
+        break;
     case order_condition::none:
-        assert( bndl._reserved == nullptr ); // NOT IMPLEMENTED
-        _reserved = bndl._reserved;
-        //bndl._reserved = nullptr;
+        // TODO what do we want to assert here ?
         break;
     default:
         throw new std::runtime_error("invalid order condition");
@@ -2401,6 +2535,8 @@ SOB_TEMPLATE
 SOB_CLASS::_order_bndl::~_order_bndl()
    {
        switch(cond){
+       case order_condition::_bracket_active:
+           /* no break */
        case order_condition::one_cancels_other:
            if( linked_order ){
                delete linked_order;
@@ -2411,11 +2547,13 @@ SOB_CLASS::_order_bndl::~_order_bndl()
                delete contingent_order;
            }
            break;
+       case order_condition::bracket:
+           if( bracket_orders ){
+               delete bracket_orders;
+           }
+           break;
        case order_condition::none:
-           assert( _reserved == nullptr ); // NOT IMPLEMENTED
-           //if( _reserved ){
-           //    delete _reserved;
-           //}
+           // TODO what do we want to assert here ?
            break;
        default:
            throw new std::runtime_error("invalid order condition");

@@ -96,6 +96,8 @@ to_string(const callback_msg& cm)
     case callback_msg::stop_to_market: return "stop-to-market";
     case callback_msg::trigger_OCO: return "trigger-OCO";
     case callback_msg::trigger_OTO: return "trigger-OTO";
+    case callback_msg::trigger_BRACKET_open: return "trigger-BRACKET-open";
+    case callback_msg::trigger_BRACKET_close: return "trigger-BRACKET-close";
     case callback_msg::kill: return "kill";
     default:
         throw std::logic_error( "bad callback_msg: " +
@@ -136,6 +138,8 @@ to_string(const order_condition& oc)
     case order_condition::one_cancels_other: return "one-cancels-other";
     case order_condition::one_triggers_other: return "one-triggers-other";
     case order_condition::fill_or_kill: return "fill-or-kill";
+    case order_condition::bracket: return "bracket";
+    case order_condition::_bracket_active: return "bracket-active";
     case order_condition::none: return "none";
     default:
         throw std::logic_error( "bad order_condition: " +
