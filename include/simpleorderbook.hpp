@@ -108,8 +108,7 @@ namespace sob {
  *                       when a fill or cancelation occurs for the order, or
  *                       when a stop-to-limit is triggered.
  *
- *   On success the order id will be returned, 0 on failure. The order id for a 
- *   stop-limit becomes the id for the limit once the stop is triggered.
+ *   On success the order id will be returned, 0 on failure.
  *
  *   pull_order(...) attempts to cancel the order, calling back with the id
  *   and callback_msg::cancel on success
@@ -697,7 +696,7 @@ private:
 
         inline bool
         _is_buy_order(plevel p, const stop_bndl& o) const
-        { return is_buy_stop(o); }
+        { return _order::is_buy_stop(o); }
 
         /* generate order ids; don't worry about overflow */
         inline id_type
@@ -783,55 +782,27 @@ private:
                                std::unique_ptr<OrderParamaters> & op) const;
 
         plevel
-        _trailing_stop_from_params(const OrderParamaters* op)
-        { return _last + ((op->is_buy() ? 1 : -1) * nticks_from_params(*op)); }
+        _trailing_stop_from_params(const OrderParamaters& op)
+        { return _last + ((op.is_buy() ? 1 : -1) * nticks_from_params(op)); }
 
         static size_t
         nticks_from_params(const OrderParamaters& params);
 
         template<typename T>
-        static inline long long
+        static constexpr long long
         bytes_offset(T *l, T *r)
         { return (reinterpret_cast<unsigned long long>(l) -
                   reinterpret_cast<unsigned long long>(r)); }
 
         template<typename T>
-        static inline T*
+        static constexpr T*
         bytes_add(T *ptr, long long offset)
         { return reinterpret_cast<T*>(reinterpret_cast<char*>(ptr) + offset); }
 
         /* only an issue if size of book is > (MAX_LONG * sizeof(*plevel)) bytes */
-        static inline long
+        static constexpr long
         plevel_offset(plevel l, plevel r)
         { return static_cast<long>(bytes_offset(l, r) / sizeof(*l)); }
-
-        static inline bool
-        is_buy_stop(const limit_bndl& bndl)
-        { return false; }
-
-        static inline bool
-        is_buy_stop(const stop_bndl& bndl)
-        { return bndl.is_buy; }
-
-        template<typename ChainTy>
-        static constexpr bool
-        is_limit_chain()
-        { return std::is_same<ChainTy,limit_chain_type>::value; }
-
-        template<typename ChainTy>
-        static constexpr bool
-        is_stop_chain()
-        { return std::is_same<ChainTy,stop_chain_type>::value; }
-
-        template<typename BndlTy>
-        static constexpr bool
-        is_limit_bndl(const BndlTy& bndl)
-        { return std::is_same<BndlTy,limit_bndl>::value; }
-
-        template<typename BndlTy>
-        static constexpr bool
-        is_stop_bndl(const BndlTy& bndl)
-        { return std::is_same<BndlTy,stop_bndl>::value; }
 
     public:
         id_type
