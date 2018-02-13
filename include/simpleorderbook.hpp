@@ -19,6 +19,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #define JO_SOB_SIMPLEORDERBOOK
 
 #include <map>
+#include <set>
 #include <list>
 #include <vector>
 #include <memory>
@@ -101,18 +102,11 @@ namespace sob {
  *
  *   INSERT ORDERS (LimitInterface & FullInterface):
  *
- *   The insert calls are relatively self explanatory except for the two callbacks:
+ *   There are a number of events that trigger callbacks via:
  *
  *   order_exec_cb_type: a functor defined in common.h that will be called
  *                       when a fill or cancelation occurs for the order, or
  *                       when a stop-to-limit is triggered.
- *
- *   order_admin_cb_type: a functor defined in common.h that is guaranteed
- *                        to be called after the order is inserted internally
- *                        but before:
- *                        1) the insert/replace call returns
- *                        2) any stop orders are triggered
- *                        3) any order_exec_cb_type callbacks are made
  *
  *   On success the order id will be returned, 0 on failure. The order id for a 
  *   stop-limit becomes the id for the limit once the stop is triggered.
@@ -153,6 +147,7 @@ public:
         typedef double(*price_to_tick_func_type)(double);
         typedef long long(*ticks_in_range_func_type)(double, double);
         typedef unsigned long long(*tick_memory_required_func_type)(double, double);
+
         const create_func_type create;
         const destroy_func_type destroy;
         const is_managed_func_type is_managed;
@@ -162,6 +157,7 @@ public:
         const price_to_tick_func_type price_to_tick;
         const ticks_in_range_func_type ticks_in_range;
         const tick_memory_required_func_type tick_memory_required;
+
         explicit constexpr FactoryProxy( create_func_type create,
                                          destroy_func_type destroy,
                                          is_managed_func_type is_managed,
@@ -255,7 +251,6 @@ private:
             condition_trigger cond_trigger;
             std::unique_ptr<OrderParamaters> cparams1;
             std::unique_ptr<OrderParamaters> cparams2;
-            order_admin_cb_type admin_cb;
             id_type id;
             std::promise<id_type> promise;
         } order_queue_elem;
@@ -289,6 +284,7 @@ private:
                 order_location *linked_order;
                 OrderParamaters *contingent_order;
                 std::pair<OrderParamaters, OrderParamaters> *bracket_orders;
+                size_t nticks;
             };
             operator bool() const { return sz; }
             _order_bndl();
@@ -358,8 +354,6 @@ private:
         /* THE ORDER BOOK */
         std::vector<chain_pair_type> _book;
 
-        std::unordered_map<id_type, std::pair<double,bool>> _id_cache;
-
         /* cached internal pointers(iterators) of the orderbook */
         plevel _beg;
         plevel _end;
@@ -372,6 +366,11 @@ private:
         plevel _high_buy_stop;
         plevel _low_sell_stop;
         plevel _high_sell_stop;
+
+        std::unordered_map<id_type, std::pair<double,bool>> _id_cache;
+
+        std::set<id_type> _trailing_sell_stops;
+        std::set<id_type> _trailing_buy_stops;
 
         unsigned long long _total_volume;
         id_type _last_id;
@@ -484,43 +483,6 @@ private:
                  typename Impl=SimpleOrderbookImpl>
         struct _stop_exec;
 
-        template<bool BidSize>
-        size_t
-        _trade(plevel plev,
-               id_type id,
-               size_t size,
-               order_exec_cb_type& exec_cb);
-
-        size_t
-        _hit_chain(plevel plev,
-                   id_type id,
-                   size_t size,
-                   order_exec_cb_type& exec_cb);
-
-        /* signal trade has occurred(admin only, DONT INSERT NEW TRADES IN HERE!) */
-        void
-        _trade_has_occured(plevel plev,
-                           size_t size,
-                           id_type idbuy,
-                           id_type idsell,
-                           order_exec_cb_type& cbbuy,
-                           order_exec_cb_type& cbsell);
-
-        //
-        // TODO rethink how advanced orders operate viz-a-viz stops
-        //      - right now we 'orphan' limit after stop-limit triggers
-        //        (i.e its no longer linked via OCO)
-        //      - what is the meaning of condition_trigger to a stop ?
-        //
-        void
-        _handle_advanced_order(_order_bndl& bndl, id_type id);
-
-        void
-        _handle_OCO(_order_bndl& bndl, id_type id, bool is_bracket);
-
-        void
-        _handle_OTO(_order_bndl& bndl, id_type id, bool is_bracket);
-
         /* handles the async/consumer side of the order queue */
         void
         _threaded_order_dispatcher();
@@ -541,6 +503,40 @@ private:
         bool
         _inject_order(order_queue_elem& e, bool partial_ok);
 
+        template<bool BidSize>
+        size_t
+        _trade(plevel plev,
+               id_type id,
+               size_t size,
+               order_exec_cb_type& exec_cb);
+
+        size_t
+        _hit_chain(plevel plev,
+                   id_type id,
+                   size_t size,
+                   order_exec_cb_type& exec_cb);
+
+        /* DONT INSERT NEW TRADES IN HERE! */
+        void
+        _trade_has_occured(plevel plev,
+                           size_t size,
+                           id_type idbuy,
+                           id_type idsell,
+                           order_exec_cb_type& cbbuy,
+                           order_exec_cb_type& cbsell);
+
+        bool
+        _handle_advanced_order_trigger(_order_bndl& bndl, id_type id);
+
+        bool
+        _handle_advanced_order_cancel(_order_bndl& bndl, id_type id);
+
+        void
+        _handle_OCO(_order_bndl& bndl, id_type id);
+
+        void
+        _handle_OTO(_order_bndl& bndl, id_type id);
+
         // TODO Consider allowing order_type::market as secondary order
         //      so primary can try to fill then default to market
         void
@@ -550,7 +546,13 @@ private:
         _insert_OTO_order(order_queue_elem& e);
 
         void
+        _insert_OTO_on_immediate_trigger(order_queue_elem& e);
+
+        void
         _insert_FOK_order(order_queue_elem& e);
+
+        void
+        _insert_trailing_stop_order(order_queue_elem& e);
 
         /* internal insert orders once/if we have an id */
         template<bool BuyLimit>
@@ -569,13 +571,6 @@ private:
         template<bool BuyStop>
         void
         _insert_stop_order(plevel stop,
-                           size_t size,
-                           order_exec_cb_type exec_cb,
-                           id_type id);
-
-        template<bool BuyStop>
-        void
-        _insert_stop_order(plevel stop,
                            double limit,
                            size_t size,
                            order_exec_cb_type exec_cb,
@@ -586,11 +581,22 @@ private:
         _clear_callback_queue();
 
         void
-        _look_for_triggered_stops(bool nothrow);
+        _look_for_triggered_stops();
 
-        template< bool BuyStops>
+        template<bool BuyStops>
         void
         _handle_triggered_stop_chain(plevel plev);
+
+        void
+        _adjust_trailing_stops(bool buy_stops);
+
+        inline void
+        _trailing_stop_insert(id_type id, bool is_buy)
+        { (is_buy ? _trailing_buy_stops : _trailing_sell_stops).insert(id); }
+
+        inline void
+        _trailing_stop_erase(id_type id, bool is_buy)
+        { (is_buy ? _trailing_buy_stops : _trailing_sell_stops).erase(id); }
 
         /* push order onto the order queue and block until execution */
         id_type
@@ -605,7 +611,6 @@ private:
                                  = condition_trigger::fill_partial,
                              std::unique_ptr<OrderParamaters>&& cparams1=nullptr,
                              std::unique_ptr<OrderParamaters>&& cparams2=nullptr,
-                             order_admin_cb_type admin_cb=nullptr,
                              id_type id = 0);
 
         /* push order onto the order queue, DONT block */
@@ -621,7 +626,6 @@ private:
                                 = condition_trigger::fill_partial,
                             std::unique_ptr<OrderParamaters>&& cparams1=nullptr,
                             std::unique_ptr<OrderParamaters>&& cparams2=nullptr,
-                            order_admin_cb_type admin_cb = nullptr,
                             id_type id = 0);
 
         void
@@ -635,7 +639,6 @@ private:
                     condition_trigger cond_trigger,
                     std::unique_ptr<OrderParamaters>&& cparams1,
                     std::unique_ptr<OrderParamaters>&& cparams2,
-                    order_admin_cb_type admin_cb,
                     id_type id,
                     std::promise<id_type>&& p);
 
@@ -658,12 +661,7 @@ private:
 
         /* ...(optimized) if we know the order/chain type(at run-time) */
         inline bool
-        _pull_order(id_type id, double price, bool pull_linked, bool is_limit)
-        {
-            return is_limit
-                ? _pull_order<limit_chain_type>(id, _ptoi(price), pull_linked)
-                : _pull_order<stop_chain_type>(id, _ptoi(price), pull_linked);
-        }
+        _pull_order(id_type id, double price, bool pull_linked, bool is_limit);
 
         /* pull OCO (linked) order */
         template<typename ChainTy>
@@ -677,19 +675,29 @@ private:
 
         template<typename ChainTy>
         typename ChainTy::value_type&
-        _find(id_type id)
-        {
-            plevel p = _id_to_plevel<ChainTy>(id);
-            if( p ){
-                return _order::template find<ChainTy>(p, id);
-            }
-            return ChainTy::value_type::null;
-        }
+        _find(id_type id) const;
 
         _order_bndl&
         _find(id_type id, bool is_limit)
         { return is_limit ? dynamic_cast<_order_bndl&>(_find<limit_chain_type>(id))
                           : dynamic_cast<_order_bndl&>(_find<stop_chain_type>(id)); }
+
+        inline void
+        _push_callback( callback_msg msg,
+                             order_exec_cb_type& cb,
+                             id_type id1,
+                             id_type id2,
+                             double price,
+                             size_t sz )
+        { _deferred_callbacks.push_back({msg, cb, id1, id2, price, sz}); }
+
+        inline bool
+        _is_buy_order(plevel p, const limit_bndl& o) const
+        { return (p < _ask); }
+
+        inline bool
+        _is_buy_order(plevel p, const stop_bndl& o) const
+        { return is_buy_stop(o); }
 
         /* generate order ids; don't worry about overflow */
         inline id_type
@@ -759,40 +767,33 @@ private:
         std::unique_ptr<OrderParamaters>
         _build_aot_order(const OrderParamaters& order) const;
 
+        /* special build of trailing_stop order params using nticks */
+        std::unique_ptr<OrderParamaters>
+        _build_aot_order(bool buy,
+                         size_t size,
+                         const AdvancedOrderTicketTrailingStop& aot) const;
+
+        OrderParamaters
+        _params_from_nticks( bool buy, size_t size, long nticks) const;
+
         /* check prices levels for limit-OCO orders are valid */
         void
         _check_oco_limit_order(bool buy,
                                double limit,
                                std::unique_ptr<OrderParamaters> & op) const;
 
-        inline void
-        _push_callback( callback_msg msg,
-                             order_exec_cb_type& cb,
-                             id_type id1,
-                             id_type id2,
-                             double price,
-                             size_t sz )
-        { _deferred_callbacks.push_back({msg, cb, id1, id2, price, sz}); }
+        plevel
+        _trailing_stop_from_params(const OrderParamaters* op)
+        { return _last + ((op->is_buy() ? 1 : -1) * nticks_from_params(*op)); }
 
-        inline bool
-        _is_buy_order(plevel p, const limit_bndl& o) const
-        { return (p < _ask); }
-
-        inline bool
-        _is_buy_order(plevel p, const stop_bndl& o) const
-        { return is_buy_stop(o); }
-
-        static inline void
-        execute_admin_callback(order_admin_cb_type& cb, id_type id)
-        { if( cb ) cb(id); }
+        static size_t
+        nticks_from_params(const OrderParamaters& params);
 
         template<typename T>
         static inline long long
         bytes_offset(T *l, T *r)
-        {
-            return (reinterpret_cast<unsigned long long>(l) -
-                    reinterpret_cast<unsigned long long>(r));
-        }
+        { return (reinterpret_cast<unsigned long long>(l) -
+                  reinterpret_cast<unsigned long long>(r)); }
 
         template<typename T>
         static inline T*
@@ -817,10 +818,20 @@ private:
         is_limit_chain()
         { return std::is_same<ChainTy,limit_chain_type>::value; }
 
+        template<typename ChainTy>
+        static constexpr bool
+        is_stop_chain()
+        { return std::is_same<ChainTy,stop_chain_type>::value; }
+
         template<typename BndlTy>
         static constexpr bool
         is_limit_bndl(const BndlTy& bndl)
         { return std::is_same<BndlTy,limit_bndl>::value; }
+
+        template<typename BndlTy>
+        static constexpr bool
+        is_stop_bndl(const BndlTy& bndl)
+        { return std::is_same<BndlTy,stop_bndl>::value; }
 
     public:
         id_type
@@ -829,16 +840,14 @@ private:
                            size_t size,
                            order_exec_cb_type exec_cb = nullptr,
                            const AdvancedOrderTicket& advanced
-                               = AdvancedOrderTicket::null,
-                           order_admin_cb_type admin_cb = nullptr);
+                               = AdvancedOrderTicket::null);
 
         id_type
         insert_market_order(bool buy,
                             size_t size,
                             order_exec_cb_type exec_cb = nullptr,
                             const AdvancedOrderTicket& advanced
-                                = AdvancedOrderTicket::null,
-                            order_admin_cb_type admin_cb = nullptr);
+                                = AdvancedOrderTicket::null);
 
         id_type
         insert_stop_order(bool buy,
@@ -846,8 +855,7 @@ private:
                           size_t size,
                           order_exec_cb_type exec_cb = nullptr,
                           const AdvancedOrderTicket& advanced
-                              = AdvancedOrderTicket::null,
-                          order_admin_cb_type admin_cb = nullptr);
+                              = AdvancedOrderTicket::null);
 
         id_type
         insert_stop_order(bool buy,
@@ -856,8 +864,7 @@ private:
                           size_t size,
                           order_exec_cb_type exec_cb = nullptr,
                           const AdvancedOrderTicket& advanced
-                              = AdvancedOrderTicket::null,
-                          order_admin_cb_type admin_cb = nullptr);
+                              = AdvancedOrderTicket::null);
 
         bool
         pull_order(id_type id,
@@ -874,8 +881,7 @@ private:
                                  size_t size,
                                  order_exec_cb_type exec_cb = nullptr,
                                  const AdvancedOrderTicket& advanced
-                                     = AdvancedOrderTicket::null,
-                                 order_admin_cb_type admin_cb = nullptr);
+                                     = AdvancedOrderTicket::null);
 
         id_type
         replace_with_market_order(id_type id,
@@ -883,8 +889,7 @@ private:
                                   size_t size,
                                   order_exec_cb_type exec_cb = nullptr,
                                   const AdvancedOrderTicket& advanced
-                                      = AdvancedOrderTicket::null,
-                                  order_admin_cb_type admin_cb = nullptr);
+                                      = AdvancedOrderTicket::null);
 
         id_type
         replace_with_stop_order(id_type id,
@@ -893,8 +898,7 @@ private:
                                 size_t size,
                                 order_exec_cb_type exec_cb = nullptr,
                                 const AdvancedOrderTicket& advanced
-                                    = AdvancedOrderTicket::null,
-                                order_admin_cb_type admin_cb = nullptr);
+                                    = AdvancedOrderTicket::null);
 
         id_type
         replace_with_stop_order(id_type id,
@@ -904,8 +908,7 @@ private:
                                 size_t size,
                                 order_exec_cb_type exec_cb = nullptr,
                                 const AdvancedOrderTicket& advanced
-                                    = AdvancedOrderTicket::null,
-                                order_admin_cb_type admin_cb = nullptr);
+                                    = AdvancedOrderTicket::null);
 
         void
         grow_book_above(double new_max);
@@ -1139,16 +1142,6 @@ private:
         operator()(FullInterface * i) const;
     };
 
-    template<typename T>
-    static bool
-    equal(T l, T r)
-    { return l == r; }
-
-    template<typename T, typename... TArgs>
-    static bool
-    equal(T a, T b, TArgs... c)
-    { return equal(a,b) && equal(a, c...); }
-
 }; /* SimpleOrderbook */
 
 typedef SimpleOrderbook::FactoryProxy<> DefaultFactoryProxy;
@@ -1179,6 +1172,9 @@ struct order_info { // TODO merge/conversions with OrderParamaters
 
 }; /* sob */
 
-#include "../src/simpleorderbook.tpp"
+#include "../src/simpleorderbook_util.tpp"
+#include "../src/simpleorderbook_bndl.tpp"
+#include "../src/simpleorderbook_public.tpp"
+#include "../src/simpleorderbook_core.tpp"
 
 #endif

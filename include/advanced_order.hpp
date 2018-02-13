@@ -18,10 +18,11 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #ifndef JO_SOB_ADVANCED_ORDER
 #define JO_SOB_ADVANCED_ORDER
 
+#include <climits>
 #include "common.hpp"
 
-// TODO BRACKET orders (use change_size())
-// TODO TRAILING STOP orders
+// TODO BRACKET w/ trailing stop
+// TODO stop-limit version of trailing stop
 // TODO AON orders
 
 namespace sob{
@@ -248,6 +249,45 @@ public:
                     double target_limit,
                     size_t sz,
                     condition_trigger trigger = default_trigger );
+};
+
+
+/* only using fill_full trigger for now (no mechanism for size update) */
+class AdvancedOrderTicketTrailingStop
+        : public AdvancedOrderTicket {
+    size_t _nticks;
+
+protected:
+    AdvancedOrderTicketTrailingStop(size_t nticks)
+        :
+            AdvancedOrderTicket(condition, default_trigger),
+            _nticks(nticks)
+        {
+        }
+
+public:
+    inline bool
+    operator==(const AdvancedOrderTicketTrailingStop& aot) const
+    { return (_nticks == aot._nticks) && AdvancedOrderTicket::operator ==(aot); }
+
+    inline bool
+    operator !=(const AdvancedOrderTicketTrailingStop& aot) const
+    { return !(*this == aot); }
+
+    inline size_t
+    nticks() const
+    { return _nticks ; }
+
+    inline void
+    change_nticks(size_t n)
+    { _nticks = n; }
+
+    static const order_condition condition;
+    static const condition_trigger default_trigger;
+
+    static AdvancedOrderTicketTrailingStop
+    build(size_t nticks);
+
 };
 
 }; /* sob */

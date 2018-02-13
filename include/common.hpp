@@ -65,8 +65,9 @@ enum class order_condition {
     fill_or_kill,
     bracket,
     _bracket_active, // <- 'private' (basically an OCO now)
+    trailing_stop,
+    _trailing_stop_active,
     // all_or_nothing
-    // trailing_stop
 };
 
 enum class condition_trigger {
@@ -85,6 +86,8 @@ enum class callback_msg{
     trigger_OTO,
     trigger_BRACKET_open,
     trigger_BRACKET_close,
+    trigger_trailing_stop,
+    adjust_trailing_stop,
     kill
 };
 
@@ -109,7 +112,6 @@ enum class side_of_trade {
 };
 
 typedef std::function<void(callback_msg,id_type,id_type,double,size_t)>  order_exec_cb_type;
-typedef std::function<void(id_type)> order_admin_cb_type;
 
 class OrderParamaters{
     bool _is_buy;
@@ -211,6 +213,16 @@ public:
                         id_type order_id,
                         std::string msg);
 };
+
+template<typename T>
+constexpr bool
+equal(T l, T r)
+{ return l == r; }
+
+template<typename T, typename... TArgs>
+constexpr bool
+equal(T a, T b, TArgs... c)
+{ return equal(a,b) && equal(a, c...); }
 
 }; /* sob */
 

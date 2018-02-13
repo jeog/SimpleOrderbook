@@ -22,9 +22,16 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <cmath>
 #include <limits>
 
+template< typename T>
+constexpr T const&
+max(T const& a, T const& b )
+{ return (a > b) ? a : b; };
+
 template< typename TickRatio,
           double(*RoundFunction)(double) = round,
-          unsigned long RoundPrecision = 5 >
+          unsigned long RoundPrecision = max(
+              5, static_cast<int>(round(log10(TickRatio::den / TickRatio::num)))
+              ) >
 class TickPrice{
     /* only accept ratio between 1/1 and 1/1000000, inclusive */
     static_assert(!std::ratio_greater<TickRatio,std::ratio<1,1>>::value,
@@ -61,6 +68,10 @@ public:
      */
     static_assert(ticks_per_unit <= std::numeric_limits<long>::max(),
                   "ticks_per_unit > LONG_MAX");
+
+    /* be sure precision is large enough for tick size */
+    static_assert( RoundPrecision >= round(log10(ticks_per_unit)),
+                   "RoundPrecision not large enough for this ratio");
 
     TickPrice(long whole, long ticks)
         {

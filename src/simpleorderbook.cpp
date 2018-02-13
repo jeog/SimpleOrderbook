@@ -98,6 +98,8 @@ to_string(const callback_msg& cm)
     case callback_msg::trigger_OTO: return "trigger-OTO";
     case callback_msg::trigger_BRACKET_open: return "trigger-BRACKET-open";
     case callback_msg::trigger_BRACKET_close: return "trigger-BRACKET-close";
+    case callback_msg::trigger_trailing_stop: return "trigger-trailing-stop";
+    case callback_msg::adjust_trailing_stop: return "adjust-trailing-stop";
     case callback_msg::kill: return "kill";
     default:
         throw std::logic_error( "bad callback_msg: " +
@@ -140,6 +142,8 @@ to_string(const order_condition& oc)
     case order_condition::fill_or_kill: return "fill-or-kill";
     case order_condition::bracket: return "bracket";
     case order_condition::_bracket_active: return "bracket-active";
+    case order_condition::trailing_stop: return "trailing-stop";
+    case order_condition::_trailing_stop_active: return "trailing-stop-active";
     case order_condition::none: return "none";
     default:
         throw std::logic_error( "bad order_condition: " +

@@ -12,7 +12,7 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
     - one-triggers-other (OTO)
     - fill-or-kill (FOK)
     - bracket
-    - trailing stop ***(not available yet)***
+    - trailing stop 
     - all-or-none (AON) ***(not available yet)***
 - advanced condition triggers: ***IN DEVELOPMENT (NOT STABLE)***
     - fill-partial 

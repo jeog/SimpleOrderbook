@@ -158,12 +158,27 @@ AdvancedOrderTicketBRACKET::build_buy_stop( double loss_stop,
             target_limit);
 }
 
+AdvancedOrderTicketTrailingStop
+AdvancedOrderTicketTrailingStop::build(size_t nticks)
+{
+    if(nticks == 0){
+        throw std::invalid_argument("nticks == 0");
+    }
+    if( nticks > LONG_MAX ){
+        throw std::invalid_argument("nticks overflows long");
+    }
+    return AdvancedOrderTicketTrailingStop(nticks);
+}
+
 const AdvancedOrderTicket AdvancedOrderTicket::null;
 
 const condition_trigger AdvancedOrderTicket::default_trigger =
         condition_trigger::fill_partial;
 
 const condition_trigger AdvancedOrderTicketFOK::default_trigger =
+        condition_trigger::fill_full;
+
+const condition_trigger AdvancedOrderTicketTrailingStop::default_trigger =
         condition_trigger::fill_full;
 
 const order_condition AdvancedOrderTicketOCO::condition =
@@ -177,6 +192,9 @@ const order_condition AdvancedOrderTicketFOK::condition =
 
 const order_condition AdvancedOrderTicketBRACKET::condition =
         order_condition::bracket;
+
+const order_condition AdvancedOrderTicketTrailingStop::condition =
+        order_condition::trailing_stop;
 }; /* sob */
 
 

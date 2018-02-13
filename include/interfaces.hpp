@@ -134,8 +134,7 @@ public:
                        size_t size,
                        order_exec_cb_type exec_cb = nullptr,
                        const AdvancedOrderTicket& advanced
-                           = AdvancedOrderTicket::null,
-                       order_admin_cb_type admin_cb = nullptr) = 0;
+                           = AdvancedOrderTicket::null) = 0;
 
     virtual id_type
     replace_with_limit_order(id_type id, 
@@ -144,8 +143,7 @@ public:
                              size_t size, 
                              order_exec_cb_type exec_cb = nullptr,
                              const AdvancedOrderTicket& advanced
-                                 = AdvancedOrderTicket::null,
-                             order_admin_cb_type admin_cb = nullptr) = 0;
+                                 = AdvancedOrderTicket::null) = 0;
 
     virtual bool 
     pull_order(id_type id, bool search_limits_first=true) = 0;
@@ -165,8 +163,7 @@ public:
                         size_t size, 
                         order_exec_cb_type exec_cb = nullptr,
                         const AdvancedOrderTicket& advanced
-                            = AdvancedOrderTicket::null,
-                        order_admin_cb_type admin_cb = nullptr) = 0;
+                            = AdvancedOrderTicket::null) = 0;
 
     virtual id_type
     insert_stop_order(bool buy, 
@@ -174,8 +171,7 @@ public:
                       size_t size,
                       order_exec_cb_type exec_cb = nullptr,
                       const AdvancedOrderTicket& advanced
-                          = AdvancedOrderTicket::null,
-                      order_admin_cb_type admin_cb = nullptr) = 0;
+                          = AdvancedOrderTicket::null) = 0;
 
     virtual id_type
     insert_stop_order(bool buy, 
@@ -184,8 +180,7 @@ public:
                       size_t size, 
                       order_exec_cb_type exec_cb = nullptr,
                       const AdvancedOrderTicket& advanced
-                          = AdvancedOrderTicket::null,
-                      order_admin_cb_type admin_cb = nullptr) = 0;
+                          = AdvancedOrderTicket::null) = 0;
 
     virtual id_type
     replace_with_market_order(id_type id, 
@@ -193,8 +188,7 @@ public:
                               size_t size,
                               order_exec_cb_type exec_cb = nullptr,
                               const AdvancedOrderTicket& advanced
-                                  = AdvancedOrderTicket::null,
-                              order_admin_cb_type admin_cb = nullptr) = 0;
+                                  = AdvancedOrderTicket::null) = 0;
 
     virtual id_type
     replace_with_stop_order(id_type id, 
@@ -203,8 +197,7 @@ public:
                             size_t size,
                             order_exec_cb_type exec_cb = nullptr,
                             const AdvancedOrderTicket& advanced
-                                = AdvancedOrderTicket::null,
-                            order_admin_cb_type admin_cb = nullptr) = 0;
+                                = AdvancedOrderTicket::null) = 0;
 
     virtual id_type
     replace_with_stop_order(id_type id, 
@@ -214,8 +207,7 @@ public:
                             size_t size,
                             order_exec_cb_type exec_cb = nullptr,
                             const AdvancedOrderTicket& advanced
-                                = AdvancedOrderTicket::null,
-                            order_admin_cb_type admin_cb = nullptr) = 0;
+                                = AdvancedOrderTicket::null) = 0;
 
     virtual void 
     dump_limits(std::ostream& out = std::cout) const = 0;
