@@ -122,7 +122,7 @@ SOB_CLASS::_order_bndl::_copy_union(const _order_bndl& bndl)
         break;
     case order_condition::bracket:
         bracket_orders = bndl.bracket_orders
-                      ? new std::pair<OrderParamaters, OrderParamaters>(*bndl.bracket_orders)
+                      ? new bracket_type(*bndl.bracket_orders)
                       : nullptr;
         break;
     case order_condition::_trailing_stop_active:

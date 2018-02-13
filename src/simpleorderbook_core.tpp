@@ -157,11 +157,11 @@ SOB_TEMPLATE
 bool
 SOB_CLASS::_insert_order(order_queue_elem& e)
 {
-    if( e.cond != order_condition::none ){
+    if( _order::is_advanced(e) ){
         _route_advanced_order(e);
         return true;
     }
-    if( e.type == order_type::null ){
+    if( _order::is_null(e) ){
         /* not the cleanest but most effective/thread-safe
            e.is_buy indicates to check limits first (not buy/sell)
            success/fail is returned in the in e.id*/
@@ -213,8 +213,12 @@ SOB_CLASS::_route_advanced_order(order_queue_elem& e)
     case order_condition::one_cancels_other:
         _insert_OCO_order(e);
         break;
-    case order_condition::trailing_stop: /* no break */
-    case order_condition::bracket: /* no break */
+    case order_condition::trailing_stop:
+        _insert_TRAILING_STOP_order(e);
+        break;
+    case order_condition::bracket:
+        _insert_BRACKET_order(e);
+        break;
     case order_condition::one_triggers_other:
         _insert_OTO_order(e);
         break;
@@ -222,7 +226,7 @@ SOB_CLASS::_route_advanced_order(order_queue_elem& e)
         _insert_FOK_order(e);
         break;
     case order_condition::_trailing_stop_active:
-        _insert_trailing_stop_order(e);
+        _insert_TRAILING_STOP_ACTIVE_order(e);
         break;
     default:
         throw std::runtime_error("invalid advanced order condition");
@@ -320,7 +324,7 @@ SOB_CLASS::_hit_chain( plevel plev,
         /* deal with advanced order conditions */
         if( _order::is_advanced(elem) ){
             assert(elem.trigger != condition_trigger::none);
-            if( elem.trigger != condition_trigger::fill_full || !rmndr ){
+            if( !_order::needs_full_fill(elem) || !rmndr ){
                 _handle_advanced_order_cancel(elem, elem.id)
                 || _handle_advanced_order_trigger(elem, elem.id);
             }
@@ -379,13 +383,18 @@ SOB_CLASS::_handle_advanced_order_trigger(_order_bndl& bndl, id_type id)
     case order_condition::_trailing_stop_active:
         return false; /* NO OP */
     case order_condition::one_triggers_other:
+        _handle_OTO(bndl, id);
+        break;
     case order_condition::bracket:
+        _handle_BRACKET(bndl, id);
+        break;
     case order_condition::trailing_stop:
-         _handle_OTO(bndl, id);
-        return true;
+        _handle_TRAILING_STOP(bndl, id);
+        break;
     default:
         throw std::runtime_error("invalid order condition");
     }
+    return true;
 }
 
 
@@ -411,11 +420,100 @@ SOB_CLASS::_handle_advanced_order_cancel(_order_bndl& bndl, id_type id)
 
 SOB_TEMPLATE
 void
+SOB_CLASS::_handle_OTO(_order_bndl& bndl, id_type id)
+{
+    id_type id_new = _generate_id();
+
+    _push_callback(callback_msg::trigger_OTO, bndl.exec_cb, id, id_new, 0, 0);
+
+    OrderParamaters* op1 = bndl.contingent_order;
+    assert( op1 );
+
+    _push_order_no_wait( op1->get_order_type(), op1->is_buy(), op1->limit(),
+                         op1->stop(), op1->size(), bndl.exec_cb,
+                         order_condition::none, condition_trigger::none,
+                         nullptr, nullptr, id_new );
+
+    delete bndl.contingent_order;
+    bndl.contingent_order = nullptr;
+    bndl.cond = order_condition::none;
+    bndl.trigger = condition_trigger::none;
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_handle_BRACKET(_order_bndl& bndl, id_type id)
+{
+    /*
+     * if triggered order is bracket we need to push order onto queue
+     * FOR FAIRNESS
+     *    1) use second order that bndl.bracket_orders points at,
+     *       which makes the 'target' order primary
+     *    2) the first order (stop/loss) is then used for cparams1
+     *    3) change the condition to _bracket_active (basically an OCO)
+     *    4) keep trigger_condition the same
+     *    5) use the new id
+     * when done delete what bracket_orders points at; we need to do this
+     * because now the order is of condition _bracket_active, which needs
+     * to be treated as an OCO, and use linked_order point in the anonymous
+     * union. (could be an issue w/ how we move/delete union!)
+     */
+    id_type id_new = _generate_id();
+
+    _push_callback(callback_msg::trigger_BRACKET_open, bndl.exec_cb,
+                   id, id_new, 0, 0);
+
+    assert(bndl.bracket_orders);
+    OrderParamaters* op1 = &(bndl.bracket_orders->first);
+    assert( op1->is_stop_order() );
+    OrderParamaters* op2 = &(bndl.bracket_orders->second);
+    assert( op2->is_limit_order() );
+
+    auto new_op = std::unique_ptr<OrderParamaters>(new OrderParamaters(*op1));
+    _push_order_no_wait( op2->get_order_type(), op2->is_buy(),
+                         op2->limit(), op2->stop(), op2->size(),
+                         bndl.exec_cb, order_condition::_bracket_active,
+                         bndl.trigger, std::move(new_op), nullptr, id_new );
+
+    delete bndl.bracket_orders;
+    bndl.bracket_orders = nullptr;
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_handle_TRAILING_STOP(_order_bndl& bndl, id_type id)
+{
+    id_type id_new = _generate_id();
+
+    _push_callback(callback_msg::trigger_trailing_stop, bndl.exec_cb,
+                   id, id_new, 0, 0);
+
+    OrderParamaters* op1 = bndl.contingent_order;
+    assert( op1 );
+
+    auto new_op = std::unique_ptr<OrderParamaters>(new OrderParamaters(*op1));
+    plevel stop = _generate_trailing_stop(*op1);
+    /* some OrderParamaters price trickery in here */
+    _push_order_no_wait( order_type::stop, op1->is_buy(), 0, _itop(stop),
+                         op1->size(), bndl.exec_cb,
+                         order_condition::_trailing_stop_active,
+                         bndl.trigger, std::move(new_op), nullptr, id_new);
+
+    delete bndl.contingent_order;
+    bndl.contingent_order = nullptr;
+}
+
+
+SOB_TEMPLATE
+void
 SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id)
 {
-    order_location *loc = bndl.linked_order;
-    assert(loc);
+    assert( bndl.linked_order );
     assert( _order::is_OCO(bndl) || _order::is_active_bracket(bndl) );
+
+    order_location *loc = bndl.linked_order;
 
     /* issue callback with new order # */
     id_type id_old = loc->is_primary ? loc->id : id;
@@ -437,141 +535,36 @@ SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id)
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_handle_OTO(_order_bndl& bndl, id_type id)
-{
-    // TODO avoid the copies
-    OrderParamaters cparams1;
-    OrderParamaters cparams2;
-
-    id_type id_new = _generate_id();
-    switch( bndl.cond ){
-    case order_condition::bracket:
-        /*
-         * if triggered order is bracket we need to push order onto queue
-         * FOR FAIRNESS
-         *    1) use second order that bndl.bracket_orders points at,
-         *       which makes the 'target' order primary
-         *    2) the first order (stop/loss) is then used for cparams1
-         *    3) change the condition to _bracket_active (basically an OCO)
-         *    4) keep trigger_condition the same
-         *    5) use the new id
-         * when done delete what bracket_orders points at; we need to do this
-         * because now the order is of condition _bracket_active, which needs
-         * to be treated as an OCO, and use linked_order point in the anonymous
-         * union. (could be an issue w/ how we move/delete union!)
-         */
-        _push_callback(callback_msg::trigger_BRACKET_open, bndl.exec_cb,
-                       id, id_new, 0, 0);
-
-        assert(bndl.bracket_orders);
-        cparams1 = bndl.bracket_orders->first;
-        cparams2 = bndl.bracket_orders->second;
-        assert( cparams1.is_stop_order() );
-        assert( cparams2.is_limit_order() );
-
-        _push_order_no_wait( cparams2.get_order_type(), cparams2.is_buy(),
-                             cparams2.limit(), cparams2.stop(), cparams2.size(),
-                             bndl.exec_cb, order_condition::_bracket_active,
-                             bndl.trigger,
-                             std::unique_ptr<OrderParamaters>(
-                                     new OrderParamaters(cparams1)
-                             ),
-                             nullptr, id_new );
-        delete bndl.bracket_orders;
-        bndl.bracket_orders = nullptr;
-        break;
-
-    case order_condition::one_triggers_other:
-        _push_callback(callback_msg::trigger_OTO, bndl.exec_cb, id, id_new, 0, 0);
-        assert( bndl.contingent_order );
-        cparams1 = *bndl.contingent_order;
-        _push_order_no_wait( cparams1.get_order_type(), cparams1.is_buy(),
-                             cparams1.limit(), cparams1.stop(), cparams1.size(),
-                             bndl.exec_cb, order_condition::none,
-                             condition_trigger::none, nullptr, nullptr, id_new );
-        delete bndl.contingent_order;
-        bndl.contingent_order = nullptr;
-        bndl.cond = order_condition::none;
-        bndl.trigger = condition_trigger::none;
-        break;
-
-    case order_condition::trailing_stop:
-        _push_callback(callback_msg::trigger_trailing_stop, bndl.exec_cb,
-                       id, id_new, 0, 0);
-        assert( bndl.contingent_order );
-        cparams1 = *bndl.contingent_order;
-        /* some OrderParamaters price trickery in here */
-        _push_order_no_wait( order_type::stop, cparams1.is_buy(), 0,
-                             _itop( _trailing_stop_from_params(cparams1) ),
-                             cparams1.size(), bndl.exec_cb,
-                             order_condition::_trailing_stop_active,
-                             bndl.trigger,
-                             std::unique_ptr<OrderParamaters>(
-                                     new OrderParamaters(cparams1)
-                                     ),
-                             nullptr, id_new);
-        delete bndl.contingent_order;
-        bndl.contingent_order = nullptr;
-        break;
-
-    default:
-        throw std::runtime_error("invalid order condition");
-    }
-}
-
-
-SOB_TEMPLATE
-void
 SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
 {
     assert( _order::is_OCO(e) || _order::is_active_bracket(e) );
-    assert(e.type != order_type::market);
-    assert(e.type != order_type::null);
+    assert( _order::is_limit(e) || _order::is_stop(e) );
 
     OrderParamaters *op = e.cparams1.get();
     assert(op);
     assert(op->get_order_type() != order_type::market);
     assert(op->get_order_type() != order_type::null);
 
-    bool partial_ok = (e.cond_trigger == condition_trigger::fill_partial);
-
     /* if we fill immediately, no need to enter 2nd order */
-    if( _inject_order(e, partial_ok) ){
-        /* if bracket issue trigger_BRACKET_close callback msg */
-        callback_msg msg = _order::is_active_bracket(e)
-                         ? callback_msg::trigger_BRACKET_close
-                         : callback_msg::trigger_OCO;
-        _push_callback(msg, e.exec_cb, e.id, e.id, 0, 0);
+    if( _inject_order(e, _order::needs_partial_fill(e)) ){
+        _insert_OCO_on_immediate_trigger(e, e.id);
         return;
     }
 
+    /*
+     * if primary order doesn't fill immediately construct a new queue
+     * elem from cparams1, with a new ID.
+     */
     id_type id2 = _generate_id();
-    /* if injection of primary order doesn't fill immediately, we need
-     * to construct a new queue elem from cparams1, with a new ID. */
     order_queue_elem e2 = {
-        op->get_order_type(),
-        op->is_buy(),
-        op->limit(),
-        op->stop(),
-        op->size(),
-        e.exec_cb,
-        e.cond,
-        e.cond_trigger,
-        nullptr,
-        nullptr,
-        id2,
+        op->get_order_type(), op->is_buy(), op->limit(), op->stop(), op->size(),
+        e.exec_cb, e.cond, e.cond_trigger, nullptr, nullptr, id2,
         std::move(std::promise<id_type>())
     };
 
     /* if we fill second order immediately, remove first */
-    if( _inject_order(e2, partial_ok) ){
-        /* if we bracket issue trigger_BRACKET_close callback msg */
-        callback_msg msg = _order::is_active_bracket(e)
-                         ? callback_msg::trigger_BRACKET_close
-                         : callback_msg::trigger_OCO;
-        _push_callback(msg, e.exec_cb, e.id, id2, 0, 0);
-        double price = _order::is_limit(e) ? e.limit : e.stop;
-        _pull_order(e.id, price, false, _order::is_limit(e));
+    if( _inject_order(e2, _order::needs_partial_fill(e)) ){
+        _insert_OCO_on_immediate_trigger(e, id2);
         return;
     }
 
@@ -580,12 +573,10 @@ SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
     _order_bndl& o2 = _find(id2, _order::is_limit(e2));
     assert(o1);
     assert(o2);
-
     /* link each order with the other */
     o1.linked_order = new order_location(e2, false);
     o2.linked_order = new order_location(e, true);
-
-    /* if bracket set _bracket_active condition (basically an OCO) */
+    /* transfer condition/trigger info */
     o1.cond = o2.cond = e.cond;
     o1.trigger = o2.trigger = e.cond_trigger;
 }
@@ -593,36 +584,45 @@ SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
 
 SOB_TEMPLATE
 void
+SOB_CLASS::_insert_OCO_on_immediate_trigger(order_queue_elem& e, id_type id_new)
+{
+    callback_msg msg = _order::is_active_bracket(e)
+                     ? callback_msg::trigger_BRACKET_close
+                     : callback_msg::trigger_OCO;
+    _push_callback(msg, e.exec_cb, e.id, id_new, 0, 0);
+
+    if( e.id != id_new ){
+        /* different id -> new id -> order already active -> need to pull it */
+        double p = _order::is_limit(e) ? e.limit : e.stop;
+        _pull_order(e.id, p, false, _order::is_limit(e));
+    }
+}
+
+
+SOB_TEMPLATE
+void
 SOB_CLASS::_insert_OTO_order(order_queue_elem& e)
 {
-    assert( (e.cond == order_condition::one_triggers_other)
-            || (e.cond == order_condition::bracket)
-            || (e.cond == order_condition::trailing_stop) );
+    assert( _order::is_OTO(e) );
+    OrderParamaters *op = e.cparams1.get();
+    assert(op);
 
-    bool partial_ok = (e.cond_trigger == condition_trigger::fill_partial);
     /* if we fill immediately we need to insert other order from here */
-    if( _inject_order(e, partial_ok) ){
-        _insert_OTO_on_immediate_trigger(e);
+    if( _inject_order(e, _order::needs_partial_fill(e)) )
+    {
+        id_type id2 = _generate_id();
+        _push_callback(callback_msg::trigger_OTO, e.exec_cb, e.id, id2, 0, 0);
+
+        _push_order_no_wait( op->get_order_type(), op->is_buy(),
+                             op->limit(), op->stop(), op->size(),
+                             e.exec_cb, order_condition::none,
+                             condition_trigger::none, nullptr, nullptr, id2);
         return;
     }
 
-    _order_bndl& o = _find(e.id, (e.type == order_type::limit));
+    _order_bndl& o = _find(e.id, _order::is_limit(e));
     assert(o);
-
-    switch(e.cond){
-    case order_condition::bracket:
-        o.bracket_orders = new std::pair<OrderParamaters, OrderParamaters>(
-                *e.cparams1.get(), *e.cparams2.get()
-                );
-        break;
-    case order_condition::trailing_stop: /* no break */
-    case order_condition::one_triggers_other:
-        o.contingent_order = new OrderParamaters(*e.cparams1.get());
-        break;
-    default:
-        throw std::runtime_error("invalid order condition");
-    }
-
+    o.contingent_order = new OrderParamaters(*op);
     o.cond = e.cond;
     o.trigger = e.cond_trigger;
 }
@@ -630,15 +630,16 @@ SOB_CLASS::_insert_OTO_order(order_queue_elem& e)
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_OTO_on_immediate_trigger(order_queue_elem& e)
+SOB_CLASS::_insert_BRACKET_order(order_queue_elem& e)
 {
+    assert( _order::is_bracket(e) );
     OrderParamaters *op = e.cparams1.get();
-    OrderParamaters *op2;
+    assert(op);
+    OrderParamaters *op2 = e.cparams2.get();
     assert(op);
 
-    id_type id2 = _generate_id();
-    switch(e.cond){
-    case order_condition::bracket:
+    /* if we fill immediately we need to insert other order from here */
+    if( _inject_order(e, _order::needs_partial_fill(e)) ){
         /*
          * if triggered order is a bracket we need to push order onto queue
          * FOR FAIRNESS
@@ -648,46 +649,56 @@ SOB_CLASS::_insert_OTO_on_immediate_trigger(order_queue_elem& e)
          *    4) keep trigger_condition the same
          *    5) use the new id
          */
+        id_type id2 = _generate_id();
         _push_callback(callback_msg::trigger_BRACKET_open, e.exec_cb, e.id, id2,
                        0, 0);
-        op2 = e.cparams2.get();
-        assert(op2);
+
+        auto new_op = std::unique_ptr<OrderParamaters>(new OrderParamaters(*op));
         _push_order_no_wait( op2->get_order_type(), op2->is_buy(),
                              op2->limit(), op2->stop(), op2->size(),
                              e.exec_cb, order_condition::_bracket_active,
-                             e.cond_trigger,
-                             std::unique_ptr<OrderParamaters>(
-                                     new OrderParamaters(*op)
-                             ),
-                             nullptr, id2);
-        break;
+                             e.cond_trigger, std::move(new_op), nullptr, id2);
+        return;
+    }
 
-    case order_condition::one_triggers_other:
-        _push_callback(callback_msg::trigger_OTO, e.exec_cb, e.id, id2, 0, 0);
-        _push_order_no_wait( op->get_order_type(), op->is_buy(),
-                             op->limit(), op->stop(), op->size(),
-                             e.exec_cb, order_condition::none,
-                             condition_trigger::none, nullptr, nullptr, id2);
-        break;
+    _order_bndl& o = _find(e.id, _order::is_limit(e));
+    assert(o);
+    o.bracket_orders = new bracket_type(*op, *op2);
+    o.cond = e.cond;
+    o.trigger = e.cond_trigger;
+}
 
-    case order_condition::trailing_stop:
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::_insert_TRAILING_STOP_order(order_queue_elem& e)
+{
+    assert( _order::is_trailing_stop(e) );
+    OrderParamaters *op = e.cparams1.get();
+    assert(op);
+
+    if( _inject_order(e, _order::needs_partial_fill(e)) )
+    {
+        id_type id2 = _generate_id();
         _push_callback(callback_msg::trigger_trailing_stop, e.exec_cb,
                        e.id, id2, 0, 0);
+
+        auto new_op = std::unique_ptr<OrderParamaters>(new OrderParamaters(*op));
+        plevel stop = _generate_trailing_stop(*op);
         /* some OrderParamaters price trickery in here */
-        _push_order_no_wait( order_type::stop, op->is_buy(), 0,
-                             _itop( _trailing_stop_from_params(*op) ),
+        _push_order_no_wait( order_type::stop, op->is_buy(), 0, _itop(stop),
                              op->size(), e.exec_cb,
                              order_condition::_trailing_stop_active,
-                             e.cond_trigger,
-                             std::unique_ptr<OrderParamaters>(
-                                    new OrderParamaters(*op)
-                             ),
-                             nullptr, id2);
-        break;
-
-    default:
-        throw std::runtime_error("invalid order condition");
+                             e.cond_trigger, std::move(new_op), nullptr, id2);
+        return;
     }
+
+    _order_bndl& o = _find(e.id, _order::is_limit(e));
+    assert(o);
+    o.contingent_order = new OrderParamaters(*op);
+    o.cond = e.cond;
+    o.trigger = e.cond_trigger;
 }
 
 
@@ -695,10 +706,10 @@ SOB_TEMPLATE
 void
 SOB_CLASS::_insert_FOK_order(order_queue_elem& e)
 {
-    assert(e.type == order_type::limit);
+    assert( _order::is_limit(e) );
     plevel p = _ptoi(e.limit);
     assert(p);
-    size_t sz = (e.cond_trigger == condition_trigger::fill_partial) ? 0 : e.sz;
+    size_t sz = _order::needs_partial_fill(e) ? 0 : e.sz;
     /*
      * a bit of trickery here; if all we need is partial fill we check
      * if size of 0 is fillable; if p is <= _bid or >= _ask (and they are
@@ -714,8 +725,9 @@ SOB_CLASS::_insert_FOK_order(order_queue_elem& e)
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_trailing_stop_order(order_queue_elem& e)
+SOB_CLASS::_insert_TRAILING_STOP_ACTIVE_order(order_queue_elem& e)
 {
+    assert( _order::is_active_trailing_stop(e) );
     stop_bndl bndl = stop_bndl(e.is_buy, 0, e.id, e.sz, e.exec_cb, e.cond,
                                e.cond_trigger);
     OrderParamaters *op = e.cparams1.get();
@@ -943,9 +955,9 @@ SOB_CLASS::_adjust_trailing_stops(bool buy_stops)
         stop_bndl bndl = _chain<stop_chain_type>::pop(this, p, id);
         assert( bndl );
         assert( bndl.is_buy == buy_stops );
-        assert( bndl.cond == order_condition::_trailing_stop_active );
+        assert( _order::is_active_trailing_stop(bndl));
         assert( bndl.nticks );
-        p = _last + (buy_stops ? bndl.nticks : -bndl.nticks);
+        p = _generate_trailing_stop(buy_stops, bndl.nticks);
         _push_callback(callback_msg::adjust_trailing_stop, bndl.exec_cb,
                        id, id, _itop(p), bndl.sz);
         buy_stops
@@ -1133,7 +1145,7 @@ void
 SOB_CLASS::_pull_linked_order(typename ChainTy::value_type& bndl)
 {
     order_location *loc = bndl.linked_order;
-    if( loc && bndl.cond == order_condition::one_cancels_other ){
+    if( loc && _order::is_OCO(bndl) ){
         /* false to pull_linked; this side in process of being pulled */
         _pull_order(loc->id, loc->price, false, loc->is_limit_chain);
     }
@@ -1414,14 +1426,14 @@ SOB_CLASS::_bndl_to_aot(const typename _chain<ChainTy>::bndl_type& bndl) const
     AdvancedOrderTicket aot = AdvancedOrderTicket::null;
     aot.change_condition(bndl.cond);
     aot.change_trigger(bndl.trigger);
-    if( bndl.cond == order_condition::one_cancels_other){
+    if( _order::is_OCO(bndl) ){
         /* reconstruct OrderParamaters from order_location */
         id_type id = bndl.linked_order->id;
         plevel p = _id_to_plevel<ChainTy>(id);
         auto other = _order::template find<ChainTy>(p, id);
         OrderParamaters op = _order::as_order_params(this, p, other);
         aot.change_order1(op);
-    }else if( bndl.cond == order_condition::one_triggers_other){
+    }else if( _order::is_OTO(bndl) ){
         aot.change_order1( *bndl.contingent_order );
     }
     return aot;

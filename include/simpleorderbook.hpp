@@ -270,6 +270,8 @@ private:
                 }
         };
 
+        typedef std::pair<OrderParamaters, OrderParamaters> bracket_type;
+
         /* base representation of orders internally (inside chains)
          * note: this is just an 'abstract' base for stop/limit bndls to
          *       avoid any sneaky upcasts in all the chain/bndl templates */
@@ -282,7 +284,7 @@ private:
             union {
                 order_location *linked_order;
                 OrderParamaters *contingent_order;
-                std::pair<OrderParamaters, OrderParamaters> *bracket_orders;
+                bracket_type *bracket_orders;
                 size_t nticks;
             };
             operator bool() const { return sz; }
@@ -295,6 +297,7 @@ private:
             _order_bndl& operator=(const _order_bndl& bndl);
             _order_bndl& operator=(_order_bndl&& bndl);
             ~_order_bndl();
+
         private:
             void _copy_union(const _order_bndl& bndl);
             void _move_union(_order_bndl& bndl);
@@ -536,22 +539,32 @@ private:
         void
         _handle_OTO(_order_bndl& bndl, id_type id);
 
-        // TODO Consider allowing order_type::market as secondary order
-        //      so primary can try to fill then default to market
+        void
+        _handle_BRACKET(_order_bndl& bndl, id_type id);
+
+        void
+        _handle_TRAILING_STOP(_order_bndl& bndl, id_type id);
+
         void
         _insert_OCO_order(order_queue_elem& e);
+
+        void
+        _insert_OCO_on_immediate_trigger(order_queue_elem& e, id_type id_new);
 
         void
         _insert_OTO_order(order_queue_elem& e);
 
         void
-        _insert_OTO_on_immediate_trigger(order_queue_elem& e);
+        _insert_BRACKET_order(order_queue_elem& e);
+
+        void
+        _insert_TRAILING_STOP_order(order_queue_elem& e);
 
         void
         _insert_FOK_order(order_queue_elem& e);
 
         void
-        _insert_trailing_stop_order(order_queue_elem& e);
+        _insert_TRAILING_STOP_ACTIVE_order(order_queue_elem& e);
 
         /* internal insert orders once/if we have an id */
         template<bool BuyLimit>
@@ -781,9 +794,13 @@ private:
                                double limit,
                                std::unique_ptr<OrderParamaters> & op) const;
 
-        plevel
-        _trailing_stop_from_params(const OrderParamaters& op)
-        { return _last + ((op.is_buy() ? 1 : -1) * nticks_from_params(op)); }
+        inline plevel
+        _generate_trailing_stop(const OrderParamaters& op)
+        { return _generate_trailing_stop(op.is_buy(), nticks_from_params(op)); }
+
+        inline plevel
+        _generate_trailing_stop(bool buy_stop, size_t nticks)
+        { return _last + (buy_stop ? nticks : -nticks); }
 
         static size_t
         nticks_from_params(const OrderParamaters& params);

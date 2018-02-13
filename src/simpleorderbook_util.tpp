@@ -189,6 +189,10 @@ struct SOB_CLASS::_order {
     }
 
     static constexpr bool
+    is_null(const order_queue_elem& e)
+    { return e.type == order_type::null; }
+
+    static constexpr bool
     is_market(const order_queue_elem& e)
     { return e.type == order_type::market; }
 
@@ -241,6 +245,22 @@ struct SOB_CLASS::_order {
     { return bndl.cond == order_condition::one_cancels_other; }
 
     static constexpr bool
+    is_OTO(const order_queue_elem& e )
+    { return e.cond == order_condition::one_triggers_other; }
+
+    static constexpr bool
+    is_OTO(const _order_bndl& bndl )
+    { return bndl.cond == order_condition::one_triggers_other; }
+
+    static constexpr bool
+    is_bracket(const order_queue_elem& e )
+    { return e.cond == order_condition::bracket; }
+
+    static constexpr bool
+    is_bracket(const _order_bndl& bndl )
+    { return bndl.cond == order_condition::bracket; }
+
+    static constexpr bool
     is_active_bracket(const order_queue_elem& e )
     { return e.cond == order_condition::_bracket_active; }
 
@@ -255,6 +275,30 @@ struct SOB_CLASS::_order {
     static constexpr bool
     is_trailing_stop(const _order_bndl& bndl )
     { return bndl.cond == order_condition::trailing_stop; }
+
+    static constexpr bool
+    is_active_trailing_stop(const order_queue_elem& e )
+    { return e.cond == order_condition::_trailing_stop_active; }
+
+    static constexpr bool
+    is_active_trailing_stop(const _order_bndl& bndl )
+    { return bndl.cond == order_condition::_trailing_stop_active; }
+
+    static constexpr bool
+    needs_partial_fill(const order_queue_elem& e)
+    { return e.cond_trigger == condition_trigger::fill_partial; }
+
+    static constexpr bool
+    needs_partial_fill(const _order_bndl& bndl)
+    { return bndl.trigger == condition_trigger::fill_partial; }
+
+    static constexpr bool
+    needs_full_fill(const order_queue_elem& e)
+    { return e.cond_trigger == condition_trigger::fill_full; }
+
+    static constexpr bool
+    needs_full_fill(const _order_bndl& bndl)
+    { return bndl.trigger == condition_trigger::fill_full; }
 
     static inline double
     limit_price(const SimpleOrderbookImpl *sob, plevel p, const limit_bndl& bndl)
