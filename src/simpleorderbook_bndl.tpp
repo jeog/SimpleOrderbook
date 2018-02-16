@@ -120,6 +120,7 @@ SOB_CLASS::_order_bndl::_copy_union(const _order_bndl& bndl)
                          ? new OrderParamaters(*bndl.contingent_order)
                          : nullptr;
         break;
+    case order_condition::trailing_bracket: /* no break */
     case order_condition::bracket:
         bracket_orders = bndl.bracket_orders
                       ? new bracket_type(*bndl.bracket_orders)
@@ -127,6 +128,11 @@ SOB_CLASS::_order_bndl::_copy_union(const _order_bndl& bndl)
         break;
     case order_condition::_trailing_stop_active:
         nticks = bndl.nticks;
+        break;
+    case order_condition::_trailing_bracket_active:
+        linked_trailer = bndl.linked_trailer
+                       ? new linked_trailer_type(*bndl.linked_trailer)
+                       : nullptr;
         break;
     case order_condition::none:
         // TODO what do we want to assert here ?
@@ -152,12 +158,17 @@ SOB_CLASS::_order_bndl::_move_union(_order_bndl& bndl)
         contingent_order = bndl.contingent_order;
         bndl.contingent_order = nullptr;
         break;
+    case order_condition::trailing_bracket: /* no break */
     case order_condition::bracket:
         bracket_orders = bndl.bracket_orders;
         bndl.bracket_orders = nullptr;
         break;
     case order_condition::_trailing_stop_active:
         nticks = bndl.nticks;
+        break;
+    case order_condition::_trailing_bracket_active:
+        linked_trailer = bndl.linked_trailer;
+        bndl.linked_trailer = nullptr;
         break;
     case order_condition::none:
         // TODO what do we want to assert here ?
@@ -184,9 +195,15 @@ SOB_CLASS::_order_bndl::~_order_bndl()
                delete contingent_order;
            }
            break;
+       case order_condition::trailing_bracket: /* no break */
        case order_condition::bracket:
            if( bracket_orders ){
                delete bracket_orders;
+           }
+           break;
+       case order_condition::_trailing_bracket_active:
+           if( linked_trailer ){
+               delete linked_trailer;
            }
            break;
        case order_condition::_trailing_stop_active: /* no break */

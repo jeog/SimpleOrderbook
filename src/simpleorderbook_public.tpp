@@ -46,9 +46,17 @@ SOB_CLASS::insert_limit_order( bool buy,
         if( advanced ){
             order_condition cond = advanced.condition();
             switch(cond){
+            case order_condition::trailing_bracket:
+                std::tie(cparams1, cparams2) =
+                    _build_aot_order(!buy, size,
+                    reinterpret_cast<const AdvancedOrderTicketTrailingBracket&>(
+                            advanced)
+                    );
+                break;
             case order_condition::trailing_stop:
                 cparams1 = _build_aot_order(!buy, size,
-                    reinterpret_cast<const AdvancedOrderTicketTrailingStop&>(advanced)
+                    reinterpret_cast<const AdvancedOrderTicketTrailingStop&>(
+                            advanced)
                     );
                 break;
             case order_condition::bracket:
@@ -64,10 +72,10 @@ SOB_CLASS::insert_limit_order( bool buy,
 
             switch(cond){
             case order_condition::bracket:
-                _check_oco_limit_order(buy, limit, cparams2);
+                _check_limit_order(buy, limit, cparams2, cond);
                 /* no break */
             case order_condition::one_cancels_other:
-                _check_oco_limit_order(buy, limit, cparams1);
+                _check_limit_order(buy, limit, cparams1, cond);
                 break;
             default:
                 assert( cond != order_condition::none );
@@ -99,9 +107,17 @@ SOB_CLASS::insert_market_order( bool buy,
         /* --- CRITICAL SECTION --- */
         if( advanced ){
             switch( advanced.condition() ){
+            case order_condition::trailing_bracket:
+                std::tie(cparams1, cparams2) =
+                    _build_aot_order(!buy, size,
+                    reinterpret_cast<const AdvancedOrderTicketTrailingBracket&>(
+                            advanced)
+                    );
+                break;
             case order_condition::trailing_stop:
                 cparams1 = _build_aot_order(!buy, size,
-                    reinterpret_cast<const AdvancedOrderTicketTrailingStop&>(advanced)
+                    reinterpret_cast<const AdvancedOrderTicketTrailingStop&>(
+                            advanced)
                     );
                 break;
             case order_condition::one_cancels_other:
@@ -161,8 +177,16 @@ SOB_CLASS::insert_stop_order( bool buy,
             limit = _tick_price_or_throw(limit, "invalid limit price");
             ot = order_type::stop_limit;
         }
+
         if( advanced ){
             switch( advanced.condition() ){
+            case order_condition::trailing_bracket:
+                std::tie(cparams1, cparams2) =
+                    _build_aot_order(!buy, size,
+                    reinterpret_cast<const AdvancedOrderTicketTrailingBracket&>(
+                            advanced)
+                    );
+                break;
             case order_condition::trailing_stop:
                 cparams1 = _build_aot_order(!buy, size,
                     reinterpret_cast<const AdvancedOrderTicketTrailingStop&>(advanced)

@@ -25,6 +25,8 @@ along with this program. If not, see http://www.gnu.org/licenses.
 // TODO stop-limit version of trailing stop
 // TODO AON orders
 
+// TODO resolve advanced_order_error vs invalid_argument usage
+
 namespace sob{
 
 class advanced_order_error
@@ -204,6 +206,7 @@ public:
     }
 };
 
+
 class AdvancedOrderTicketBRACKET
         : public AdvancedOrderTicket {
 protected:
@@ -214,7 +217,7 @@ protected:
                                 double loss_stop,
                                 double target_limit )
         :
-            AdvancedOrderTicket( condition, trigger,
+            AdvancedOrderTicket( order_condition::bracket, trigger,
                     OrderParamaters(is_buy, sz, loss_limit, loss_stop),
                     OrderParamaters(is_buy, sz, target_limit, 0)
                     )
@@ -258,9 +261,11 @@ class AdvancedOrderTicketTrailingStop
     size_t _nticks;
 
 protected:
-    AdvancedOrderTicketTrailingStop(size_t nticks)
+    AdvancedOrderTicketTrailingStop(size_t nticks,
+                                    order_condition condition,
+                                    condition_trigger trigger)
         :
-            AdvancedOrderTicket(condition, default_trigger),
+            AdvancedOrderTicket(condition, trigger),
             _nticks(nticks)
         {
         }
@@ -288,6 +293,55 @@ public:
     static AdvancedOrderTicketTrailingStop
     build(size_t nticks);
 
+};
+
+/* private inheritance from ...TrailingStop is a bit messy, so... */
+class AdvancedOrderTicketTrailingBracket
+        : public AdvancedOrderTicket{
+    size_t _nticks_target;
+    size_t _nticks_stop;
+
+protected:
+    AdvancedOrderTicketTrailingBracket(size_t stop_nticks, size_t target_nticks)
+        :
+            AdvancedOrderTicket(condition, default_trigger),
+            _nticks_target(target_nticks),
+            _nticks_stop(stop_nticks)
+        {
+        }
+
+public:
+    static const order_condition condition;
+    static const condition_trigger default_trigger;
+
+    inline bool
+    operator==(const AdvancedOrderTicketTrailingBracket& aot) const
+    { return (_nticks_target == aot._nticks_target)
+            && (_nticks_stop == aot._nticks_stop)
+            && AdvancedOrderTicket::operator ==(aot); }
+
+    inline bool
+    operator !=(const AdvancedOrderTicketTrailingBracket& aot) const
+    { return !(*this == aot); }
+
+    inline size_t
+    stop_nticks() const
+    { return _nticks_stop; }
+
+    inline void
+    change_stop_nticks(size_t n)
+    { _nticks_stop = n; }
+
+    inline size_t
+    target_nticks() const
+    { return _nticks_target; }
+
+    inline void
+    change_target_nticks(size_t n)
+    { _nticks_target = n; }
+
+    static AdvancedOrderTicketTrailingBracket
+    build(size_t stop_nticks, size_t target_nticks);
 };
 
 }; /* sob */

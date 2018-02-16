@@ -67,6 +67,8 @@ enum class order_condition {
     _bracket_active, // <- 'private' (basically an OCO now)
     trailing_stop,
     _trailing_stop_active,
+    trailing_bracket,
+    _trailing_bracket_active
     // all_or_nothing
 };
 
@@ -201,6 +203,25 @@ std::ostream& operator<<(std::ostream& out, const condition_trigger& ct);
 std::ostream& operator<<(std::ostream& out, const order_info& oi);
 std::ostream& operator<<(std::ostream& out, const OrderParamaters& op);
 std::ostream& operator<<(std::ostream& out, const AdvancedOrderTicket& op);
+
+#define INLINE_OPERATOR_PLUS_STR(type) \
+inline std::string \
+operator+(const type& o, std::string s) \
+{ return to_string(o) + s; } \
+inline std::string \
+operator+(std::string s, const type& o) \
+{ return s + to_string(o); }
+
+INLINE_OPERATOR_PLUS_STR(order_type);
+INLINE_OPERATOR_PLUS_STR(callback_msg);
+INLINE_OPERATOR_PLUS_STR(side_of_market);
+INLINE_OPERATOR_PLUS_STR(side_of_trade);
+INLINE_OPERATOR_PLUS_STR(clock_type::time_point);
+INLINE_OPERATOR_PLUS_STR(order_condition);
+INLINE_OPERATOR_PLUS_STR(condition_trigger);
+INLINE_OPERATOR_PLUS_STR(order_info);
+INLINE_OPERATOR_PLUS_STR(OrderParamaters);
+INLINE_OPERATOR_PLUS_STR(AdvancedOrderTicket);
 
 class liquidity_exception
         : public std::logic_error{

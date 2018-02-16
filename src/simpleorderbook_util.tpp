@@ -285,6 +285,22 @@ struct SOB_CLASS::_order {
     { return bndl.cond == order_condition::_trailing_stop_active; }
 
     static constexpr bool
+    is_trailing_bracket(const order_queue_elem& e )
+    { return e.cond == order_condition::trailing_bracket; }
+
+    static constexpr bool
+    is_trailing_bracket(const _order_bndl& bndl )
+    { return bndl.cond == order_condition::trailing_bracket; }
+
+    static constexpr bool
+    is_active_trailing_bracket(const order_queue_elem& e )
+    { return e.cond == order_condition::_trailing_bracket_active; }
+
+    static constexpr bool
+    is_active_trailing_bracket(const _order_bndl& bndl )
+    { return bndl.cond == order_condition::_trailing_bracket_active; }
+
+    static constexpr bool
     needs_partial_fill(const order_queue_elem& e)
     { return e.cond_trigger == condition_trigger::fill_partial; }
 
@@ -329,6 +345,14 @@ struct SOB_CLASS::_order {
                     const limit_bndl& bndl)
     { return OrderParamaters( (p < sob->_ask), bndl.sz,
             limit_price(sob, p, bndl), stop_price(sob, p, bndl) ); }
+
+    template<typename ChainTy>
+    static OrderParamaters
+    as_order_params(const SimpleOrderbookImpl *sob, id_type id)
+    {
+        plevel p = sob->_id_to_plevel<ChainTy>(id);
+        return as_order_params(sob, p, find<ChainTy>(p, id));
+    }
 
     static inline order_info
     as_order_info(bool is_buy,
@@ -428,7 +452,7 @@ protected:
         }
         typename InnerChainTy::value_type bndl = *i;
         c->erase(i);
-        sob->_id_cache.erase(id);
+        sob->_id_cache.erase(id); // also erase from inside _trade (confusing)
         return bndl;
     }
 };

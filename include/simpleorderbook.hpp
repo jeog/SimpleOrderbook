@@ -254,23 +254,10 @@ private:
             std::promise<id_type> promise;
         } order_queue_elem;
 
-        /* one order to (quickly) find another */
-        struct order_location{ // WHY NOT JUST POINT AT THE OBJECT ?
-            bool is_limit_chain;
-            double price;
-            id_type id;
-            bool is_primary;
-            order_location(const order_queue_elem& elem, bool is_primary)
-                :
-                    is_limit_chain(elem.type == order_type::limit),
-                    price(is_limit_chain ? elem.limit : elem.stop),
-                    id(elem.id),
-                    is_primary(is_primary)
-                {
-                }
-        };
+        struct order_location; /* forward decl */
 
         typedef std::pair<OrderParamaters, OrderParamaters> bracket_type;
+        typedef std::pair<size_t, order_location> linked_trailer_type;
 
         /* base representation of orders internally (inside chains)
          * note: this is just an 'abstract' base for stop/limit bndls to
@@ -285,6 +272,7 @@ private:
                 order_location *linked_order;
                 OrderParamaters *contingent_order;
                 bracket_type *bracket_orders;
+                linked_trailer_type *linked_trailer;
                 size_t nticks;
             };
             operator bool() const { return sz; }
@@ -325,6 +313,31 @@ private:
             stop_bndl& operator=(const stop_bndl& bndl);
             stop_bndl& operator=(stop_bndl&& bndl);
             static stop_bndl null;
+        };
+
+
+        /* one order to (quickly) find another */
+        struct order_location{ // WHY NOT JUST POINT AT THE OBJECT ?
+            bool is_limit_chain;
+            double price;
+            id_type id;
+            bool is_primary;
+            order_location(const order_queue_elem& elem, bool is_primary)
+                :
+                    is_limit_chain(elem.type == order_type::limit),
+                    price(is_limit_chain ? elem.limit : elem.stop),
+                    id(elem.id),
+                    is_primary(is_primary)
+                {
+                }
+            order_location(bool is_limit, double price, id_type id, bool is_primary)
+                :
+                    is_limit_chain(is_limit),
+                    price(price),
+                    id(id),
+                    is_primary(is_primary)
+                {
+                }
         };
 
         /* info held for each exec callback in the deferred callback vector*/
@@ -543,13 +556,47 @@ private:
         _handle_BRACKET(_order_bndl& bndl, id_type id);
 
         void
+        _handle_TRAILING_BRACKET(_order_bndl& bndl, id_type id);
+
+        void
         _handle_TRAILING_STOP(_order_bndl& bndl, id_type id);
 
         void
-        _insert_OCO_order(order_queue_elem& e);
+        _exec_OTO_order(const OrderParamaters *op,
+                        order_exec_cb_type& cb,
+                        id_type id);
 
         void
-        _insert_OCO_on_immediate_trigger(order_queue_elem& e, id_type id_new);
+        _exec_BRACKET_order(const OrderParamaters *op1,
+                            const OrderParamaters *op2,
+                            order_exec_cb_type& cb,
+                            condition_trigger trigger,
+                            id_type id);
+
+        void
+        _exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
+                                     const OrderParamaters *op2,
+                                     order_exec_cb_type& cb,
+                                     condition_trigger trigger,
+                                     id_type id);
+
+        void
+        _exec_TRAILING_STOP_order(const OrderParamaters *op,
+                                  order_exec_cb_type& cb,
+                                  condition_trigger trigger,
+                                  id_type id);
+
+        template<typename T>
+        void
+        _exec_OCO_order(const T& t,
+                        id_type id_old,
+                        id_type id_new,
+                        id_type id_pull,
+                        double price_pull,
+                        bool is_limit);
+
+        void
+        _insert_OCO_order(order_queue_elem& e);
 
         void
         _insert_OTO_order(order_queue_elem& e);
@@ -558,13 +605,20 @@ private:
         _insert_BRACKET_order(order_queue_elem& e);
 
         void
+        _insert_TRAILING_BRACKET_order(order_queue_elem& e);
+
+        void
+        _insert_TRAILING_BRACKET_ACTIVE_order(order_queue_elem& e);
+
+        void
         _insert_TRAILING_STOP_order(order_queue_elem& e);
+
+        void
+        _insert_TRAILING_STOP_ACTIVE_order(order_queue_elem& e);
 
         void
         _insert_FOK_order(order_queue_elem& e);
 
-        void
-        _insert_TRAILING_STOP_ACTIVE_order(order_queue_elem& e);
 
         /* internal insert orders once/if we have an id */
         template<bool BuyLimit>
@@ -601,6 +655,9 @@ private:
 
         void
         _adjust_trailing_stops(bool buy_stops);
+
+        void
+        _adjust_trailing_stop(id_type id, bool buy_stop);
 
         inline void
         _trailing_stop_insert(id_type id, bool is_buy)
@@ -696,7 +753,7 @@ private:
 
         inline void
         _push_callback( callback_msg msg,
-                             order_exec_cb_type& cb,
+                             const order_exec_cb_type& cb,
                              id_type id1,
                              id_type id2,
                              double price,
@@ -785,14 +842,22 @@ private:
                          size_t size,
                          const AdvancedOrderTicketTrailingStop& aot) const;
 
+        /* special build of trailing_stop order params using stop and target nticks */
+        std::tuple<std::unique_ptr<OrderParamaters>,
+                   std::unique_ptr<OrderParamaters>>
+        _build_aot_order(bool buy,
+                         size_t size,
+                         const AdvancedOrderTicketTrailingBracket& aot) const;
+
         OrderParamaters
         _params_from_nticks( bool buy, size_t size, long nticks) const;
 
         /* check prices levels for limit-OCO orders are valid */
         void
-        _check_oco_limit_order(bool buy,
-                               double limit,
-                               std::unique_ptr<OrderParamaters> & op) const;
+        _check_limit_order(bool buy,
+                           double limit,
+                           std::unique_ptr<OrderParamaters> & op,
+                           order_condition oc) const;
 
         inline plevel
         _generate_trailing_stop(const OrderParamaters& op)
@@ -801,6 +866,15 @@ private:
         inline plevel
         _generate_trailing_stop(bool buy_stop, size_t nticks)
         { return _last + (buy_stop ? nticks : -nticks); }
+
+        // bad name, not really trailing
+        inline plevel
+        _generate_trailing_limit(const OrderParamaters& op)
+        { return _generate_trailing_limit(op.is_buy(), nticks_from_params(op)); }
+
+        inline plevel
+        _generate_trailing_limit(bool buy_limit, size_t nticks)
+        { return _last + (buy_limit ? -nticks : nticks); }
 
         static size_t
         nticks_from_params(const OrderParamaters& params);
@@ -1148,7 +1222,8 @@ template<typename TickRatio>
 typename SimpleOrderbook::SimpleOrderbookImpl<TickRatio>::stop_bndl
 SimpleOrderbook::SimpleOrderbookImpl<TickRatio>::stop_bndl::null;
 
-struct order_info { // TODO merge/conversions with OrderParamaters
+/* TODO create way to represent advanced-trailing orders here */
+struct order_info {
     order_type type;
     bool is_buy;
     double limit;
