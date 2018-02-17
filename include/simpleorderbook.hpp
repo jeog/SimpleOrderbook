@@ -504,32 +504,33 @@ private:
 
         /* all order types go through here */
         bool
-        _insert_order(order_queue_elem& e);
+        _insert_order(const order_queue_elem& e);
 
         /* basic order types */
+        template<side_of_trade side = side_of_trade::all>
         fill_type
-        _route_basic_order(order_queue_elem& e);
+        _route_basic_order(const order_queue_elem& e);
 
         /* advanced order types */
         void
-        _route_advanced_order(order_queue_elem& e);
+        _route_advanced_order(const order_queue_elem& e);
 
         /* if we need immediate (partial/full) fill info for basic order type*/
         bool
-        _inject_order(order_queue_elem& e, bool partial_ok);
+        _inject_order(const order_queue_elem& e, bool partial_ok);
 
         template<bool BidSize>
         size_t
         _trade(plevel plev,
                id_type id,
                size_t size,
-               order_exec_cb_type& exec_cb);
+               const order_exec_cb_type& exec_cb);
 
         size_t
         _hit_chain(plevel plev,
                    id_type id,
                    size_t size,
-                   order_exec_cb_type& exec_cb);
+                   const order_exec_cb_type& exec_cb);
 
         /* DONT INSERT NEW TRADES IN HERE! */
         void
@@ -537,8 +538,8 @@ private:
                            size_t size,
                            id_type idbuy,
                            id_type idsell,
-                           order_exec_cb_type& cbbuy,
-                           order_exec_cb_type& cbsell);
+                           const order_exec_cb_type& cbbuy,
+                           const order_exec_cb_type& cbsell);
 
         bool
         _handle_advanced_order_trigger(_order_bndl& bndl, id_type id);
@@ -563,26 +564,26 @@ private:
 
         void
         _exec_OTO_order(const OrderParamaters *op,
-                        order_exec_cb_type& cb,
+                        const order_exec_cb_type& cb,
                         id_type id);
 
         void
         _exec_BRACKET_order(const OrderParamaters *op1,
                             const OrderParamaters *op2,
-                            order_exec_cb_type& cb,
+                            const order_exec_cb_type& cb,
                             condition_trigger trigger,
                             id_type id);
 
         void
         _exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
                                      const OrderParamaters *op2,
-                                     order_exec_cb_type& cb,
+                                     const order_exec_cb_type& cb,
                                      condition_trigger trigger,
                                      id_type id);
 
         void
         _exec_TRAILING_STOP_order(const OrderParamaters *op,
-                                  order_exec_cb_type& cb,
+                                  const order_exec_cb_type& cb,
                                   condition_trigger trigger,
                                   id_type id);
 
@@ -596,51 +597,42 @@ private:
                         bool is_limit);
 
         void
-        _insert_OCO_order(order_queue_elem& e);
+        _insert_OCO_order(const order_queue_elem& e);
 
         void
-        _insert_OTO_order(order_queue_elem& e);
+        _insert_OTO_order(const order_queue_elem& e);
 
         void
-        _insert_BRACKET_order(order_queue_elem& e);
+        _insert_BRACKET_order(const order_queue_elem& e);
 
         void
-        _insert_TRAILING_BRACKET_order(order_queue_elem& e);
+        _insert_TRAILING_BRACKET_order(const order_queue_elem& e);
 
         void
-        _insert_TRAILING_BRACKET_ACTIVE_order(order_queue_elem& e);
+        _insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e);
 
         void
-        _insert_TRAILING_STOP_order(order_queue_elem& e);
+        _insert_TRAILING_STOP_order(const order_queue_elem& e);
 
         void
-        _insert_TRAILING_STOP_ACTIVE_order(order_queue_elem& e);
+        _insert_TRAILING_STOP_ACTIVE_order(const order_queue_elem& e);
 
         void
-        _insert_FOK_order(order_queue_elem& e);
+        _insert_FOK_order(const order_queue_elem& e);
 
 
         /* internal insert orders once/if we have an id */
         template<bool BuyLimit>
         fill_type
-        _insert_limit_order(plevel limit,
-                            size_t size,
-                            order_exec_cb_type exec_cb,
-                            id_type id);
+        _insert_limit_order(const order_queue_elem& e);
 
         template<bool BuyMarket>
         void
-        _insert_market_order(size_t size,
-                             order_exec_cb_type exec_cb,
-                             id_type id);
+        _insert_market_order(const order_queue_elem& e);
 
         template<bool BuyStop>
         void
-        _insert_stop_order(plevel stop,
-                           double limit,
-                           size_t size,
-                           order_exec_cb_type exec_cb,
-                           id_type id);
+        _insert_stop_order(const order_queue_elem& e);
 
         /* handle post-trade tasks */
         void
@@ -753,11 +745,11 @@ private:
 
         inline void
         _push_callback( callback_msg msg,
-                             const order_exec_cb_type& cb,
-                             id_type id1,
-                             id_type id2,
-                             double price,
-                             size_t sz )
+                        const order_exec_cb_type& cb,
+                        id_type id1,
+                        id_type id2,
+                        double price,
+                        size_t sz )
         { _deferred_callbacks.push_back({msg, cb, id1, id2, price, sz}); }
 
         inline bool

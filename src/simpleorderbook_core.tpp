@@ -152,7 +152,7 @@ SOB_CLASS::_threaded_order_dispatcher()
 
 SOB_TEMPLATE
 bool
-SOB_CLASS::_insert_order(order_queue_elem& e)
+SOB_CLASS::_insert_order(const order_queue_elem& e)
 {
     if( _order::is_advanced(e) ){
         _route_advanced_order(e);
@@ -164,34 +164,30 @@ SOB_CLASS::_insert_order(order_queue_elem& e)
            success/fail is returned in the in e.id*/
         return _pull_order(e.id, true, e.is_buy);
     }
-    _route_basic_order(e);
+    _route_basic_order<>(e);
     return true;
 }
 
 
 SOB_TEMPLATE
+template<side_of_trade side>
 fill_type
-SOB_CLASS::_route_basic_order(order_queue_elem& e)
+SOB_CLASS::_route_basic_order(const order_queue_elem& e)
 {
+    if( side == side_of_trade::all ){
+        return e.is_buy ? _route_basic_order<side_of_trade::buy>(e)
+                        : _route_basic_order<side_of_trade::sell>(e);
+    }
     switch( e.type ){
     case order_type::limit:
-        return  e.is_buy
-            ? _insert_limit_order<true>(_ptoi(e.limit), e.sz, e.exec_cb, e.id)
-            : _insert_limit_order<false>(_ptoi(e.limit), e.sz, e.exec_cb, e.id);
-
+        return _insert_limit_order<side == side_of_trade::buy>(e);
     case order_type::market:
-        e.is_buy
-            ? _insert_market_order<true>(e.sz, e.exec_cb, e.id)
-            : _insert_market_order<false>(e.sz, e.exec_cb, e.id);
+        _insert_market_order<side == side_of_trade::buy>(e);
         return fill_type::immediate_full;
-
     case order_type::stop: /* no break */
     case order_type::stop_limit:
-        e.is_buy
-            ? _insert_stop_order<true>(_ptoi(e.stop), e.limit, e.sz, e.exec_cb, e.id)
-            : _insert_stop_order<false>(_ptoi(e.stop), e.limit, e.sz, e.exec_cb, e.id);
+        _insert_stop_order<side == side_of_trade::buy>(e);
         return fill_type::none;
-
     default:
         throw std::runtime_error("invalid order type in order_queue");
     }
@@ -203,7 +199,7 @@ SOB_CLASS::_route_basic_order(order_queue_elem& e)
 //      from the initial call !
 SOB_TEMPLATE
 void
-SOB_CLASS::_route_advanced_order(order_queue_elem& e)
+SOB_CLASS::_route_advanced_order(const order_queue_elem& e)
 {
     switch(e.cond){
     case order_condition::_bracket_active: /* no break */
@@ -239,9 +235,9 @@ SOB_CLASS::_route_advanced_order(order_queue_elem& e)
 
 SOB_TEMPLATE
 bool
-SOB_CLASS::_inject_order(order_queue_elem& e, bool partial_ok)
+SOB_CLASS::_inject_order(const order_queue_elem& e, bool partial_ok)
 {
-    switch( _route_basic_order(e) ){
+    switch( _route_basic_order<>(e) ){
     case fill_type::immediate_full: return true;
     case fill_type::immediate_partial: return partial_ok;
     default: return false;
@@ -263,7 +259,7 @@ size_t
 SOB_CLASS::_trade( plevel plev, 
                    id_type id, 
                    size_t size,
-                   order_exec_cb_type& exec_cb )
+                   const order_exec_cb_type& exec_cb )
 {
     plevel old_last = _last;
     while(size){
@@ -307,7 +303,7 @@ size_t
 SOB_CLASS::_hit_chain( plevel plev,
                        id_type id,
                        size_t size,
-                       order_exec_cb_type& exec_cb )
+                       const order_exec_cb_type& exec_cb )
 {
     size_t amount;
     long long rmndr; 
@@ -358,8 +354,8 @@ SOB_CLASS::_trade_has_occured( plevel plev,
                                size_t size,
                                id_type idbuy,
                                id_type idsell,
-                               order_exec_cb_type& cbbuy,
-                               order_exec_cb_type& cbsell )
+                               const order_exec_cb_type& cbbuy,
+                               const order_exec_cb_type& cbsell )
 {
     /* CAREFUL: we can't insert orders from here since we have yet to finish
        processing the initial order (possible infinite loop); */
@@ -534,8 +530,8 @@ SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id)
 SOB_TEMPLATE
 void
 SOB_CLASS::_exec_OTO_order(const OrderParamaters *op,
-                order_exec_cb_type& cb,
-                id_type id)
+                           const order_exec_cb_type& cb,
+                           id_type id)
 {
     id_type id_new  = _generate_id();
     _push_callback(callback_msg::trigger_OTO, cb, id, id_new , 0, 0);
@@ -550,10 +546,10 @@ SOB_CLASS::_exec_OTO_order(const OrderParamaters *op,
 SOB_TEMPLATE
 void
 SOB_CLASS::_exec_BRACKET_order(const OrderParamaters *op1,
-                    const OrderParamaters *op2,
-                    order_exec_cb_type& cb,
-                    condition_trigger trigger,
-                    id_type id)
+                               const OrderParamaters *op2,
+                               const order_exec_cb_type& cb,
+                               condition_trigger trigger,
+                               id_type id)
 {
     /*
      * push order onto queue FOR FAIRNESS
@@ -578,10 +574,10 @@ SOB_CLASS::_exec_BRACKET_order(const OrderParamaters *op1,
 SOB_TEMPLATE
 void
 SOB_CLASS::_exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
-                             const OrderParamaters *op2,
-                             order_exec_cb_type& cb,
-                             condition_trigger trigger,
-                             id_type id)
+                                        const OrderParamaters *op2,
+                                        const order_exec_cb_type& cb,
+                                        condition_trigger trigger,
+                                        id_type id)
 {
     /* (see comments from _exec_BRACKET_order) */
     id_type id_new = _generate_id();
@@ -600,9 +596,9 @@ SOB_CLASS::_exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
 SOB_TEMPLATE
 void
 SOB_CLASS::_exec_TRAILING_STOP_order(const OrderParamaters *op,
-                          order_exec_cb_type& cb,
-                          condition_trigger trigger,
-                          id_type id)
+                                     const order_exec_cb_type& cb,
+                                     condition_trigger trigger,
+                                     id_type id)
 {
     id_type id_new = _generate_id();
 
@@ -622,11 +618,11 @@ SOB_TEMPLATE
 template<typename T>
 void
 SOB_CLASS::_exec_OCO_order(const T& t,
-                id_type id_old,
-                id_type id_new,
-                id_type id_pull,
-                double price_pull,
-                bool is_limit)
+                           id_type id_old,
+                           id_type id_new,
+                           id_type id_pull,
+                           double price_pull,
+                           bool is_limit)
 {
     callback_msg msg = _order::is_OCO(t)
                      ? callback_msg::trigger_OCO
@@ -642,7 +638,7 @@ SOB_CLASS::_exec_OCO_order(const T& t,
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
+SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
 {
     bool is_limit = _order::is_limit(e);
     assert( _order::is_OCO(e) || _order::is_active_bracket(e) );
@@ -669,8 +665,7 @@ SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
 
     /* if we fill second order immediately, remove first */
     if( _inject_order(e2, _order::needs_partial_fill(e)) ){
-        double p = is_limit ? e.limit : e.stop;
-        _exec_OCO_order(e, e.id, id2, e.id, p, is_limit);
+        _exec_OCO_order(e, e.id, id2, e.id, _order::index_price(e), is_limit);
         return;
     }
 
@@ -692,7 +687,7 @@ SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_OTO_order(order_queue_elem& e)
+SOB_CLASS::_insert_OTO_order(const order_queue_elem& e)
 {
     assert( _order::is_OTO(e) );
     OrderParamaters *op = e.cparams1.get();
@@ -714,7 +709,7 @@ SOB_CLASS::_insert_OTO_order(order_queue_elem& e)
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_BRACKET_order(order_queue_elem& e)
+SOB_CLASS::_insert_BRACKET_order(const order_queue_elem& e)
 {
     assert( _order::is_bracket(e) );
     OrderParamaters *op = e.cparams1.get();
@@ -738,7 +733,7 @@ SOB_CLASS::_insert_BRACKET_order(order_queue_elem& e)
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_TRAILING_BRACKET_order(order_queue_elem& e)
+SOB_CLASS::_insert_TRAILING_BRACKET_order(const order_queue_elem& e)
 {
     assert( _order::is_trailing_bracket(e) );
     OrderParamaters *op = e.cparams1.get();
@@ -762,7 +757,7 @@ SOB_CLASS::_insert_TRAILING_BRACKET_order(order_queue_elem& e)
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_TRAILING_STOP_order(order_queue_elem& e)
+SOB_CLASS::_insert_TRAILING_STOP_order(const order_queue_elem& e)
 {
     assert( _order::is_trailing_stop(e) );
     OrderParamaters *op = e.cparams1.get();
@@ -783,7 +778,7 @@ SOB_CLASS::_insert_TRAILING_STOP_order(order_queue_elem& e)
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(order_queue_elem& e)
+SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e)
 {
      assert(  _order::is_active_trailing_bracket(e) );
      assert( _order::is_limit(e) || _order::is_stop(e) );
@@ -838,7 +833,7 @@ SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(order_queue_elem& e)
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_TRAILING_STOP_ACTIVE_order(order_queue_elem& e)
+SOB_CLASS::_insert_TRAILING_STOP_ACTIVE_order(const order_queue_elem& e)
 {
     assert( _order::is_active_trailing_stop(e) );
 
@@ -860,7 +855,7 @@ SOB_CLASS::_insert_TRAILING_STOP_ACTIVE_order(order_queue_elem& e)
 
 SOB_TEMPLATE
 void
-SOB_CLASS::_insert_FOK_order(order_queue_elem& e)
+SOB_CLASS::_insert_FOK_order(const order_queue_elem& e)
 {
     assert( _order::is_limit(e) );
     plevel p = _ptoi(e.limit);
@@ -882,25 +877,25 @@ SOB_CLASS::_insert_FOK_order(order_queue_elem& e)
 SOB_TEMPLATE
 template<bool BuyLimit>
 sob::fill_type
-SOB_CLASS::_insert_limit_order( plevel limit,
-                                size_t size,
-                                order_exec_cb_type exec_cb,
-                                id_type id )
+SOB_CLASS::_insert_limit_order(const order_queue_elem& e)
 {
+    assert( _order::is_limit(e) );
     fill_type fill = fill_type::none;
-    size_t rmndr = size;
-    if( (BuyLimit && limit >= _ask) || (!BuyLimit && limit <= _bid) ){
+    plevel p = _ptoi(e.limit);
+    size_t rmndr = e.sz;
+
+    if( (BuyLimit && p >= _ask) || (!BuyLimit && p <= _bid) ){
         /* If there are matching orders on the other side fill @ market
-               - pass ref to callback functor, we'll copy later if necessary
-               - return what we couldn't fill @ market */
-        rmndr = _trade<!BuyLimit>(limit, id, size, exec_cb);
+           - pass ref to callback functor, we'll copy later if necessary
+           - return what we couldn't fill @ market */
+        rmndr = _trade<!BuyLimit>(p, e.id, e.sz, e.exec_cb);
     }
 
     if( rmndr > 0) {
         /* insert what remains as limit order */
         _chain<limit_chain_type>::template
-            push<BuyLimit>(this, limit, limit_bndl(id, rmndr, exec_cb) );
-        if( rmndr < size ){
+            push<BuyLimit>(this, p, limit_bndl(e.id, rmndr, e.exec_cb) );
+        if( rmndr < e.sz ){
             fill = fill_type::immediate_partial;
         }
     }else{
@@ -914,13 +909,12 @@ SOB_CLASS::_insert_limit_order( plevel limit,
 SOB_TEMPLATE
 template<bool BuyMarket>
 void
-SOB_CLASS::_insert_market_order( size_t size,
-                                 order_exec_cb_type exec_cb,
-                                 id_type id )
+SOB_CLASS::_insert_market_order(const order_queue_elem& e)
 {
-    size_t rmndr = _trade<!BuyMarket>(nullptr, id, size, exec_cb);
+    assert( _order::is_market(e) );
+    size_t rmndr = _trade<!BuyMarket>(nullptr, e.id, e.sz, e.exec_cb);
     if( rmndr > 0 ){
-        throw liquidity_exception( size, rmndr, id, "_insert_market_order()" );
+        throw liquidity_exception( e.sz, rmndr, e.id);
     }
 }
 
@@ -928,17 +922,17 @@ SOB_CLASS::_insert_market_order( size_t size,
 SOB_TEMPLATE
 template<bool BuyStop>
 void
-SOB_CLASS::_insert_stop_order( plevel stop,
-                               double limit,
-                               size_t size,
-                               order_exec_cb_type exec_cb,
-                               id_type id )
+SOB_CLASS::_insert_stop_order(const order_queue_elem& e)
 {
-   /*  we need an actual trade @/through the stop, i.e can't assume
-       it's already been triggered by where last/bid/ask is...
-       simply pass the order to the appropriate stop chain  */
-    stop_bndl bndl = stop_bndl(BuyStop, limit, id, size, exec_cb);
-    _chain<stop_chain_type>::template push<BuyStop>(this, stop, std::move(bndl));
+    assert( _order::is_stop(e) );
+   /*
+    * we need an actual trade @/through the stop, i.e can't assume
+    * it's already been triggered by where last/bid/ask is...
+    * simply pass the order to the appropriate stop chain
+    */
+    plevel p = _ptoi(e.stop);
+    stop_bndl bndl = stop_bndl(BuyStop, e.limit, e.id, e.sz, e.exec_cb);
+    _chain<stop_chain_type>::template push<BuyStop>(this, p, std::move(bndl));
 }
 
 

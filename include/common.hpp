@@ -232,7 +232,7 @@ public:
     liquidity_exception(size_t initial_size,
                         size_t remaining_size,
                         id_type order_id,
-                        std::string msg);
+                        std::string msg="");
 };
 
 template<typename T>

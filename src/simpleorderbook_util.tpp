@@ -316,6 +316,10 @@ struct SOB_CLASS::_order {
     needs_full_fill(const _order_bndl& bndl)
     { return bndl.trigger == condition_trigger::fill_full; }
 
+    static constexpr double
+    index_price(const order_queue_elem& e )
+    { return is_limit(e) ? e.limit : e.stop; }
+
     static inline double
     limit_price(const SimpleOrderbookImpl *sob, plevel p, const limit_bndl& bndl)
     { return sob->_itop(p); }
