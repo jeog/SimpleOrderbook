@@ -18,7 +18,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <iterator>
 #include <iomanip>
 #include <climits>
-#include "../include/simpleorderbook.hpp"
+#include "../../include/simpleorderbook.hpp"
 
 #define SOB_TEMPLATE template<typename TickRatio>
 #define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio>

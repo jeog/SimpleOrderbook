@@ -519,7 +519,7 @@ private:
         bool
         _inject_order(const order_queue_elem& e, bool partial_ok);
 
-        template<bool BidSize>
+        template<bool BidSide>
         size_t
         _trade(plevel plev,
                id_type id,
@@ -1227,9 +1227,9 @@ struct order_info {
 
 }; /* sob */
 
-#include "../src/simpleorderbook_util.tpp"
-#include "../src/simpleorderbook_bndl.tpp"
-#include "../src/simpleorderbook_public.tpp"
-#include "../src/simpleorderbook_core.tpp"
+#include "../src/simpleorderbook_tpp/util.tpp"
+#include "../src/simpleorderbook_tpp/bndl.tpp"
+#include "../src/simpleorderbook_tpp/public.tpp"
+#include "../src/simpleorderbook_tpp/core.tpp"
 
 #endif

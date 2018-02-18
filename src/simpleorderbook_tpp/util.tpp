@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see http://www.gnu.org/licenses.
 */
 
-#include "../include/simpleorderbook.hpp"
+#include "../../include/simpleorderbook.hpp"
 
 #define SOB_TEMPLATE template<typename TickRatio>
 #define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio>

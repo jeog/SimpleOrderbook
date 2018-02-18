@@ -21,12 +21,15 @@ along with this program. If not, see http://www.gnu.org/licenses.
 /* 
  *  The bulk of simpleorderbook is implemented via template code in:
  *
- *      simpleorderbook.hpp,
- *      simpleorderbook.tpp
+ *      include/simpleorderbook.hpp,
+ *      src/simpleorderbook_tpp/bndl.tpp
+ *      src/simpleorderbook_tpp/core.tpp
+ *      src/simpleorderbook_tpp/public.tpp
+ *      src/simpleorderbook_tpp/util.tpp
  *
  *  Interfaces are declared in: 
  *
- *      interfaces.hpp
+ *      includeinterfaces.hpp
  */
 
 namespace sob{
