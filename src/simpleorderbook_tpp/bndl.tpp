@@ -117,13 +117,17 @@ SOB_CLASS::_order_bndl::_copy_union(const _order_bndl& bndl)
     case order_condition::trailing_stop: /* no break */
     case order_condition::one_triggers_other:
         contingent_order = bndl.contingent_order
-                         ? new OrderParamaters(*bndl.contingent_order)
+                         ? bndl.contingent_order->copy_new()
                          : nullptr;
         break;
-    case order_condition::trailing_bracket: /* no break */
+    case order_condition::trailing_bracket:
+        nticks_bracket_orders = bndl.nticks_bracket_orders
+                      ? new nticks_bracket_type(*bndl.nticks_bracket_orders)
+                      : nullptr;
+        break;
     case order_condition::bracket:
-        bracket_orders = bndl.bracket_orders
-                      ? new bracket_type(*bndl.bracket_orders)
+        price_bracket_orders = bndl.price_bracket_orders
+                      ? new price_bracket_type(*bndl.price_bracket_orders)
                       : nullptr;
         break;
     case order_condition::_trailing_stop_active:
@@ -158,10 +162,13 @@ SOB_CLASS::_order_bndl::_move_union(_order_bndl& bndl)
         contingent_order = bndl.contingent_order;
         bndl.contingent_order = nullptr;
         break;
-    case order_condition::trailing_bracket: /* no break */
+    case order_condition::trailing_bracket:
+        nticks_bracket_orders = bndl.nticks_bracket_orders;
+        bndl.nticks_bracket_orders = nullptr;
+        break;
     case order_condition::bracket:
-        bracket_orders = bndl.bracket_orders;
-        bndl.bracket_orders = nullptr;
+        price_bracket_orders = bndl.price_bracket_orders;
+        bndl.price_bracket_orders = nullptr;
         break;
     case order_condition::_trailing_stop_active:
         nticks = bndl.nticks;
@@ -195,10 +202,14 @@ SOB_CLASS::_order_bndl::~_order_bndl()
                delete contingent_order;
            }
            break;
-       case order_condition::trailing_bracket: /* no break */
+       case order_condition::trailing_bracket:
+           if( nticks_bracket_orders ){
+               delete nticks_bracket_orders;
+           }
+           break;
        case order_condition::bracket:
-           if( bracket_orders ){
-               delete bracket_orders;
+           if( price_bracket_orders ){
+               delete price_bracket_orders;
            }
            break;
        case order_condition::_trailing_bracket_active:

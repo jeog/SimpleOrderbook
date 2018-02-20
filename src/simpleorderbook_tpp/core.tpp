@@ -89,7 +89,8 @@ SOB_CLASS::~SimpleOrderbookImpl()
             {
                 std::lock_guard<std::mutex> lock(_order_queue_mtx);
                 _order_queue.push(order_queue_elem()); 
-                /* don't incr _noutstanding_orders; we break main loop before we can decr */
+                /* don't incr _noutstanding_orders;
+                   we break main loop before we can decr */
             }    
             _order_queue_cond.notify_one();
             if( _order_dispatcher_thread.joinable() ){
@@ -428,7 +429,7 @@ SOB_TEMPLATE
 void
 SOB_CLASS::_handle_OTO(_order_bndl& bndl, id_type id)
 {
-    OrderParamaters* op1 = bndl.contingent_order;
+    const OrderParamaters* op1 = bndl.contingent_order;
     assert( op1 );
 
     _exec_OTO_order(op1, bndl.exec_cb, id);
@@ -444,10 +445,12 @@ SOB_TEMPLATE
 void
 SOB_CLASS::_handle_BRACKET(_order_bndl& bndl, id_type id)
 {
-    assert(bndl.bracket_orders);
-    OrderParamaters* op1 = &(bndl.bracket_orders->first);
+    assert(bndl.price_bracket_orders);
+    const OrderParamaters* op1 = &(bndl.price_bracket_orders->first);
+    assert( op1 );
     assert( op1->is_stop_order() );
-    OrderParamaters* op2 = &(bndl.bracket_orders->second);
+    const OrderParamaters* op2 = &(bndl.price_bracket_orders->second);
+    assert( op2 );
     assert( op2->is_limit_order() );
 
     _exec_BRACKET_order(op1, op2, bndl.exec_cb, bndl.trigger, id);
@@ -457,8 +460,8 @@ SOB_CLASS::_handle_BRACKET(_order_bndl& bndl, id_type id)
      * _bracket_active, which needs to be treated as an OCO, and use
      * linked_order pointer in the anonymous union.
      */
-    delete bndl.bracket_orders;
-    bndl.bracket_orders = nullptr;
+    delete bndl.price_bracket_orders;
+    bndl.price_bracket_orders = nullptr;
 }
 
 
@@ -466,10 +469,13 @@ SOB_TEMPLATE
 void
 SOB_CLASS::_handle_TRAILING_BRACKET(_order_bndl& bndl, id_type id)
 {
-    assert(bndl.bracket_orders);
-    OrderParamaters* op1 = &(bndl.bracket_orders->first);
+    assert(bndl.nticks_bracket_orders);
+    const OrderParamaters* op1 = &(bndl.nticks_bracket_orders->first);
+    assert( op1 );
     assert( op1->is_stop_order() );
-    OrderParamaters* op2 = &(bndl.bracket_orders->second);
+    const OrderParamaters* op2 = &(bndl.nticks_bracket_orders->second);
+    assert( op2 );
+    assert( op2->is_limit_order() );
 
     _exec_TRAILING_BRACKET_order(op1, op2, bndl.exec_cb, bndl.trigger, id);
 
@@ -478,8 +484,8 @@ SOB_CLASS::_handle_TRAILING_BRACKET(_order_bndl& bndl, id_type id)
      * _trailing_bracket_active, which needs to be treated as an OCO, and use
      * linked_order pointer in the anonymous union.
      */
-    delete bndl.bracket_orders;
-    bndl.bracket_orders = nullptr;
+    delete bndl.nticks_bracket_orders;
+    bndl.nticks_bracket_orders = nullptr;
 }
 
 
@@ -487,7 +493,7 @@ SOB_TEMPLATE
 void
 SOB_CLASS::_handle_TRAILING_STOP(_order_bndl& bndl, id_type id)
 {
-    OrderParamaters* op1 = bndl.contingent_order;
+    const OrderParamaters* op1 = bndl.contingent_order;
     assert( op1 );
 
     _exec_TRAILING_STOP_order(op1, bndl.exec_cb, bndl.trigger, id);
@@ -533,11 +539,13 @@ SOB_CLASS::_exec_OTO_order(const OrderParamaters *op,
                            const order_exec_cb_type& cb,
                            id_type id)
 {
+    assert( op->is_by_price() );
+
     id_type id_new  = _generate_id();
     _push_callback(callback_msg::trigger_OTO, cb, id, id_new , 0, 0);
 
     _push_order_no_wait( op->get_order_type(), op->is_buy(),
-                         op->limit(), op->stop(), op->size(), cb,
+                         op->limit_price(), op->stop_price(), op->size(), cb,
                          order_condition::none, condition_trigger::none,
                          nullptr, nullptr, id_new );
 }
@@ -560,17 +568,22 @@ SOB_CLASS::_exec_BRACKET_order(const OrderParamaters *op1,
      *    4) keep trigger_condition the same
      *    5) use the new id
      */
+    assert( op1->is_by_price() );
+    assert( op2->is_by_price() );
+
     id_type id_new = _generate_id();
     _push_callback(callback_msg::trigger_BRACKET_open, cb, id, id_new , 0, 0);
 
-    auto new_op = std::unique_ptr<OrderParamaters>(new OrderParamaters(*op1));
+    auto new_op = std::unique_ptr<OrderParamaters>( op1->copy_new() );
+
     _push_order_no_wait( op2->get_order_type(), op2->is_buy(),
-                         op2->limit(), op2->stop(), op2->size(),
+                         op2->limit_price(), op2->stop_price(), op2->size(),
                          cb, order_condition::_bracket_active,
                          trigger, std::move(new_op), nullptr, id_new );
 }
 
 
+// TODO stop/limit version
 SOB_TEMPLATE
 void
 SOB_CLASS::_exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
@@ -580,19 +593,25 @@ SOB_CLASS::_exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
                                         id_type id)
 {
     /* (see comments from _exec_BRACKET_order) */
-    id_type id_new = _generate_id();
+    assert( op1->is_by_nticks() );
+    assert( op2->is_by_nticks() );
 
+    id_type id_new = _generate_id();
     _push_callback(callback_msg::trigger_BRACKET_open, cb, id, id_new, 0, 0);
 
-    auto new_op = std::unique_ptr<OrderParamaters>(new OrderParamaters(*op1));
-    plevel limit = _generate_trailing_limit(*op2);
-    _push_order_no_wait( order_type::limit, op2->is_buy(), _itop(limit),
+    plevel l = _generate_trailing_limit(op2->is_buy(), op2->limit_nticks());
+    assert(l);
+
+    auto new_op = std::unique_ptr<OrderParamaters>( op1->copy_new() );
+
+    _push_order_no_wait( order_type::limit, op2->is_buy(), _itop(l),
                          0, op2->size(), cb,
                          order_condition::_trailing_bracket_active,
                          trigger, std::move(new_op), nullptr, id_new );
 }
 
 
+// TODO stop/limit version
 SOB_TEMPLATE
 void
 SOB_CLASS::_exec_TRAILING_STOP_order(const OrderParamaters *op,
@@ -600,13 +619,16 @@ SOB_CLASS::_exec_TRAILING_STOP_order(const OrderParamaters *op,
                                      condition_trigger trigger,
                                      id_type id)
 {
-    id_type id_new = _generate_id();
+    assert( op->is_by_nticks() );
 
+    id_type id_new = _generate_id();
     _push_callback(callback_msg::trigger_trailing_stop, cb, id, id_new, 0, 0);
 
-    auto new_op = std::unique_ptr<OrderParamaters>(new OrderParamaters(*op));
-    plevel stop = _generate_trailing_stop(*op);
-    /* some OrderParamaters price trickery in here */
+    plevel stop = _generate_trailing_stop(op->is_buy(), op->stop_nticks());
+    assert(stop);
+
+    auto new_op = std::unique_ptr<OrderParamaters>( op->copy_new() );
+
     _push_order_no_wait( order_type::stop, op->is_buy(), 0, _itop(stop),
                          op->size(), cb,
                          order_condition::_trailing_stop_active,
@@ -628,6 +650,7 @@ SOB_CLASS::_exec_OCO_order(const T& t,
                      ? callback_msg::trigger_OCO
                      : callback_msg::trigger_BRACKET_close;
     _push_callback(msg, t.exec_cb, id_old, id_new, 0, 0);
+
     if( id_pull ){
         assert( price_pull );
         /* remove primary order, BE SURE pull_linked=false */
@@ -644,7 +667,7 @@ SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
     assert( _order::is_OCO(e) || _order::is_active_bracket(e) );
     assert( is_limit || _order::is_stop(e) );
 
-    OrderParamaters *op = e.cparams1.get();
+    const OrderParamaters *op = e.cparams1.get();
     assert(op);
     assert(op->get_order_type() != order_type::market);
     assert(op->get_order_type() != order_type::null);
@@ -658,9 +681,9 @@ SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
     /* construct a new queue elem from cparams1, with a new ID. */
     id_type id2 = _generate_id();
     order_queue_elem e2 = {
-        op->get_order_type(), op->is_buy(), op->limit(), op->stop(),
-        op->size(), e.exec_cb, e.cond, e.cond_trigger, nullptr, nullptr,
-        id2, std::move(std::promise<id_type>())
+        op->get_order_type(), op->is_buy(), op->limit_price(),
+        op->stop_price(), op->size(), e.exec_cb, e.cond, e.cond_trigger,
+        nullptr, nullptr, id2, std::move(std::promise<id_type>())
     };
 
     /* if we fill second order immediately, remove first */
@@ -671,8 +694,8 @@ SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
 
     /* find the relevant orders that were previously injected */
     _order_bndl& o1 = _find(e.id, _order::is_limit(e));
-    _order_bndl& o2 = _find(id2, _order::is_limit(e2));
     assert(o1);
+    _order_bndl& o2 = _find(id2, _order::is_limit(e2));
     assert(o2);
 
     /* link each order with the other */
@@ -690,8 +713,9 @@ void
 SOB_CLASS::_insert_OTO_order(const order_queue_elem& e)
 {
     assert( _order::is_OTO(e) );
-    OrderParamaters *op = e.cparams1.get();
-    assert(op);
+    const OrderParamaters *op = e.cparams1.get();
+    assert( op );
+    assert( op->is_by_price() );
 
     /* if we fill immediately we need to insert other order from here */
     if( _inject_order(e, _order::needs_partial_fill(e)) ){
@@ -701,7 +725,7 @@ SOB_CLASS::_insert_OTO_order(const order_queue_elem& e)
 
     _order_bndl& o = _find(e.id, _order::is_limit(e));
     assert(o);
-    o.contingent_order = new OrderParamaters(*op);
+    o.contingent_order = op->copy_new();
     o.cond = e.cond;
     o.trigger = e.cond_trigger;
 }
@@ -712,20 +736,25 @@ void
 SOB_CLASS::_insert_BRACKET_order(const order_queue_elem& e)
 {
     assert( _order::is_bracket(e) );
-    OrderParamaters *op = e.cparams1.get();
-    assert(op);
-    OrderParamaters *op2 = e.cparams2.get();
-    assert(op);
+    const OrderParamaters *op1 = e.cparams1.get();
+    assert( op1 );
+    assert( op1->is_by_price() );
+    const OrderParamaters *op2 = e.cparams2.get();
+    assert( op2 );
+    assert( op2->is_by_price() );
 
     /* if we fill immediately we need to insert other order from here */
     if( _inject_order(e, _order::needs_partial_fill(e)) ){
-        _exec_BRACKET_order(op, op2, e.exec_cb, e.cond_trigger, e.id);
+        _exec_BRACKET_order(op1, op2, e.exec_cb, e.cond_trigger, e.id);
         return;
     }
 
     _order_bndl& o = _find(e.id, _order::is_limit(e));
     assert(o);
-    o.bracket_orders = new bracket_type(*op, *op2);
+    o.price_bracket_orders = new price_bracket_type(
+            reinterpret_cast<const OrderParamatersByPrice&>(*op1),
+            reinterpret_cast<const OrderParamatersByPrice&>(*op2)
+            );
     o.cond = e.cond;
     o.trigger = e.cond_trigger;
 }
@@ -736,20 +765,23 @@ void
 SOB_CLASS::_insert_TRAILING_BRACKET_order(const order_queue_elem& e)
 {
     assert( _order::is_trailing_bracket(e) );
-    OrderParamaters *op = e.cparams1.get();
-    assert(op);
-    OrderParamaters *op2 = e.cparams2.get();
-    assert(op);
+    const OrderParamaters *op1 = e.cparams1.get();
+    assert(op1);
+    const OrderParamaters *op2 = e.cparams2.get();
+    assert(op2);
 
     /* if we fill immediately we need to insert other order from here */
     if( _inject_order(e, _order::needs_partial_fill(e)) ){
-        _exec_TRAILING_BRACKET_order(op, op2, e.exec_cb, e.cond_trigger, e.id);
+        _exec_TRAILING_BRACKET_order(op1, op2, e.exec_cb, e.cond_trigger, e.id);
         return;
     }
 
     _order_bndl& o = _find(e.id, _order::is_limit(e));
     assert(o);
-    o.bracket_orders = new bracket_type(*op, *op2);
+    o.nticks_bracket_orders = new nticks_bracket_type(
+            reinterpret_cast<const OrderParamatersByNTicks&>(*op1),
+            reinterpret_cast<const OrderParamatersByNTicks&>(*op2)
+            );
     o.cond = e.cond;
     o.trigger = e.cond_trigger;
 }
@@ -760,7 +792,7 @@ void
 SOB_CLASS::_insert_TRAILING_STOP_order(const order_queue_elem& e)
 {
     assert( _order::is_trailing_stop(e) );
-    OrderParamaters *op = e.cparams1.get();
+    const OrderParamaters *op = e.cparams1.get();
     assert(op);
 
     if( _inject_order(e, _order::needs_partial_fill(e)) ){
@@ -770,7 +802,7 @@ SOB_CLASS::_insert_TRAILING_STOP_order(const order_queue_elem& e)
 
     _order_bndl& o = _find(e.id, _order::is_limit(e));
     assert(o);
-    o.contingent_order = new OrderParamaters(*op);
+    o.contingent_order = op->copy_new();
     o.cond = e.cond;
     o.trigger = e.cond_trigger;
 }
@@ -783,7 +815,7 @@ SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e)
      assert(  _order::is_active_trailing_bracket(e) );
      assert( _order::is_limit(e) || _order::is_stop(e) );
 
-     OrderParamaters *op = e.cparams1.get();
+     const OrderParamaters *op = e.cparams1.get();
      assert(op);
      assert(op->get_order_type() != order_type::market);
      assert(op->get_order_type() != order_type::null);
@@ -801,12 +833,12 @@ SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e)
 
      id_type id2 = _generate_id();
 
+     size_t nticks = op->stop_nticks();
+     plevel p = _generate_trailing_stop(op->is_buy(), nticks);
+
      stop_bndl o2 = stop_bndl(op->is_buy(), 0, id2, op->size(), e.exec_cb,
                                 order_condition::_trailing_bracket_active,
                                 e.cond_trigger);
-
-     size_t nticks = nticks_from_params(*op);
-     plevel p = _generate_trailing_stop(*op);
 
      /* link each order with the other */
      o1.linked_trailer = new linked_trailer_type(
@@ -840,11 +872,12 @@ SOB_CLASS::_insert_TRAILING_STOP_ACTIVE_order(const order_queue_elem& e)
     stop_bndl bndl = stop_bndl(e.is_buy, 0, e.id, e.sz, e.exec_cb, e.cond,
                                e.cond_trigger);
 
-    OrderParamaters *op = e.cparams1.get();
+    const OrderParamaters *op = e.cparams1.get();
     assert(op);
 
-    bndl.nticks = nticks_from_params(*op);
-    plevel p = _ptoi(e.stop);
+    bndl.nticks = op->stop_nticks();
+    plevel p = _generate_trailing_stop(op->is_buy(), bndl.nticks);
+
     e.is_buy
         ? _chain<stop_chain_type>::template push<true>(this, p, std::move(bndl))
         : _chain<stop_chain_type>::template push<false>(this, p, std::move(bndl));
@@ -1053,16 +1086,28 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         std::unique_ptr<OrderParamaters> op = nullptr;
         std::unique_ptr<OrderParamaters> op2 = nullptr;
         if( _order::is_trailing_stop(e) ){
+            assert( e.contingent_order->is_by_nticks() );
             op = std::unique_ptr<OrderParamaters>(
-                    new OrderParamaters( *e.contingent_order )
-                    );
+                new OrderParamatersByNTicks(
+                    reinterpret_cast<OrderParamatersByNTicks&>(
+                            *e.contingent_order)
+                    )
+                );
         }else if( _order::is_trailing_bracket(e) ){
+            assert( e.nticks_bracket_orders->first.is_by_nticks() );
+            assert( e.nticks_bracket_orders->second.is_by_nticks() );
             op = std::unique_ptr<OrderParamaters>(
-                    new OrderParamaters( e.bracket_orders->first )
-                    );
+                new OrderParamatersByNTicks(
+                    reinterpret_cast<OrderParamatersByNTicks&>(
+                            e.nticks_bracket_orders->first )
+                    )
+                );
             op2 = std::unique_ptr<OrderParamaters>(
-                    new OrderParamaters( e.bracket_orders->second )
-                    );
+                new OrderParamatersByNTicks(
+                    reinterpret_cast<OrderParamatersByNTicks&>(
+                            e.nticks_bracket_orders->second )
+                    )
+                );
         }else{
             oc = order_condition::none;
             ct = condition_trigger::none;
@@ -1087,7 +1132,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     }
 }
 
-// TODO if bracket find correct order #
+
 SOB_TEMPLATE
 void
 SOB_CLASS::_adjust_trailing_stops(bool buy_stops)
@@ -1586,17 +1631,16 @@ SOB_CLASS::_assert_internal_pointers() const
 }
 
 
-// TODO means to convert/reconstruct AOTs w/ ntick fields
 SOB_TEMPLATE
 template<typename ChainTy>
 AdvancedOrderTicket
 SOB_CLASS::_bndl_to_aot(const typename _chain<ChainTy>::bndl_type& bndl) const
 {
     AdvancedOrderTicket aot = AdvancedOrderTicket::null;
-    order_location *loc = nullptr;
-
     aot.change_condition(bndl.cond);
     aot.change_trigger(bndl.trigger);
+
+    order_location *loc = nullptr;
 
     switch( bndl.cond ){
     case order_condition::_bracket_active: /* no break */
@@ -1613,10 +1657,14 @@ SOB_CLASS::_bndl_to_aot(const typename _chain<ChainTy>::bndl_type& bndl) const
         aot.change_order1( *bndl.contingent_order );
         break;
 
-    case order_condition::trailing_bracket: /* no break */
+    case order_condition::trailing_bracket:
+        aot.change_order1( bndl.nticks_bracket_orders->first );
+        aot.change_order2( bndl.nticks_bracket_orders->second );
+        break;
+
     case order_condition::bracket:
-        aot.change_order1( bndl.bracket_orders->first );
-        aot.change_order2( bndl.bracket_orders->second );
+        aot.change_order1( bndl.price_bracket_orders->first );
+        aot.change_order2( bndl.price_bracket_orders->second );
         break;
 
     case order_condition::fill_or_kill: /* no break */
@@ -1629,8 +1677,8 @@ SOB_CLASS::_bndl_to_aot(const typename _chain<ChainTy>::bndl_type& bndl) const
         /* reconstruct OrderParamaters from order_location */
         aot.change_order1(
             loc->is_limit_chain
-               ? _order::template as_order_params<limit_chain_type>(this, loc->id)
-               : _order::template as_order_params<stop_chain_type>(this, loc->id)
+               ? _order::template as_price_params<limit_chain_type>(this, loc->id)
+               : _order::template as_price_params<stop_chain_type>(this, loc->id)
         );
     }
 
@@ -1639,22 +1687,84 @@ SOB_CLASS::_bndl_to_aot(const typename _chain<ChainTy>::bndl_type& bndl) const
 
 
 SOB_TEMPLATE
-std::unique_ptr<OrderParamaters>
-SOB_CLASS::_build_aot_order(const OrderParamaters& order) const
+std::pair<std::unique_ptr<OrderParamaters>,
+          std::unique_ptr<OrderParamaters>>
+SOB_CLASS::_build_advanced_params(bool buy,
+                                  size_t size,
+                                  const AdvancedOrderTicket& advanced) const
 {
-    // _master_mtx should needs to be held for this
+    std::unique_ptr<OrderParamaters> pp1;
+    std::unique_ptr<OrderParamaters> pp2;
+
+    switch( advanced.condition() ){
+    case order_condition::trailing_bracket:
+        pp2 = _build_nticks_params(!buy, size, advanced.order2());
+        /* no break */
+    case order_condition::trailing_stop:
+        pp1 = _build_nticks_params(!buy, size, advanced.order1());
+        break;
+
+    case order_condition::bracket:
+        pp2 = _build_price_params(advanced.order2());
+        /* no break */
+    case order_condition::one_triggers_other: /* no break */
+    case order_condition::one_cancels_other:
+        pp1 = _build_price_params(advanced.order1());
+        break;
+
+    case order_condition::fill_or_kill:
+        break;
+    default:
+        throw advanced_order_error("invalid order condition");
+    };
+
+    return std::make_pair(std::move(pp1), std::move(pp2));
+}
+
+SOB_TEMPLATE
+std::unique_ptr<OrderParamaters>
+SOB_CLASS::_build_nticks_params(bool buy,
+                               size_t size,
+                               const OrderParamaters *order) const
+{
+    assert( order->is_by_nticks() );
+
+    if( static_cast<long>(order->limit_nticks()) > ticks_in_range() ){
+        throw advanced_order_error("limit_nticks too large");
+    }
+    if( static_cast<long>(order->stop_nticks()) > ticks_in_range() ){
+        throw advanced_order_error("stop_nticks too large");
+    }
+
+    return std::unique_ptr<OrderParamaters>(
+            new OrderParamatersByNTicks(buy, size, order->limit_nticks(),
+                    order->stop_nticks())
+    );
+}
+
+
+SOB_TEMPLATE
+std::unique_ptr<OrderParamaters>
+SOB_CLASS::_build_price_params(const OrderParamaters *order) const
+{
+    assert( order->is_by_price() );
+
+    if( !order->size() ){
+        throw advanced_order_error("invalid order size");
+    }
+
     double limit = 0.0;
     double stop = 0.0;
     try{
-        switch( order.get_order_type() ){
+        switch( order->get_order_type() ){
         case order_type::stop_limit:
-            stop = _tick_price_or_throw(order.stop(), "invalid stop price");
+            stop = _tick_price_or_throw(order->stop_price(), "invalid stop price");
             /* no break */
         case order_type::limit:
-            limit = _tick_price_or_throw(order.limit(), "invalid limit price");
+            limit = _tick_price_or_throw(order->limit_price(), "invalid limit price");
             break;
         case order_type::stop:
-            stop = _tick_price_or_throw(order.stop(), "invalid stop price");
+            stop = _tick_price_or_throw(order->stop_price(), "invalid stop price");
             break;
         case order_type::market:
             break;
@@ -1664,78 +1774,10 @@ SOB_CLASS::_build_aot_order(const OrderParamaters& order) const
     }catch(std::invalid_argument& e){
         throw advanced_order_error(e);
     }
+
     return std::unique_ptr<OrderParamaters>(
-            new OrderParamaters(order.is_buy(), order.size(), limit, stop)
+            new OrderParamatersByPrice(order->is_buy(), order->size(), limit, stop)
     );
-}
-
-
-SOB_TEMPLATE
-std::unique_ptr<OrderParamaters>
-SOB_CLASS::_build_aot_order( bool buy,
-                             size_t size,
-                             const AdvancedOrderTicketTrailingStop& aot ) const
-{
-    // _master_mtx should needs to be held for this
-
-    /*
-     * we are abusing the concept of OrderParamaters a bit; we need to pass
-     * number of ticks for trailing stop to the book internals so we build
-     * an OrderParamaters with an arbitrary max limit price and a stop adjusted
-     * by 'nticks'; then in the orderbook we subtract the two.
-     */
-
-    long nticks = static_cast<long>(aot.nticks()); /* aot checks for overflow */
-    if( nticks > ticks_in_range() ){
-        throw advanced_order_error("trailing stop is too large for book");
-    }
-    return std::unique_ptr<OrderParamaters>(
-            new OrderParamaters( _params_from_nticks(buy, size, nticks) )
-    );
-}
-
-// TODO deal w/ nticks too large for book on entry
-SOB_TEMPLATE
-std::tuple<std::unique_ptr<OrderParamaters>, std::unique_ptr<OrderParamaters>>
-SOB_CLASS::_build_aot_order( bool buy,
-                             size_t size,
-                             const AdvancedOrderTicketTrailingBracket& aot ) const
-{
-    // _master_mtx should needs to be held for this
-
-    /*
-     * we are abusing the concept of OrderParamaters a bit; we need to pass
-     * number of ticks for trailing stop to the book internals so we build
-     * an OrderParamaters with an arbitrary max limit price and a stop adjusted
-     * by 'nticks'; then in the orderbook we subtract the two.
-     */
-    /* aot checks for overflow */
-    long nticks_stop = static_cast<long>(aot.stop_nticks());
-    if( nticks_stop > ticks_in_range() ){
-        throw advanced_order_error("stop  is too large for book");
-    }
-    /* aot checks for overflow */
-    long nticks_target = static_cast<long>(aot.target_nticks());
-    if( nticks_target > ticks_in_range() ){
-        throw advanced_order_error("target is too large for book");
-    }
-    return std::make_tuple(
-        std::unique_ptr<OrderParamaters>(
-            new OrderParamaters( _params_from_nticks(buy, size, nticks_stop) )
-        ),
-        std::unique_ptr<OrderParamaters>(
-            new OrderParamaters( _params_from_nticks(buy, size, nticks_target) )
-        )
-    );
-}
-
-SOB_TEMPLATE
-OrderParamaters
-SOB_CLASS::_params_from_nticks( bool buy, size_t size, long nticks) const
-{
-    TickPrice<TickRatio> limit(max_price());
-    TickPrice<TickRatio> stop = limit - nticks;
-    return OrderParamaters(buy, size, limit, stop);
 }
 
 
@@ -1746,6 +1788,12 @@ SOB_CLASS::_check_limit_order( bool buy,
                                std::unique_ptr<OrderParamaters> & op,
                                order_condition oc) const
 {
+    assert( op->is_by_price() );
+
+    if( !op->size() ){
+        throw advanced_order_error(oc + " invalid order size");
+    }
+
     order_type ot = op->get_order_type();
     if( ot == order_type::market ){
         throw advanced_order_error(oc + " limit/market not valid order type");
@@ -1753,24 +1801,15 @@ SOB_CLASS::_check_limit_order( bool buy,
         return;
     }
 
-    if( buy && !op->is_buy() && limit >= op->limit() ){
+    if( buy && !op->is_buy() && limit >= op->limit_price() ){
         throw advanced_order_error(oc + " limit/limit buy price >= sell price");
-    }else if( !buy && op->is_buy() && limit <= op->limit() ){
+    }else if( !buy && op->is_buy() && limit <= op->limit_price() ){
         throw advanced_order_error(oc + " limit/limit sell price <= buy price");
-    }else if( op->limit() == limit ){
+    }else if( op->limit_price() == limit ){
          throw advanced_order_error(oc + " limit/limit of same price" );
     }
 }
 
-SOB_TEMPLATE
-size_t
-SOB_CLASS::nticks_from_params(const OrderParamaters& params)
-{
-    long n = ( TickPrice<TickRatio>(params.limit()) -
-               TickPrice<TickRatio>(params.stop()) ).as_ticks();
-    assert(n > 0);
-    return static_cast<size_t>(n);
-}
 
 };
 

@@ -19,31 +19,11 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 namespace sob{
 
-bool
-OrderParamaters::operator==(const OrderParamaters& op) const
-{
-    return _is_buy == op._is_buy
-            && _size == op._size
-            && _limit == op._limit
-            && _stop == op._stop;
-}
-
-order_type
-OrderParamaters::get_order_type() const
-{
-    if( !(*this) ){
-        return order_type::null;
-    }
-    if( _stop ){
-        return _limit ? order_type::stop_limit : order_type::stop;
-    }
-    return _limit ? order_type::limit : order_type::market;
-}
 
 AdvancedOrderTicket::AdvancedOrderTicket( order_condition condition,
                                           condition_trigger trigger,
-                                          OrderParamaters order1,
-                                          OrderParamaters order2 )
+                                          OrderParamaters *order1,
+                                          OrderParamaters *order2 )
     :
         _condition(condition),
         _trigger(trigger),
@@ -77,7 +57,7 @@ AdvancedOrderTicketOCO::AdvancedOrderTicketOCO( condition_trigger trigger,
                                                 double stop )
     :
         AdvancedOrderTicket( condition, trigger,
-                OrderParamaters(is_buy, size, limit, stop) )
+                new OrderParamatersByPrice(is_buy, size, limit, stop) )
     {
         if( size == 0 ){
             throw advanced_order_error("invalid order size");
@@ -91,7 +71,7 @@ AdvancedOrderTicketOTO::AdvancedOrderTicketOTO( condition_trigger trigger,
                                                 double stop )
     :
         AdvancedOrderTicket( condition, trigger,
-                OrderParamaters(is_buy, size, limit, stop) )
+                new OrderParamatersByPrice(is_buy, size, limit, stop) )
     {
         if( size == 0 ){
             throw advanced_order_error("invalid order size");

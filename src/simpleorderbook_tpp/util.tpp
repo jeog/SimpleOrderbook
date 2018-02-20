@@ -336,26 +336,26 @@ struct SOB_CLASS::_order {
     stop_price(const SimpleOrderbookImpl *sob, plevel p, const stop_bndl& bndl)
     { return sob->_itop(p); }
 
-    static inline OrderParamaters
-    as_order_params(const SimpleOrderbookImpl *sob,
+    static inline OrderParamatersByPrice
+    as_price_params(const SimpleOrderbookImpl *sob,
                     plevel p,
                     const stop_bndl& bndl)
-    { return OrderParamaters( is_buy_stop(bndl), bndl.sz,
+    { return OrderParamatersByPrice( is_buy_stop(bndl), bndl.sz,
             limit_price(sob, p, bndl), stop_price(sob, p, bndl) ); }
 
-    static inline OrderParamaters
-    as_order_params(const SimpleOrderbookImpl *sob,
+    static inline OrderParamatersByPrice
+    as_price_params(const SimpleOrderbookImpl *sob,
                     plevel p,
                     const limit_bndl& bndl)
-    { return OrderParamaters( (p < sob->_ask), bndl.sz,
+    { return OrderParamatersByPrice( (p < sob->_ask), bndl.sz,
             limit_price(sob, p, bndl), stop_price(sob, p, bndl) ); }
 
     template<typename ChainTy>
-    static OrderParamaters
-    as_order_params(const SimpleOrderbookImpl *sob, id_type id)
+    static OrderParamatersByPrice
+    as_price_params(const SimpleOrderbookImpl *sob, id_type id)
     {
         plevel p = sob->_id_to_plevel<ChainTy>(id);
-        return as_order_params(sob, p, find<ChainTy>(p, id));
+        return as_price_params(sob, p, find<ChainTy>(p, id));
     }
 
     static inline order_info
@@ -363,7 +363,7 @@ struct SOB_CLASS::_order {
                   double price,
                   const limit_bndl& bndl,
                   const AdvancedOrderTicket& aot)
-    { return {order_type::limit, is_buy, price, 0, bndl.sz, aot}; }
+    { return order_info(order_type::limit, is_buy, price, 0, bndl.sz, aot); }
 
     static order_info
     as_order_info(bool is_buy,
@@ -372,9 +372,10 @@ struct SOB_CLASS::_order {
                   const AdvancedOrderTicket& aot)
     {
         if( !bndl.limit ){
-            return {order_type::stop, is_buy, 0, price, bndl.sz, aot};
+            return order_info(order_type::stop, is_buy, 0, price, bndl.sz, aot);
         }
-        return {order_type::stop_limit, is_buy, bndl.limit, price, bndl.sz, aot };
+        return order_info(order_type::stop_limit, is_buy, bndl.limit, price,
+                          bndl.sz, aot);
     }
 
     /* return an order_info struct for that order id */
@@ -384,11 +385,12 @@ struct SOB_CLASS::_order {
     {
         plevel p = sob->_id_to_plevel<ChainTy>(id);
         if( !p ){
-            return {order_type::null, false, 0, 0, 0, AdvancedOrderTicket::null};
+            return order_info(order_type::null, false, 0, 0, 0,
+                              AdvancedOrderTicket::null);
         }
         ChainTy *c = _chain<ChainTy>::get(p);
         const typename ChainTy::value_type& bndl = _order::find(c, id);
-        AdvancedOrderTicket aot =  sob->_bndl_to_aot<ChainTy>(bndl);
+        AdvancedOrderTicket aot = sob->_bndl_to_aot<ChainTy>(bndl);
         bool is_buy = sob->_is_buy_order(p, bndl);
         return as_order_info(is_buy, sob->_itop(p), bndl, aot);
     }

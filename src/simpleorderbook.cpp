@@ -59,6 +59,17 @@ SimpleOrderbook::ImplDeleter::operator()(FullInterface *i) const
     }
 }
 
+
+template<typename T>
+bool
+OrderParamatersGeneric<T>::operator==(const OrderParamatersGeneric& op) const
+{
+    return OrderParamaters::operator==(op)
+            && (_limit == op._limit)
+            && (_stop == op._stop);
+}
+
+
 liquidity_exception::liquidity_exception( size_t initial_size,
                                           size_t remaining_size,
                                           id_type order_id,
@@ -147,6 +158,8 @@ to_string(const order_condition& oc)
     case order_condition::_bracket_active: return "bracket-active";
     case order_condition::trailing_stop: return "trailing-stop";
     case order_condition::_trailing_stop_active: return "trailing-stop-active";
+    case order_condition::trailing_bracket: return "trailing-bracket";
+    case order_condition::_trailing_bracket_active: return "trailing-bracket-active";
     case order_condition::none: return "none";
     default:
         throw std::logic_error( "bad order_condition: " +
@@ -182,7 +195,7 @@ std::string
 to_string(const order_info& oi)
 {
     std::stringstream ss;
-    ss << OrderParamaters(oi.is_buy, oi.size, oi.limit, oi.stop);
+    ss << OrderParamatersByPrice(oi.is_buy, oi.size, oi.limit, oi.stop);
     if( oi.advanced ){
        ss << " " << oi.advanced;
     }
@@ -195,9 +208,18 @@ to_string(const OrderParamaters& op)
     std::stringstream ss;
     ss << (op.is_buy() ? "buy" : "sell") << " "
        << op.get_order_type() << " "
-       << op.size()
-       << (op.limit() ? (" [limit: " + std::to_string(op.limit()) + "]") : "")
-       << (op.stop() ? (" [stop: " + std::to_string(op.stop()) + "]") : "");
+       << op.size();
+    if( op.is_by_price() ){
+        double l = op.limit_price();
+        double s = op.stop_price();
+        ss << (l ? (" [limit: " + std::to_string(l) + "]") : "")
+           << (s ? (" [stop: " + std::to_string(s) + "]") : "");
+    }else{
+        size_t l = op.limit_nticks();
+        size_t s = op.stop_nticks();
+        ss << (l ? (" [limit ticks: " + std::to_string(l) + "]") : "")
+           << (s ? (" [stop ticks: " + std::to_string(s) + "]") : "");
+    }
     return ss.str();
 }
 
@@ -205,13 +227,13 @@ std::string
 to_string(const AdvancedOrderTicket& aot){
     std::stringstream ss;
     ss << to_string(aot.condition()) << " " << to_string(aot.trigger());
-    const OrderParamaters& o1 = aot.order1();
-    const OrderParamaters& o2 = aot.order2();
+    const OrderParamaters *o1 = aot.order1();
+    const OrderParamaters *o2 = aot.order2();
     if( o1 ){
-        ss << " " << o1;
+        ss << " " << *o1;
     }
     if( o2 ){
-        ss << " " << o2;
+        ss << " " << *o2;
     }
     return ss.str();
 }
@@ -246,6 +268,7 @@ operator<<(std::ostream& out, const condition_trigger& ct)
 std::ostream&
 operator<<(std::ostream& out, const order_info& oi)
 { return (out << to_string(oi)); }
+
 std::ostream&
 operator<<(std::ostream& out, const OrderParamaters& op)
 { return (out << to_string(op)); }
@@ -253,6 +276,34 @@ operator<<(std::ostream& out, const OrderParamaters& op)
 std::ostream&
 operator<<(std::ostream& out, const AdvancedOrderTicket& aot)
 { return (out << to_string(aot)); }
+
+
+order_info::order_info( order_type type,
+                        bool is_buy,
+                        double limit,
+                        double stop,
+                        size_t size,
+                        const AdvancedOrderTicket& advanced )
+    :
+        type(type),
+        is_buy(is_buy),
+        limit(limit),
+        stop(stop),
+        size(size),
+        advanced(advanced)
+    {
+    }
+
+order_info::order_info(const order_info& oi)
+    :
+        type(oi.type),
+        is_buy(oi.is_buy),
+        limit(oi.limit),
+        stop(oi.stop),
+        size(oi.size),
+        advanced(oi.advanced)
+    {
+    }
 
 }; /* sob */
 

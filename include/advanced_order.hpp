@@ -20,11 +20,10 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #include <climits>
 #include "common.hpp"
+#include "order_paramaters.hpp"
 
-// TODO BRACKET w/ trailing stop
 // TODO stop-limit version of trailing stop
 // TODO AON orders
-
 // TODO resolve advanced_order_error vs invalid_argument usage
 
 namespace sob{
@@ -42,20 +41,45 @@ public:
 class AdvancedOrderTicket{
     order_condition _condition;
     condition_trigger _trigger;
-    OrderParamaters _order1;
-    OrderParamaters _order2;
+    std::unique_ptr<OrderParamaters> _order1;
+    std::unique_ptr<OrderParamaters> _order2;
+
+    static inline OrderParamaters*
+    copy_order(const std::unique_ptr<OrderParamaters>& o)
+    { return o ? o.get()->copy_new() : nullptr; }
 
 protected:
     AdvancedOrderTicket( order_condition condition,
                          condition_trigger trigger,
-                         OrderParamaters order1 = OrderParamaters(),
-                         OrderParamaters order2 = OrderParamaters());
+                         OrderParamaters *order1 = nullptr,
+                         OrderParamaters *order2 = nullptr);
 
 public:
     static const AdvancedOrderTicket null;
     static const condition_trigger default_trigger;
 
     AdvancedOrderTicket(); // null ticket
+
+    AdvancedOrderTicket(const AdvancedOrderTicket& aot)
+        :
+            _condition( aot._condition ),
+            _trigger( aot._trigger ),
+            _order1( copy_order(aot._order1) ),
+            _order2( copy_order(aot._order2) )
+        {
+    }
+
+    AdvancedOrderTicket&
+    operator=(const AdvancedOrderTicket& aot)
+    {
+        if(*this != aot){
+            _condition = aot._condition;
+            _trigger = aot._trigger;
+            _order1.reset( copy_order(aot._order1) );
+            _order2.reset( copy_order(aot._order2) );
+        }
+        return *this;
+    }
 
     inline order_condition
     condition() const
@@ -73,21 +97,21 @@ public:
     change_trigger(condition_trigger t)
     { _trigger = t; }
 
-    inline const OrderParamaters&
+    inline const OrderParamaters*
     order1() const
-    { return _order1; }
+    { return _order1.get(); }
 
     inline void
-    change_order1(const OrderParamaters& op)
-    { _order1 = op; }
+    change_order1(const OrderParamaters& order)
+    { _order1.reset( order.copy_new() ); }
 
-    inline const OrderParamaters&
+    inline const OrderParamaters*
     order2() const
-    { return _order2; }
+    { return _order2.get(); }
 
     inline void
-    change_order2(const OrderParamaters& op)
-    { _order2 = op; }
+    change_order2(const OrderParamaters& order)
+    { _order2.reset( order.copy_new() ); }
 
     bool
     operator==(const AdvancedOrderTicket& aot) const;
@@ -218,8 +242,8 @@ protected:
                                 double target_limit )
         :
             AdvancedOrderTicket( order_condition::bracket, trigger,
-                    OrderParamaters(is_buy, sz, loss_limit, loss_stop),
-                    OrderParamaters(is_buy, sz, target_limit, 0)
+                    new OrderParamatersByPrice(is_buy, sz, loss_limit, loss_stop),
+                    new OrderParamatersByPrice(is_buy, sz, target_limit, 0)
                     )
         {
         }
@@ -258,35 +282,18 @@ public:
 /* only using fill_full trigger for now (no mechanism for size update) */
 class AdvancedOrderTicketTrailingStop
         : public AdvancedOrderTicket {
-    size_t _nticks;
 
 protected:
     AdvancedOrderTicketTrailingStop(size_t nticks,
                                     order_condition condition,
                                     condition_trigger trigger)
         :
-            AdvancedOrderTicket(condition, trigger),
-            _nticks(nticks)
+            AdvancedOrderTicket(condition, trigger,
+                    new OrderParamatersByNTicks(0,0,0,nticks))
         {
         }
 
 public:
-    inline bool
-    operator==(const AdvancedOrderTicketTrailingStop& aot) const
-    { return (_nticks == aot._nticks) && AdvancedOrderTicket::operator ==(aot); }
-
-    inline bool
-    operator !=(const AdvancedOrderTicketTrailingStop& aot) const
-    { return !(*this == aot); }
-
-    inline size_t
-    nticks() const
-    { return _nticks ; }
-
-    inline void
-    change_nticks(size_t n)
-    { _nticks = n; }
-
     static const order_condition condition;
     static const condition_trigger default_trigger;
 
@@ -298,47 +305,19 @@ public:
 /* private inheritance from ...TrailingStop is a bit messy, so... */
 class AdvancedOrderTicketTrailingBracket
         : public AdvancedOrderTicket{
-    size_t _nticks_target;
-    size_t _nticks_stop;
 
 protected:
     AdvancedOrderTicketTrailingBracket(size_t stop_nticks, size_t target_nticks)
         :
-            AdvancedOrderTicket(condition, default_trigger),
-            _nticks_target(target_nticks),
-            _nticks_stop(stop_nticks)
+            AdvancedOrderTicket(condition, default_trigger,
+                    new OrderParamatersByNTicks(0,0,0,stop_nticks),
+                    new OrderParamatersByNTicks(0,0,target_nticks,0))
         {
         }
 
 public:
     static const order_condition condition;
     static const condition_trigger default_trigger;
-
-    inline bool
-    operator==(const AdvancedOrderTicketTrailingBracket& aot) const
-    { return (_nticks_target == aot._nticks_target)
-            && (_nticks_stop == aot._nticks_stop)
-            && AdvancedOrderTicket::operator ==(aot); }
-
-    inline bool
-    operator !=(const AdvancedOrderTicketTrailingBracket& aot) const
-    { return !(*this == aot); }
-
-    inline size_t
-    stop_nticks() const
-    { return _nticks_stop; }
-
-    inline void
-    change_stop_nticks(size_t n)
-    { _nticks_stop = n; }
-
-    inline size_t
-    target_nticks() const
-    { return _nticks_target; }
-
-    inline void
-    change_target_nticks(size_t n)
-    { _nticks_target = n; }
 
     static AdvancedOrderTicketTrailingBracket
     build(size_t stop_nticks, size_t target_nticks);

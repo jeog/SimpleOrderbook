@@ -46,6 +46,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include "resource_manager.hpp"
 #include "tick_price.hpp"
 #include "advanced_order.hpp"
+#include "order_paramaters.hpp"
 
 #ifdef DEBUG
 #undef NDEBUG
@@ -256,7 +257,12 @@ private:
 
         struct order_location; /* forward decl */
 
-        typedef std::pair<OrderParamaters, OrderParamaters> bracket_type;
+        typedef std::pair<OrderParamatersByPrice,
+                          OrderParamatersByPrice> price_bracket_type;
+
+        typedef std::pair<OrderParamatersByNTicks,
+                          OrderParamatersByNTicks> nticks_bracket_type;
+
         typedef std::pair<size_t, order_location> linked_trailer_type;
 
         /* base representation of orders internally (inside chains)
@@ -271,7 +277,8 @@ private:
             union {
                 order_location *linked_order;
                 OrderParamaters *contingent_order;
-                bracket_type *bracket_orders;
+                price_bracket_type *price_bracket_orders;
+                nticks_bracket_type *nticks_bracket_orders;
                 linked_trailer_type *linked_trailer;
                 size_t nticks;
             };
@@ -826,23 +833,18 @@ private:
         /* check/build internal param object from user input for advanced
          * order types (uses _tick_price_or_throw to check user input) */
         std::unique_ptr<OrderParamaters>
-        _build_aot_order(const OrderParamaters& order) const;
+        _build_nticks_params(bool buy,
+                             size_t size,
+                             const OrderParamaters *order) const;
 
-        /* special build of trailing_stop order params using nticks */
         std::unique_ptr<OrderParamaters>
-        _build_aot_order(bool buy,
-                         size_t size,
-                         const AdvancedOrderTicketTrailingStop& aot) const;
+        _build_price_params(const OrderParamaters *order) const;
 
-        /* special build of trailing_stop order params using stop and target nticks */
-        std::tuple<std::unique_ptr<OrderParamaters>,
+        std::pair<std::unique_ptr<OrderParamaters>,
                    std::unique_ptr<OrderParamaters>>
-        _build_aot_order(bool buy,
-                         size_t size,
-                         const AdvancedOrderTicketTrailingBracket& aot) const;
-
-        OrderParamaters
-        _params_from_nticks( bool buy, size_t size, long nticks) const;
+        _build_advanced_params(bool buy,
+                               size_t size,
+                               const AdvancedOrderTicket& advanced) const;
 
         /* check prices levels for limit-OCO orders are valid */
         void
@@ -852,24 +854,12 @@ private:
                            order_condition oc) const;
 
         inline plevel
-        _generate_trailing_stop(const OrderParamaters& op)
-        { return _generate_trailing_stop(op.is_buy(), nticks_from_params(op)); }
-
-        inline plevel
         _generate_trailing_stop(bool buy_stop, size_t nticks)
-        { return _last + (buy_stop ? nticks : -nticks); }
-
-        // bad name, not really trailing
-        inline plevel
-        _generate_trailing_limit(const OrderParamaters& op)
-        { return _generate_trailing_limit(op.is_buy(), nticks_from_params(op)); }
+        { return nticks ? (_last + (buy_stop ? nticks : -nticks)) : 0; }
 
         inline plevel
         _generate_trailing_limit(bool buy_limit, size_t nticks)
-        { return _last + (buy_limit ? -nticks : nticks); }
-
-        static size_t
-        nticks_from_params(const OrderParamaters& params);
+        { return nticks ? (_last + (buy_limit ? -nticks : nticks)) : 0; }
 
         template<typename T>
         static constexpr long long
@@ -1214,7 +1204,6 @@ template<typename TickRatio>
 typename SimpleOrderbook::SimpleOrderbookImpl<TickRatio>::stop_bndl
 SimpleOrderbook::SimpleOrderbookImpl<TickRatio>::stop_bndl::null;
 
-/* TODO create way to represent advanced-trailing orders here */
 struct order_info {
     order_type type;
     bool is_buy;
@@ -1222,7 +1211,18 @@ struct order_info {
     double stop;
     size_t size;
     AdvancedOrderTicket advanced;
-    operator bool(){ return type != order_type::null; }
+
+    inline operator bool()
+    { return type != order_type::null; }
+
+    order_info(order_type type,
+               bool is_buy,
+               double limit,
+               double stop,
+               size_t size,
+               const AdvancedOrderTicket& advanced);
+
+    order_info(const order_info& oi);
 };
 
 }; /* sob */

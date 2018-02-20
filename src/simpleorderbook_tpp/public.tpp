@@ -24,7 +24,6 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 namespace sob{
 
-// TODO create a cleaner mechanism for checking aots/conds against insert calls
 SOB_TEMPLATE
 id_type
 SOB_CLASS::insert_limit_order( bool buy,
@@ -37,56 +36,27 @@ SOB_CLASS::insert_limit_order( bool buy,
         throw std::invalid_argument("invalid order size");
     }
 
-    std::unique_ptr<OrderParamaters> cparams1;
-    std::unique_ptr<OrderParamaters> cparams2;
+    std::unique_ptr<OrderParamaters> pp1;
+    std::unique_ptr<OrderParamaters> pp2;
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
         /* --- CRITICAL SECTION --- */
         limit = _tick_price_or_throw(limit, "invalid limit price");
         if( advanced ){
+            std::tie(pp1, pp2) = _build_advanced_params(buy, size, advanced);
+
             order_condition cond = advanced.condition();
-            switch(cond){
-            case order_condition::trailing_bracket:
-                std::tie(cparams1, cparams2) =
-                    _build_aot_order(!buy, size,
-                    reinterpret_cast<const AdvancedOrderTicketTrailingBracket&>(
-                            advanced)
-                    );
-                break;
-            case order_condition::trailing_stop:
-                cparams1 = _build_aot_order(!buy, size,
-                    reinterpret_cast<const AdvancedOrderTicketTrailingStop&>(
-                            advanced)
-                    );
-                break;
-            case order_condition::bracket:
-                cparams2 = _build_aot_order(advanced.order2());
-                /* no break */
-            case order_condition::one_triggers_other: /* no break */
-            case order_condition::one_cancels_other:
-                cparams1 = _build_aot_order(advanced.order1());
-                break;
-            default:
-                assert( cond != order_condition::none );
-            };
-
-            switch(cond){
-            case order_condition::bracket:
-                _check_limit_order(buy, limit, cparams2, cond);
-                /* no break */
-            case order_condition::one_cancels_other:
-                _check_limit_order(buy, limit, cparams1, cond);
-                break;
-            default:
-                assert( cond != order_condition::none );
-            };
+            if( cond == order_condition::bracket ){
+                _check_limit_order(buy, limit, pp2, cond );
+            }else if( cond == order_condition::one_cancels_other ){
+                _check_limit_order(buy, limit, pp1, cond );
+            }
         }
-
         /* --- CRITICAL SECTION --- */
     }
     return _push_order_and_wait(order_type::limit, buy, limit, 0, size, exec_cb,
                                 advanced.condition(), advanced.trigger(),
-                                std::move(cparams1), std::move(cparams2) );
+                                std::move(pp1), std::move(pp2) );
 }
 
 
@@ -100,42 +70,27 @@ SOB_CLASS::insert_market_order( bool buy,
     if(size == 0){
         throw std::invalid_argument("invalid order size");
     }
-    std::unique_ptr<OrderParamaters> cparams1;
-    std::unique_ptr<OrderParamaters> cparams2;
+
+    std::unique_ptr<OrderParamaters> pp1;
+    std::unique_ptr<OrderParamaters> pp2;
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
         /* --- CRITICAL SECTION --- */
         if( advanced ){
-            switch( advanced.condition() ){
-            case order_condition::trailing_bracket:
-                std::tie(cparams1, cparams2) =
-                    _build_aot_order(!buy, size,
-                    reinterpret_cast<const AdvancedOrderTicketTrailingBracket&>(
-                            advanced)
-                    );
-                break;
-            case order_condition::trailing_stop:
-                cparams1 = _build_aot_order(!buy, size,
-                    reinterpret_cast<const AdvancedOrderTicketTrailingStop&>(
-                            advanced)
-                    );
-                break;
-            case order_condition::one_cancels_other:
+            order_condition cond = advanced.condition();
+            if( cond == order_condition::one_cancels_other ){
                 throw advanced_order_error("OCO invalid for market order");
-            case order_condition::fill_or_kill:
+            }else if( cond == order_condition::fill_or_kill ){
                 throw advanced_order_error("FOK invalid for market order");
-            case order_condition::bracket:
-                cparams2 = _build_aot_order(advanced.order2());
-                /* no break */
-            default:
-                cparams1 = _build_aot_order(advanced.order1());
-            };
+            }
+
+            std::tie(pp1, pp2) = _build_advanced_params(buy, size, advanced);
         }
         /* --- CRITICAL SECTION --- */
     }
     return _push_order_and_wait(order_type::market, buy, 0, 0, size, exec_cb,
                                 advanced.condition(), advanced.trigger(),
-                                std::move(cparams1), std::move(cparams2) );
+                                std::move(pp1), std::move(pp2) );
 }
 
 
@@ -163,11 +118,9 @@ SOB_CLASS::insert_stop_order( bool buy,
     if(size == 0){
         throw std::invalid_argument("invalid order size");
     }
-    if( advanced.condition() == order_condition::fill_or_kill ){
-        throw advanced_order_error("FOK invalid for market order");
-    }
-    std::unique_ptr<OrderParamaters> cparams1;
-    std::unique_ptr<OrderParamaters> cparams2;
+
+    std::unique_ptr<OrderParamaters> pp1;
+    std::unique_ptr<OrderParamaters> pp2;
     order_type ot = order_type::stop;
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
@@ -179,34 +132,21 @@ SOB_CLASS::insert_stop_order( bool buy,
         }
 
         if( advanced ){
-            switch( advanced.condition() ){
-            case order_condition::trailing_bracket:
-                std::tie(cparams1, cparams2) =
-                    _build_aot_order(!buy, size,
-                    reinterpret_cast<const AdvancedOrderTicketTrailingBracket&>(
-                            advanced)
-                    );
-                break;
-            case order_condition::trailing_stop:
-                cparams1 = _build_aot_order(!buy, size,
-                    reinterpret_cast<const AdvancedOrderTicketTrailingStop&>(advanced)
-                    );
-                break;
-            case order_condition::bracket:
-                cparams2 = _build_aot_order(advanced.order2());
-                /* no break */
-            default:
-                cparams1 = _build_aot_order(advanced.order1());
-                if( cparams1->is_stop_order() && cparams1->stop() == stop ){
-                    throw advanced_order_error("stop orders of same price");
-                }
+            if( advanced.condition() == order_condition::fill_or_kill ){
+                throw advanced_order_error("FOK invalid for market order");
+            }
+
+            std::tie(pp1, pp2) = _build_advanced_params(buy, size, advanced);
+
+            if( pp1->stop_price() == stop ){
+                throw advanced_order_error("stop orders of same price");
             }
         }
         /* --- CRITICAL SECTION --- */
     }
     return _push_order_and_wait(ot, buy, limit, stop, size, exec_cb,
                                 advanced.condition(), advanced.trigger(),
-                                std::move(cparams1), std::move(cparams2) );
+                                std::move(pp1), std::move(pp2) );
 }
 
 
@@ -229,8 +169,8 @@ SOB_CLASS::get_order_info(id_type id, bool search_limits_first) const
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
     return search_limits_first
-            ? _order::template as_order_info<limit_chain_type, stop_chain_type>(this, id)
-            : _order::template as_order_info<stop_chain_type, limit_chain_type>(this, id);
+        ? _order::template as_order_info<limit_chain_type, stop_chain_type>(this, id)
+        : _order::template as_order_info<stop_chain_type, limit_chain_type>(this, id);
     /* --- CRITICAL SECTION --- */
 }
 
