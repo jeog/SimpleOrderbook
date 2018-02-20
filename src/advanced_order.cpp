@@ -41,13 +41,55 @@ AdvancedOrderTicket::AdvancedOrderTicket() // null ticket
     {
     }
 
+AdvancedOrderTicket::AdvancedOrderTicket(const AdvancedOrderTicket& aot)
+    :
+        _condition( aot._condition ),
+        _trigger( aot._trigger ),
+        _order1( copy_order(aot._order1) ),
+        _order2( copy_order(aot._order2) )
+    {
+    }
+
+AdvancedOrderTicket::AdvancedOrderTicket(AdvancedOrderTicket&& aot)
+    :
+        _condition( aot._condition ),
+        _trigger( aot._trigger ),
+        _order1( std::move(aot._order1) ),
+        _order2( std::move(aot._order2) )
+    {
+    }
+
+AdvancedOrderTicket&
+AdvancedOrderTicket::operator=(const AdvancedOrderTicket& aot)
+{
+    if(*this != aot){
+        _condition = aot._condition;
+        _trigger = aot._trigger;
+        _order1.reset( copy_order(aot._order1) );
+        _order2.reset( copy_order(aot._order2) );
+    }
+    return *this;
+}
+
+AdvancedOrderTicket&
+AdvancedOrderTicket::operator=(AdvancedOrderTicket&& aot)
+{
+    if(*this != aot){
+        _condition = aot._condition;
+        _trigger = aot._trigger;
+        _order1 = std::move(aot._order1);
+        _order2 = std::move(aot._order2);
+    }
+    return *this;
+}
+
 bool
 AdvancedOrderTicket::operator==(const AdvancedOrderTicket& aot) const
 {
     return _condition == aot._condition
             && _trigger == aot._trigger
-            && _order1 == aot._order1
-            && _order2 == aot._order2;
+            && cmp_orders(_order1, aot._order1)
+            && cmp_orders(_order2, aot._order2);
 }
 
 AdvancedOrderTicketOCO::AdvancedOrderTicketOCO( condition_trigger trigger,
@@ -60,7 +102,7 @@ AdvancedOrderTicketOCO::AdvancedOrderTicketOCO( condition_trigger trigger,
                 new OrderParamatersByPrice(is_buy, size, limit, stop) )
     {
         if( size == 0 ){
-            throw advanced_order_error("invalid order size");
+            throw std::invalid_argument("invalid order size");
         }
     }
 
@@ -74,7 +116,7 @@ AdvancedOrderTicketOTO::AdvancedOrderTicketOTO( condition_trigger trigger,
                 new OrderParamatersByPrice(is_buy, size, limit, stop) )
     {
         if( size == 0 ){
-            throw advanced_order_error("invalid order size");
+            throw std::invalid_argument("invalid order size");
         }
     }
 

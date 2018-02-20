@@ -60,38 +60,43 @@ public:
     size() const
     { return _size; }
 
-    bool
-    operator==(const OrderParamaters& op) const;
+    virtual bool
+    operator==(const OrderParamaters& op) const
+    {
+        return (_is_buy == op._is_buy) && (_size == op._size);
+    }
 
-    inline bool
+    virtual bool
     operator!=(const OrderParamaters& op) const
-    { return !(*this == op); }
+    {
+        return !(*this == op);
+    }
 
     virtual
     operator bool() const
     { return _size != 0; }
 
-    virtual inline double
+    virtual double
     limit_price() const
     { return 0; }
 
-    virtual inline double
+    virtual double
     stop_price() const
     { return 0; }
 
-    virtual inline size_t
+    virtual size_t
     limit_nticks() const
     { return 0; }
 
-    virtual inline size_t
+    virtual size_t
     stop_nticks() const
     { return 0; }
 
-    virtual inline bool
+    virtual bool
     is_by_price() const
     { return false; }
 
-    virtual inline bool
+    virtual bool
     is_by_nticks() const
     { return false; }
 
@@ -142,7 +147,7 @@ public:
         {
         }
 
-    OrderParamaters*
+    /*virtual*/ OrderParamaters*
     copy_new() const
     { return new OrderParamatersGeneric(*this); }
 
@@ -154,34 +159,44 @@ public:
     stop() const
     { return _stop; }
 
-    bool
-    operator==(const OrderParamatersGeneric& op) const;
+    inline bool
+    operator==(const OrderParamatersGeneric& op) const
+    { return (_limit == op._limit) && (_stop == op._stop)
+                && OrderParamaters::operator==(op); }
 
     inline bool
     operator!=(const OrderParamatersGeneric& op) const
-    { return !(*this == op); }
+    { return !operator==(op); }
 
-    inline
+    /*virtual*/ bool
+    operator==(const OrderParamaters& op) const
+    { return operator==(reinterpret_cast<const OrderParamatersGeneric&>(op)); }
+
+    /*virtual*/ bool
+    operator!=(const OrderParamaters& op) const
+    { return !operator==(op); }
+
+    /*virtual*/
     operator bool() const
     { return OrderParamaters::operator bool() || _stop || _limit; }
 
-    bool
+    /*virtual*/ bool
     is_market_order() const
     { return !(_stop || _limit); }
 
-    bool
+    /*virtual*/ bool
     is_limit_order() const
     { return _limit && !_stop; }
 
-    bool
+    /*virtual*/ bool
     is_stop_order() const
     { return _stop; }
 
-    bool
+    /*virtual*/ bool
     is_stop_limit_order() const
     { return _stop && _limit; }
 
-    order_type
+    /*virtual*/ order_type
     get_order_type() const
     {
         if( !(*this) ){
@@ -199,19 +214,19 @@ class OrderParamatersByPrice
 public:
     using OrderParamatersGeneric::OrderParamatersGeneric;
 
-    OrderParamaters*
+    /*virtual*/ OrderParamaters*
     copy_new() const
     { return new OrderParamatersByPrice(*this); }
 
-    inline double
+    /*virtual*/ double
     limit_price() const
     { return limit(); }
 
-    inline double
+    /*virtual*/ double
     stop_price() const
     { return stop(); }
 
-    inline bool
+    /*virtual*/ bool
     is_by_price() const
     { return true; }
 };
@@ -221,19 +236,19 @@ class OrderParamatersByNTicks
 public:
     using OrderParamatersGeneric::OrderParamatersGeneric;
 
-    OrderParamaters*
+    /*virtual*/ OrderParamaters*
     copy_new() const
     { return new OrderParamatersByNTicks(*this); }
 
-    inline size_t
+    /*virtual*/ size_t
     limit_nticks() const
     { return limit(); }
 
-    inline size_t
+    /*virtual*/ size_t
     stop_nticks() const
     { return stop(); }
 
-    inline bool
+    /*virtual*/ bool
     is_by_nticks() const
     { return true; }
 };

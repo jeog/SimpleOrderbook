@@ -60,16 +60,6 @@ SimpleOrderbook::ImplDeleter::operator()(FullInterface *i) const
 }
 
 
-template<typename T>
-bool
-OrderParamatersGeneric<T>::operator==(const OrderParamatersGeneric& op) const
-{
-    return OrderParamaters::operator==(op)
-            && (_limit == op._limit)
-            && (_stop == op._stop);
-}
-
-
 liquidity_exception::liquidity_exception( size_t initial_size,
                                           size_t remaining_size,
                                           id_type order_id,
@@ -127,7 +117,7 @@ to_string(const side_of_market& s)
     switch(s){
     case side_of_market::bid: return "bid";
     case side_of_market::ask: return "ask";
-    case side_of_market::both: return "both";
+    case side_of_market::both: return "bid/ask";
     default:
         throw std::logic_error( "bad side_of_market: " +
                 std::to_string(static_cast<int>(s)) );
@@ -140,7 +130,7 @@ to_string(const side_of_trade& s)
     switch(s){
     case side_of_trade::buy: return "buy";
     case side_of_trade::sell: return "sell";
-    case side_of_trade::all: return "all";
+    case side_of_trade::both: return "buy/sell";
     default:
         throw std::logic_error( "bad side_of_trade: " +
                 std::to_string(static_cast<int>(s)) );

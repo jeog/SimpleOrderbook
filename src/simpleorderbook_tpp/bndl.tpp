@@ -23,18 +23,18 @@ along with this program. If not, see http://www.gnu.org/licenses.
 namespace sob{
 
 SOB_TEMPLATE
-SOB_CLASS::_order_bndl::_order_bndl()
+constexpr SOB_CLASS::_order_bndl::_order_bndl()
      :
         _order_bndl(0, 0, nullptr)
      {
      }
 
 SOB_TEMPLATE
-SOB_CLASS::_order_bndl::_order_bndl( id_type id,
-                                     size_t sz,
-                                     order_exec_cb_type exec_cb,
-                                     order_condition cond,
-                                     condition_trigger trigger )
+constexpr SOB_CLASS::_order_bndl::_order_bndl( id_type id,
+                                               size_t sz,
+                                               order_exec_cb_type exec_cb,
+                                               order_condition cond,
+                                               condition_trigger trigger )
     :
         id(id),
         sz(sz),
@@ -139,7 +139,6 @@ SOB_CLASS::_order_bndl::_copy_union(const _order_bndl& bndl)
                        : nullptr;
         break;
     case order_condition::none:
-        // TODO what do we want to assert here ?
         break;
     default:
         throw new std::runtime_error("invalid order condition");
@@ -178,7 +177,6 @@ SOB_CLASS::_order_bndl::_move_union(_order_bndl& bndl)
         bndl.linked_trailer = nullptr;
         break;
     case order_condition::none:
-        // TODO what do we want to assert here ?
         break;
     default:
         throw new std::runtime_error("invalid order condition");
@@ -219,7 +217,6 @@ SOB_CLASS::_order_bndl::~_order_bndl()
            break;
        case order_condition::_trailing_stop_active: /* no break */
        case order_condition::none:
-           // TODO what do we want to assert here ?
            break;
        default:
            throw new std::runtime_error("invalid order condition");
@@ -227,7 +224,7 @@ SOB_CLASS::_order_bndl::~_order_bndl()
    }
 
 SOB_TEMPLATE
-SOB_CLASS::stop_bndl::stop_bndl()
+constexpr SOB_CLASS::stop_bndl::stop_bndl()
     :
         _order_bndl(),
         is_buy(),
@@ -236,13 +233,13 @@ SOB_CLASS::stop_bndl::stop_bndl()
     }
 
 SOB_TEMPLATE
-SOB_CLASS::stop_bndl::stop_bndl( bool is_buy,
-                                 double limit,
-                                 id_type id,
-                                 size_t sz,
-                                 order_exec_cb_type exec_cb,
-                                 order_condition cond,
-                                 condition_trigger trigger )
+constexpr SOB_CLASS::stop_bndl::stop_bndl( bool is_buy,
+                                           double limit,
+                                           id_type id,
+                                           size_t sz,
+                                           order_exec_cb_type exec_cb,
+                                           order_condition cond,
+                                           condition_trigger trigger )
    :
        _order_bndl(id, sz, exec_cb, cond, trigger),
        is_buy(is_buy),
@@ -291,6 +288,30 @@ SOB_CLASS::stop_bndl::operator=(stop_bndl&& bndl)
     }
     return *this;
 }
+
+SOB_TEMPLATE
+constexpr SOB_CLASS::order_location::order_location(const order_queue_elem& elem,
+                                                    bool is_primary)
+    :
+        is_limit_chain(elem.type == order_type::limit),
+        price(is_limit_chain ? elem.limit : elem.stop),
+        id(elem.id),
+        is_primary(is_primary)
+    {
+    }
+
+SOB_TEMPLATE
+constexpr SOB_CLASS::order_location::order_location(bool is_limit,
+                                                    double price,
+                                                    id_type id,
+                                                    bool is_primary)
+    :
+        is_limit_chain(is_limit),
+        price(price),
+        id(id),
+        is_primary(is_primary)
+    {
+    }
 
 };
 

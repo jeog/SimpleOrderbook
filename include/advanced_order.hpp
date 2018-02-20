@@ -24,7 +24,6 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 // TODO stop-limit version of trailing stop
 // TODO AON orders
-// TODO resolve advanced_order_error vs invalid_argument usage
 
 namespace sob{
 
@@ -48,6 +47,11 @@ class AdvancedOrderTicket{
     copy_order(const std::unique_ptr<OrderParamaters>& o)
     { return o ? o.get()->copy_new() : nullptr; }
 
+    static inline bool
+    cmp_orders(const std::unique_ptr<OrderParamaters>& o1,
+               const std::unique_ptr<OrderParamaters>& o2)
+    { return (o1 == o2) || (o1 && o2 && (*o1.get() == *o2.get())); }
+
 protected:
     AdvancedOrderTicket( order_condition condition,
                          condition_trigger trigger,
@@ -60,26 +64,15 @@ public:
 
     AdvancedOrderTicket(); // null ticket
 
-    AdvancedOrderTicket(const AdvancedOrderTicket& aot)
-        :
-            _condition( aot._condition ),
-            _trigger( aot._trigger ),
-            _order1( copy_order(aot._order1) ),
-            _order2( copy_order(aot._order2) )
-        {
-    }
+    AdvancedOrderTicket(const AdvancedOrderTicket& aot);
+
+    AdvancedOrderTicket(AdvancedOrderTicket&& aot);
 
     AdvancedOrderTicket&
-    operator=(const AdvancedOrderTicket& aot)
-    {
-        if(*this != aot){
-            _condition = aot._condition;
-            _trigger = aot._trigger;
-            _order1.reset( copy_order(aot._order1) );
-            _order2.reset( copy_order(aot._order2) );
-        }
-        return *this;
-    }
+    operator=(const AdvancedOrderTicket& aot);
+
+    AdvancedOrderTicket&
+    operator=(AdvancedOrderTicket&& aot);
 
     inline order_condition
     condition() const

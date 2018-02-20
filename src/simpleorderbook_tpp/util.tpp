@@ -415,14 +415,14 @@ struct SOB_CLASS::_order {
     { return order_type::limit; }
 
     static inline void
-    dump(std::ostream& out, const SOB_CLASS::limit_bndl& bndl )
-    { out << " <" << bndl.sz << " #" << bndl.id << "> "; }
+    dump(std::ostream& out, const SOB_CLASS::limit_bndl& bndl, bool is_buy )
+    { out << " <" << (is_buy ? "B " : "S ")
+                  << bndl.sz << " #" << bndl.id << "> "; }
 
     static inline void
-    dump(std::ostream& out, const SOB_CLASS::stop_bndl& bndl )
+    dump(std::ostream& out, const SOB_CLASS::stop_bndl& bndl, bool is_buy )
     {
-        out << " <" << (bndl.is_buy ? "B " : "S ")
-                    << bndl.sz << " @ "
+        out << " <" << (is_buy ? "B " : "S ") << bndl.sz << " @ "
                     << (bndl.limit ? std::to_string(bndl.limit) : "MKT")
                     << " #" << bndl.id << "> ";
     }
@@ -478,13 +478,13 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::limit_chain_type, Dummy>
     get(plevel p)
     { return &(p->first); }
 
+    static constexpr order_type
+    as_order_type()
+    { return order_type::limit; }
+
     static inline size_t
     size(chain_type* c)
     { return _chain<void>::template size(c); }
-
-    static constexpr order_type
-    as_order_type()
-    { return SOB_CLASS::_order::as_order_type(bndl_type()); }
 
     template<bool IsBuy>
     static void
@@ -529,21 +529,23 @@ struct SOB_CLASS::_chain<typename SOB_CLASS::stop_chain_type, Dummy>
     get(plevel p)
     { return &(p->second); }
 
+    /* doesn't differentiate between stop & stop/limit */
+    static constexpr order_type
+    as_order_type()
+    { return order_type::stop; }
+
     static inline size_t
     size(chain_type* c)
     { return _chain<void>::template size(c); }
 
-    static constexpr order_type
-    as_order_type() // doesn't differentiate between stop & stop/limit
-    { return SOB_CLASS::_order::as_order_type(bndl_type()); }
-
-    template<bool IsBuy>
     static void
     push(SOB_CLASS *sob, plevel p, bndl_type&& bndl)
     {
         sob->_id_cache[bndl.id] = std::make_pair(sob->_itop(p),false);
         p->second.emplace_back(bndl); /* moving bndl */
-        SOB_CLASS::_stop_exec<IsBuy>::adjust_state_after_insert(sob, p);
+        bndl.is_buy
+            ? SOB_CLASS::_stop_exec<true>::adjust_state_after_insert(sob, p)
+            : SOB_CLASS::_stop_exec<false>::adjust_state_after_insert(sob, p);
     }
 
     static bndl_type

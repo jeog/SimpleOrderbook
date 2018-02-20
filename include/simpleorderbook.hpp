@@ -265,9 +265,14 @@ private:
 
         typedef std::pair<size_t, order_location> linked_trailer_type;
 
-        /* base representation of orders internally (inside chains)
-         * note: this is just an 'abstract' base for stop/limit bndls to
-         *       avoid any sneaky upcasts in all the chain/bndl templates */
+        /*
+         * base representation of orders internally (inside chains)
+         *
+         * NOTE: this is just an 'abstract' base for stop/limit bndls to
+         *       avoid any sneaky upcasts in all the chain/bndl templates
+         *
+         * NO VIRTUAL DESTRUCTOR
+         */
         struct _order_bndl {
             id_type id;
             size_t sz;
@@ -283,10 +288,11 @@ private:
                 size_t nticks;
             };
             operator bool() const { return sz; }
-            _order_bndl();
-            _order_bndl(id_type id, size_t sz, order_exec_cb_type exec_cb,
-                        order_condition cond = order_condition::none,
-                        condition_trigger trigger = condition_trigger::none);
+            constexpr _order_bndl();
+            constexpr _order_bndl(id_type id, size_t sz,
+                                  order_exec_cb_type exec_cb,
+                                  order_condition cond = order_condition::none,
+                                  condition_trigger trigger = condition_trigger::none);
             _order_bndl(const _order_bndl& bndl);
             _order_bndl(_order_bndl&& bndl);
             _order_bndl& operator=(const _order_bndl& bndl);
@@ -310,11 +316,11 @@ private:
                 : public _order_bndl {
             bool is_buy;
             double limit;
-            stop_bndl();
-            stop_bndl(bool is_buy, double limit, id_type id, size_t sz,
-                      order_exec_cb_type exec_cb,
-                      order_condition cond = order_condition::none,
-                      condition_trigger trigger = condition_trigger::none);
+            constexpr stop_bndl();
+            constexpr stop_bndl(bool is_buy, double limit, id_type id, size_t sz,
+                                order_exec_cb_type exec_cb,
+                                order_condition cond = order_condition::none,
+                                condition_trigger trigger = condition_trigger::none);
             stop_bndl(const stop_bndl& bndl);
             stop_bndl(stop_bndl&& bndl);
             stop_bndl& operator=(const stop_bndl& bndl);
@@ -322,29 +328,16 @@ private:
             static stop_bndl null;
         };
 
-
         /* one order to (quickly) find another */
         struct order_location{ // WHY NOT JUST POINT AT THE OBJECT ?
             bool is_limit_chain;
             double price;
             id_type id;
             bool is_primary;
-            order_location(const order_queue_elem& elem, bool is_primary)
-                :
-                    is_limit_chain(elem.type == order_type::limit),
-                    price(is_limit_chain ? elem.limit : elem.stop),
-                    id(elem.id),
-                    is_primary(is_primary)
-                {
-                }
-            order_location(bool is_limit, double price, id_type id, bool is_primary)
-                :
-                    is_limit_chain(is_limit),
-                    price(price),
-                    id(id),
-                    is_primary(is_primary)
-                {
-                }
+            constexpr order_location(const order_queue_elem& elem,
+                                     bool is_primary);
+            constexpr order_location(bool is_limit, double price, id_type id,
+                                     bool is_primary);
         };
 
         /* info held for each exec callback in the deferred callback vector*/
@@ -438,12 +431,12 @@ private:
          *   ::find : get reference to order bndl for a particular
          *            chain/id, plevel/id, or id
          *   ::find_pos : like 'find' but returns an iterator
+         *   ::is_... : myriad (boolean) order type info from elem/bndl
          *   ::limit_price : convert order bndl to limit price
          *   ::stop_price : covert order bndl to stop price
-         *   ::as_base_bndl : find order and upcast to _order_bndl ref
-         *   ::as_order_params : convert order bndl to OrderParamaters object
+         *   ::as_price_params : convert order bndl to OrderParamatersByPrice
          *   ::as_order_info : return appropriate order_info struct from order ID
-         *   ::as_order_type: convert bndl to order type (stop, limit, stop-limit)
+         *   ::as_order_type: convert bndl to order type
          *   ::dump : dump appropriate order bndl info to ostream
          */
         struct _order;
@@ -514,7 +507,7 @@ private:
         _insert_order(const order_queue_elem& e);
 
         /* basic order types */
-        template<side_of_trade side = side_of_trade::all>
+        template<side_of_trade side = side_of_trade::both>
         fill_type
         _route_basic_order(const order_queue_elem& e);
 
@@ -917,7 +910,6 @@ private:
         order_info
         get_order_info(id_type id, bool search_limits_first=true) const;
 
-        /* DO WE WANT TO TRANSFER CALLBACK OBJECT TO NEW ORDER ?? */
         id_type
         replace_with_limit_order(id_type id,
                                  bool buy,
@@ -963,12 +955,11 @@ private:
         void
         dump_internal_pointers(std::ostream& out = std::cout) const;
 
-        // TODO differentiate buy/sell in output
         inline void
         dump_limits(std::ostream& out = std::cout) const
         { _dump_orders<limit_chain_type>(
                 out, std::min(_low_buy_limit, _ask),
-                std::max(_high_sell_limit, _bid), side_of_trade::all); }
+                std::max(_high_sell_limit, _bid), side_of_trade::both); }
 
         inline void
         dump_buy_limits(std::ostream& out = std::cout) const
@@ -980,12 +971,11 @@ private:
         { _dump_orders<limit_chain_type>(
                 out, _ask, _high_sell_limit, side_of_trade::sell); }
 
-        // TODO differentiate buy/sell in output
         inline void
         dump_stops(std::ostream& out = std::cout) const
         { _dump_orders<stop_chain_type>(
                 out, std::min(_low_buy_stop, _low_sell_stop),
-                std::max(_high_buy_stop, _high_sell_stop), side_of_trade::all); }
+                std::max(_high_buy_stop, _high_sell_stop), side_of_trade::both); }
 
         inline void
         dump_buy_stops(std::ostream& out = std::cout) const

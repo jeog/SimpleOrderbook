@@ -65,11 +65,11 @@ enum class order_condition {
     one_triggers_other,
     fill_or_kill,
     bracket,
-    _bracket_active, // <- 'private' (basically an OCO now)
+    _bracket_active, // private
     trailing_stop,
-    _trailing_stop_active,
+    _trailing_stop_active, // private
     trailing_bracket,
-    _trailing_bracket_active
+    _trailing_bracket_active // private
     // all_or_nothing
 };
 
@@ -83,7 +83,7 @@ enum class condition_trigger {
 enum class callback_msg{
     cancel = 0,
     fill,
-    stop_to_limit, // <- guaranteed before limit insert / fill callback
+    stop_to_limit,
     stop_to_market,
     trigger_OCO,
     trigger_OTO,
@@ -111,7 +111,7 @@ enum class side_of_market {
 enum class side_of_trade {
     buy = 1,
     sell = -1,
-    all = 0
+    both = 0
 };
 
 typedef std::function<void(callback_msg,id_type,id_type,double,size_t)>  order_exec_cb_type;
