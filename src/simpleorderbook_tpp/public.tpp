@@ -319,6 +319,44 @@ SOB_CLASS::dump_internal_pointers(std::ostream& out) const
     /* --- CRITICAL SECTION --- */
 }
 
+
+SOB_TEMPLATE
+bool
+SOB_CLASS::is_valid_price(double price) const
+{
+    long long offset = (TickPrice<TickRatio>(price) - _base).as_ticks();
+    plevel p = _beg + offset;
+    return (p >= _beg && p < _end);
+}
+
+
+SOB_TEMPLATE
+FullInterface*
+SOB_CLASS::create( TickPrice<TickRatio> min, TickPrice<TickRatio> max )
+{
+    if( min < 0 || min > max ){
+        throw std::invalid_argument("min < 0 || min > max");
+    }
+    if( min == 0 ){
+       ++min; /* note: we adjust w/o client knowing */
+    }
+
+    // make inclusive
+    size_t incr = static_cast<size_t>((max - min).as_ticks()) + 1;
+    if( incr < 3 ){
+        throw std::invalid_argument("need at least 3 ticks");
+    }
+
+    FullInterface *tmp = new SimpleOrderbookImpl(min, incr);
+    if( tmp ){
+        if( !rmanager.add(tmp, master_rmanager) ){
+            delete tmp;
+            throw std::runtime_error("failed to add orderbook");
+        }
+    }
+    return tmp;
+}
+
 };
 
 #undef SOB_TEMPLATE

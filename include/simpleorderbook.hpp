@@ -63,62 +63,68 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #endif
 
 namespace sob {
+
 /*
- *   SimpleOrderbook::SimpleOrderbookImpl<std::ratio,size_t> is a class template
- *   that serves as the core implementation.
+ *   SimpleOrderbook::SimpleOrderbookImpl<std::ratio,size_t> :
  *
- *   The ratio-type first parameter defines the tick size.
- *
- *   SimpleOrderbook::BuildFactoryProxy<std::ratio, CTy>() returns a struct
- *   containing methods for managing SimpleOrderbookImpl instances. The ratio
- *   type parameter instantiates the SimpleOrderbookImpl type; CTy is the type
- *   of static function used to create SimpleOrderbookImpl objects.
- *
- *   FactoryProxy.create :  allocate and return an orderbook as FullInterface*
- *   FactoryProxy.destroy : deallocate said object
+ *      A class template that serves as the core implementation. The ratio-type
+ *      first parameter defines the tick size.
  *
  *
- *   INTERFACES (interfaces.hpp):
+ *   SimpleOrderbook::BuildFactoryProxy<std::ratio, CTy>() :
  *
- *   sob::UtilityInterface : provide tick, price, and memory info for that type
- *                          of orderbook
- *
- *            - base of -
- *
- *   sob::QueryInterface : query the state of the orderbook
- *
- *            - base of -
- *
- *   sob::LimitInterface : insert/remove limit orders, pull orders
- *
- *            - base of -
- *
- *   sob::FullInterface : insert/remove market and stop orders, dump orders
- *
- *            - base of -
- *
- *   sob::ManagementInterface : advanced control and diagnostic features
- *                              (grow orderbook, dump internal pointers)
+ *      Builds a factory proxy used to create and manage a SimpleOrderbookImpl<>
+ *      object. The std::ratio parameter is the desired tick size of the
+ *      orderbook. The CTy is the type of the 'create' static factory method
+ *      used to create the orderbook object.
  *
  *
- *   INSERT ORDERS (LimitInterface & FullInterface):
+ *   SimpleOrderbook::FactoryProxy<CTy> :
  *
- *   There are a number of events that trigger callbacks via:
+ *      A struct containing methods for managing SimpleOrderbookImpl instances
+ *      of a particular std::ratio type:
  *
- *   order_exec_cb_type: a functor defined in common.h that will be called
- *                       when a fill or cancelation occurs for the order, or
- *                       when a stop-to-limit is triggered.
+ *      .create :  allocate and return an orderbook as FullInterface*
+ *      .destroy : deallocate said object
+ *      .is_managed : is the the passed orderbook pointer currently managed
+ *      .get_all : get a vector of pointers of all the currently managed orderbooks
+ *      .destroy_all : deallocate all the currently managed orderbooks
+ *      .tick_size : get the current tick size of the orderbook as double
+ *      .price_to_tick : convert a double to a valid tick price
+ *      .ticks_in_range : calculate number of ticks between two doubles
+ *      .tick_memory_required : calculate number of bytes required to initialize
+ *                              and orderbook between this range of doubles
  *
- *   On success the order id will be returned, 0 on failure.
  *
- *   pull_order(...) attempts to cancel the order, calling back with the id
- *   and callback_msg::cancel on success
+ *   UtilityInterface :
  *
- *   The replace calls are basically a pull_order(...) followed by the 
- *   respective insert call, if pull_order is successful. On success the order 
- *   id will be returned, 0 on failure.
+ *      tick, price, and memory info
  *
- *   (See simpleorderbook.tpp/simpleorderbook.cpp for implementation details)
+ *   QueryInterface :
+ *
+ *      query state of the orderbook (last, bid_size, time_and_sales etc.)
+ *
+ *   LimitInterface :
+ *
+ *      insert limit orders(and advanced versions), pull orders
+ *
+ *   FullInterface :
+ *
+ *      insert market and stop orders(and advanced versions); dump orders to
+ *      std::ostream; A POINTER TO THIS INTERFACE IS RETURNED BY THE FACTORY
+ *      PROXY'S '.create' METHOD.
+ *
+ *   ManagementInterface :
+ *
+ *      advanced control and diagnostic features (e.g grow the orderbook)
+ *
+ *
+ *   order_exec_cb_type :
+ *
+ *      a callback functor defined in common.h that will be called when an
+ *      execution, cancellation, or advanced order action occurs. STOP-LIMITS
+ *      AND CERTAIN ADVANCED ORDERS NEED TO KEEP TRACK OF THE TWO 'id_type'
+ *      ARGS FOR CHANGES IN ORDER ID# WHEN CERTAIN CONDITIONS ARE TRIGGERED.
  */
 
 class SimpleOrderbook {
@@ -659,6 +665,14 @@ private:
         _trailing_stop_erase(id_type id, bool is_buy)
         { (is_buy ? _trailing_buy_stops : _trailing_sell_stops).erase(id); }
 
+        inline plevel
+        _generate_trailing_stop(bool buy_stop, size_t nticks)
+        { return nticks ? (_last + (buy_stop ? nticks : -nticks)) : 0; }
+
+        inline plevel
+        _generate_trailing_limit(bool buy_limit, size_t nticks)
+        { return nticks ? (_last + (buy_limit ? -nticks : nticks)) : 0; }
+
         /* push order onto the order queue and block until execution */
         id_type
         _push_order_and_wait(order_type oty,
@@ -834,7 +848,7 @@ private:
         _build_price_params(const OrderParamaters *order) const;
 
         std::pair<std::unique_ptr<OrderParamaters>,
-                   std::unique_ptr<OrderParamaters>>
+                  std::unique_ptr<OrderParamaters>>
         _build_advanced_params(bool buy,
                                size_t size,
                                const AdvancedOrderTicket& advanced) const;
@@ -845,14 +859,6 @@ private:
                            double limit,
                            std::unique_ptr<OrderParamaters> & op,
                            order_condition oc) const;
-
-        inline plevel
-        _generate_trailing_stop(bool buy_stop, size_t nticks)
-        { return nticks ? (_last + (buy_stop ? nticks : -nticks)) : 0; }
-
-        inline plevel
-        _generate_trailing_limit(bool buy_limit, size_t nticks)
-        { return nticks ? (_last + (buy_limit ? -nticks : nticks)) : 0; }
 
         template<typename T>
         static constexpr long long
@@ -1080,54 +1086,18 @@ private:
         { return tick_memory_required_(min_price(), max_price()); }
 
         bool
-        is_valid_price(double price) const
-        {
-            long long offset = (TickPrice<TickRatio>(price) - _base).as_ticks();
-            plevel p = _beg + offset;
-            return (p >= _beg && p < _end);
-        }
+        is_valid_price(double price) const;
 
         static inline FullInterface*
         create(double min, double max)
-        {
-            return create( TickPrice<TickRatio>(min),
-                           TickPrice<TickRatio>(max) );
-        }
+        { return create( TickPrice<TickRatio>(min), TickPrice<TickRatio>(max) ); }
 
         static FullInterface*
-        create( TickPrice<TickRatio> min,
-                TickPrice<TickRatio> max )
-        {
-            if( min < 0 || min > max ){
-                throw std::invalid_argument("!(0 <= min <= max)");
-            }
-            if( min == 0 ){
-               ++min; /* note: we adjust w/o client knowing */
-            }
-
-            // make inclusive
-            size_t incr = static_cast<size_t>((max - min).as_ticks()) + 1;
-            if( incr < 3 ){
-                throw std::invalid_argument("need at least 3 ticks");
-            }
-
-            FullInterface *tmp = new SimpleOrderbookImpl(min, incr);
-            if( tmp ){
-                if( !rmanager.add(tmp, master_rmanager) ){
-                    delete tmp;
-                    throw std::runtime_error("failed to add orderbook");
-                }
-            }
-            return tmp;
-        }
+        create( TickPrice<TickRatio> min, TickPrice<TickRatio> max );
 
         static inline void
         destroy(FullInterface *interface)
-        {
-            if( interface ){
-                rmanager.remove(interface);
-            }
-        }
+        { if( interface ) rmanager.remove(interface); }
 
         static inline void
         destroy_all()
@@ -1151,17 +1121,14 @@ private:
 
         static constexpr long long
         ticks_in_range_(double lower, double upper)
-        {
-            return ( TickPrice<TickRatio>(upper)
-                     - TickPrice<TickRatio>(lower) ).as_ticks();
-        }
+        { return ( TickPrice<TickRatio>(upper)
+                 - TickPrice<TickRatio>(lower) ).as_ticks(); }
 
         static constexpr unsigned long long
         tick_memory_required_(double lower, double upper)
-        {
-            return static_cast<unsigned long long>(ticks_in_range_(lower, upper))
-                    * sizeof(chain_pair_type);
-        }
+        { return static_cast<unsigned long long>(ticks_in_range_(lower, upper))
+                * sizeof(chain_pair_type); }
+
     }; /* SimpleOrderbookImpl */
 
     class ImplDeleter{
@@ -1221,5 +1188,6 @@ struct order_info {
 #include "../src/simpleorderbook_tpp/bndl.tpp"
 #include "../src/simpleorderbook_tpp/public.tpp"
 #include "../src/simpleorderbook_tpp/core.tpp"
+#include "../src/simpleorderbook_tpp/advanced.tpp"
 
 #endif

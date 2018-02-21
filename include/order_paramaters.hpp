@@ -62,15 +62,11 @@ public:
 
     virtual bool
     operator==(const OrderParamaters& op) const
-    {
-        return (_is_buy == op._is_buy) && (_size == op._size);
-    }
+    { return (_is_buy == op._is_buy) && (_size == op._size); }
 
     virtual bool
     operator!=(const OrderParamaters& op) const
-    {
-        return !(*this == op);
-    }
+    { return !operator==(op); }
 
     virtual
     operator bool() const
