@@ -167,7 +167,7 @@ SOB_CLASS::_handle_TRAILING_BRACKET(_order_bndl& bndl, id_type id)
     /*
      * delete what bracket_orders points at; the order is now of condition
      * _trailing_bracket_active, which needs to be treated as an OCO, and use
-     * linked_order pointer in the anonymous union.
+     * linked_trailer pointer in the anonymous union.
      */
     delete bndl.nticks_bracket_orders;
     bndl.nticks_bracket_orders = nullptr;
@@ -586,8 +586,9 @@ SOB_TEMPLATE
 void
 SOB_CLASS::_adjust_trailing_stop(id_type id, bool buy_stop)
 {
-    plevel p = _id_to_plevel<stop_chain_type>(id);
-    assert(p);
+    auto& cinfo = _id_cache.at(id);
+    assert( !cinfo.second );
+    plevel p = _ptoi( cinfo.first );
 
     stop_bndl bndl = _chain<stop_chain_type>::pop(this, p, id);
     assert( bndl );

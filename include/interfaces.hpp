@@ -116,7 +116,7 @@ public:
     time_and_sales() const = 0;
 
     virtual order_info
-    get_order_info(id_type id, bool search_limits_first=true) const = 0;
+    get_order_info(id_type id) const = 0;
 };
 
 
@@ -146,7 +146,7 @@ public:
                                  = AdvancedOrderTicket::null) = 0;
 
     virtual bool 
-    pull_order(id_type id, bool search_limits_first=true) = 0;
+    pull_order(id_type id) = 0;
 };
 
 

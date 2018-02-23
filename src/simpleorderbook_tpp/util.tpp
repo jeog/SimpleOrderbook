@@ -354,7 +354,11 @@ struct SOB_CLASS::_order {
     static OrderParamatersByPrice
     as_price_params(const SimpleOrderbookImpl *sob, id_type id)
     {
-        plevel p = sob->_id_to_plevel<ChainTy>(id);
+        plevel p = nullptr;
+        try{
+            p = sob->_ptoi( sob->_id_cache.at(id).first );
+        }catch(std::out_of_range&){
+        }
         return as_price_params(sob, p, find<ChainTy>(p, id));
     }
 
@@ -381,13 +385,8 @@ struct SOB_CLASS::_order {
     /* return an order_info struct for that order id */
     template<typename ChainTy>
     static order_info
-    as_order_info(const SimpleOrderbookImpl *sob, id_type id)
+    as_order_info(const SimpleOrderbookImpl *sob, id_type id, plevel p)
     {
-        plevel p = sob->_id_to_plevel<ChainTy>(id);
-        if( !p ){
-            return order_info(order_type::null, false, 0, 0, 0,
-                              AdvancedOrderTicket::null);
-        }
         ChainTy *c = _chain<ChainTy>::get(p);
         const typename ChainTy::value_type& bndl = _order::find(c, id);
         AdvancedOrderTicket aot = sob->_bndl_to_aot<ChainTy>(bndl);
@@ -395,15 +394,21 @@ struct SOB_CLASS::_order {
         return as_order_info(is_buy, sob->_itop(p), bndl, aot);
     }
 
-    template<typename PrimaryChainTy, typename SecondaryChainTy>
     static order_info
     as_order_info(const SimpleOrderbookImpl *sob, id_type id)
     {
-        auto oi =  as_order_info<PrimaryChainTy>(sob, id);
-        if( !oi ){
-            oi = as_order_info<SecondaryChainTy>(sob, id);
+        try{
+            auto& cinfo = sob->_id_cache.at(id);
+            plevel p = sob->_ptoi(cinfo.first);
+            if( p ){
+                return cinfo.second
+                    ? as_order_info<limit_chain_type>(sob, id, p)
+                    : as_order_info<stop_chain_type>(sob, id, p);
+            }
+        }catch(std::out_of_range&){
         }
-        return oi;
+        return order_info(order_type::null, false, 0, 0, 0,
+                          AdvancedOrderTicket::null);
     }
 
     static constexpr order_type
@@ -456,7 +461,7 @@ protected:
         if( i == c->cend() ){
             return InnerChainTy::value_type::null;
         }
-        typename InnerChainTy::value_type bndl = *i;
+        typename InnerChainTy::value_type bndl = *i; // TODO remove
         c->erase(i);
         sob->_id_cache.erase(id); // also erase from inside _trade (confusing)
         return bndl;

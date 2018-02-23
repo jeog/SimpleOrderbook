@@ -152,25 +152,23 @@ SOB_CLASS::insert_stop_order( bool buy,
 
 SOB_TEMPLATE
 bool
-SOB_CLASS::pull_order(id_type id, bool search_limits_first)
+SOB_CLASS::pull_order(id_type id)
 {
     if(id == 0){
         throw std::invalid_argument("invalid order id(0)");
     }
-    return _push_order_and_wait(order_type::null, search_limits_first,
+    return _push_order_and_wait(order_type::null, false,
                                 0, 0, 0, nullptr, order_condition::none,
                                 condition_trigger::none, nullptr, nullptr, id);
 }
 
 SOB_TEMPLATE
 order_info
-SOB_CLASS::get_order_info(id_type id, bool search_limits_first) const
+SOB_CLASS::get_order_info(id_type id) const
 {
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
-    return search_limits_first
-        ? _order::template as_order_info<limit_chain_type, stop_chain_type>(this, id)
-        : _order::template as_order_info<stop_chain_type, limit_chain_type>(this, id);
+    return _order::template as_order_info(this, id);
     /* --- CRITICAL SECTION --- */
 }
 

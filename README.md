@@ -1,8 +1,7 @@
 ## SimpleOrderbook 
 - - -
 
-An experimental C++(11) financial-market orderbook and matching engine w/ a Python extension module.
-
+SimpleOrderbook is a C++(11) financial market orderbook and matching engine with a Python extension module.
 
 #### Features 
 
@@ -27,6 +26,63 @@ An experimental C++(11) financial-market orderbook and matching engine w/ a Pyth
 - pre-allocation of (some) internals during construction to reduce runtime overhead
 - (manually) grow orderbooks as necessary
 - access via a CPython extension module
+
+#### Design & Performance
+
+- The 'spine' of the orderbook is a vector which allows:
+    - random access and simple pointer/index math internally
+    - operations on cached internal pointers/indices of important levels
+- The vector is initialized to user-requested size when the book is created but can be grown manually: 
+    - all of the price details of stored orders (e.g stop-limit price) are saved as doubles
+    - we simply let the STL implementation do its thing, get the new base address, and adjust the internal pointers by the offset
+- The vector contains pairs of doubly-linked lists ('chains') which allows:
+    - one list for limits and a seperate list for stops
+    - the potential to add new chains for advanced orders (e.g AON orders)
+    - quick push/pop so order insert/execution is O(C) for basic order types (see below)
+    - quick removal from inside the list
+- Orders are referenced by ID #s that are generated sequentially and cached - with their respective price level and chain type - in an unordered_map (hash table) allowing for:
+    - collission-free O(C) lookup from the cache and O(N) lookup from the chain, so
+    - worst case pull/remove (every order is at 1 price level) O(N) compexity viz-a-viz # of active orders
+    - best case pull/remove (no more than 1 order at each price level) O(C) complexity viz-a-viz # of active orders
+- The effect of advanced orders on all this is currently unknown
+
+##### Basic Order Insert & Execution:
+
+- n orders: 40% limits, 20% markets, 20% stops, 20% stop-limits
+- prices are distributed normally around the mid-point w/ a SD 20% of the range
+- order sizes are distributed log-normally * 200 using a 0 mean and 1 SD
+- buy/sell condition from a simple .50 bernoulli 
+- average 10 seperate runs of each
+- use a TickRatio of 1/10000
+
+n orders | total time | time per order
+---------|------------|----------------
+100      | 0.003898   | 0.000039 
+1000     | 0.036946   | 0.000037
+10000    | 0.300888   | 0.000030 
+100000   | 3.173736   | 0.000032 
+1000000  | 36.754020  | 0.000037 
+
+##### Basic Order Pull:
+
+- n orders are inserted, ids are stored
+    - 50% limits, 25% stops, 25% stop-limits
+    - prices are distributed normally around the mid-point w/ a SD 20% of the range
+    - order sizes are distributed log-normally * 200 using a 0 mean and 1 SD 
+    - buy/sell for limits is dependent on price relative to mid-point (WANT NO TRADES)
+    - buy/sell condition for stops from a simple .50 benoulli
+- ids are randomly shuffled
+- loop through and remove each id
+- average 10 seperate runs of each
+- use a TickRatio of 1/10000
+
+n orders | total time | time per order 
+---------|------------|----------------
+100      | 0.001949   | 0.000019
+1000     | 0.024924   | 0.000025
+10000    | 0.373072   | 0.000037
+100000   | 14.051795  | 0.000141
+1000000  | 615.977580 | 0.000616
 
 #### Getting Started
 

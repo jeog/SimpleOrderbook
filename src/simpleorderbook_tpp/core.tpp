@@ -161,9 +161,8 @@ SOB_CLASS::_insert_order(const order_queue_elem& e)
     }
     if( _order::is_null(e) ){
         /* not the cleanest but most effective/thread-safe
-           e.is_buy indicates to check limits first (not buy/sell)
            success/fail is returned in the in e.id*/
-        return _pull_order(e.id, true, e.is_buy);
+        return _pull_order(e.id, true);
     }
     _route_basic_order<>(e);
     return true;
@@ -668,31 +667,19 @@ SOB_CLASS::_block_on_outstanding_orders()
 }
 
 
-
 SOB_TEMPLATE
-bool
-SOB_CLASS::_pull_order(id_type id, bool pull_linked, bool limits_first)
-{
-    return limits_first 
-        ? (_pull_order<limit_chain_type>(id, pull_linked)
-                || _pull_order<stop_chain_type>(id, pull_linked))
-        : (_pull_order<stop_chain_type>(id, pull_linked)
-                || _pull_order<limit_chain_type>(id, pull_linked));
-}
-
-
-SOB_TEMPLATE
-template<typename ChainTy>
 bool 
 SOB_CLASS::_pull_order(id_type id, bool pull_linked)
 { 
     /* caller needs to hold lock on _master_mtx or race w/ callback queue */
-    plevel p = _id_to_plevel<ChainTy>(id);
-    if( !p ){
-        return false;
+    try{
+        auto& cinfo = _id_cache.at(id);
+        if( cinfo.first ){
+            return _pull_order(id, cinfo.first, pull_linked, cinfo.second);
+        }
+    }catch(std::out_of_range&){
     }
-    _assert_plevel(p);    
-    return _pull_order<ChainTy>(id, p, pull_linked);
+    return false;
 }
 
 
@@ -724,16 +711,6 @@ SOB_CLASS::_pull_order(id_type id, plevel p, bool pull_linked)
 
 
 SOB_TEMPLATE
-bool
-SOB_CLASS::_pull_order(id_type id, double price, bool pull_linked, bool is_limit)
-{
-    return is_limit
-        ? _pull_order<limit_chain_type>(id, _ptoi(price), pull_linked)
-        : _pull_order<stop_chain_type>(id, _ptoi(price), pull_linked);
-}
-
-
-SOB_TEMPLATE
 template<typename ChainTy>
 void
 SOB_CLASS::_pull_linked_order(typename ChainTy::value_type& bndl)
@@ -745,30 +722,17 @@ SOB_CLASS::_pull_linked_order(typename ChainTy::value_type& bndl)
     }
 }
 
-
-SOB_TEMPLATE
-template<typename ChainTy>
-typename SOB_CLASS::plevel
-SOB_CLASS::_id_to_plevel(id_type id) const
-{
-    try{
-        auto p = _id_cache.at(id);
-        if( _chain<ChainTy>::is_limit == p.second ){
-            return _ptoi( p.first );
-        }
-    }catch(std::out_of_range&){}
-    return nullptr;
-}
-
-
 SOB_TEMPLATE
 template<typename ChainTy>
 typename ChainTy::value_type&
 SOB_CLASS::_find(id_type id) const
 {
-    plevel p = _id_to_plevel<ChainTy>(id);
-    if( p ){
-        return _order::template find<ChainTy>(p, id);
+    try{
+        plevel p = _ptoi( _id_cache.at(id).first );
+        if( p ){
+            return _order::template find<ChainTy>(p, id);
+        }
+    }catch(std::out_of_range&){
     }
     return ChainTy::value_type::null;
 }

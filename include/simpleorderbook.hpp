@@ -56,7 +56,9 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #include <assert.h>
 
-#ifdef NDEBUG
+#define NDEBUG_RMANAGER
+
+#if defined(NDEBUG) || defined(NDEBUG_RMANAGER)
 #define SOB_RESOURCE_MANAGER ResourceManager
 #else
 #define SOB_RESOURCE_MANAGER ResourceManager_Debug
@@ -210,11 +212,7 @@ public:
 
     static inline void
     Destroy(FullInterface *interface)
-    {
-        if( interface ){
-            master_rmanager.remove(interface);
-        }
-    }
+    { if( interface ) master_rmanager.remove(interface); }
 
     static inline void
     DestroyAll()
@@ -721,22 +719,20 @@ private:
         _block_on_outstanding_orders();
 
         /* remove a particular order by id... */
-        template<typename ChainTy>
         bool
         _pull_order(id_type id, bool pull_linked);
-
-        /* ...(optimized) by checking limit or stop chains first... */
-        bool
-        _pull_order(id_type id, bool pull_linked, bool limits_first);
 
         /* ...(optimized) if we already have plevel and order/chain type...*/
         template<typename ChainTy>
         bool
         _pull_order(id_type id, plevel p, bool pull_linked);
 
-        /* ...(optimized) if we know the order/chain type(at run-time) */
         inline bool
-        _pull_order(id_type id, double price, bool pull_linked, bool is_limit);
+        _pull_order(id_type id, double price, bool pull_linked, bool is_limit)
+        { return is_limit
+                ? _pull_order<limit_chain_type>(id, _ptoi(price), pull_linked)
+                : _pull_order<stop_chain_type>(id, _ptoi(price), pull_linked);
+        }
 
         /* pull OCO (linked) order */
         template<typename ChainTy>
@@ -744,9 +740,8 @@ private:
         _pull_linked_order(typename ChainTy::value_type& bndl);
 
         /* access the _id_cache hash table to find the plevel/chain */
-        template<typename ChainTy>
-        plevel
-        _id_to_plevel(id_type id) const;
+        std::pair<plevel, bool>
+        _id_cache_info(id_type id) const;
 
         template<typename ChainTy>
         typename ChainTy::value_type&
@@ -910,11 +905,10 @@ private:
                               = AdvancedOrderTicket::null);
 
         bool
-        pull_order(id_type id,
-                   bool search_limits_first=true);
+        pull_order(id_type id);
 
         order_info
-        get_order_info(id_type id, bool search_limits_first=true) const;
+        get_order_info(id_type id) const;
 
         id_type
         replace_with_limit_order(id_type id,
