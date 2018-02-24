@@ -457,7 +457,7 @@ SOB_CLASS::_look_for_triggered_stops()
     _need_check_for_stops = false;
 }
 
-
+// TODO how do we deal with IDs in the cache when stop is triggered???
 SOB_TEMPLATE
 template<bool BuyStops>
 void 
@@ -548,6 +548,9 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
             assert(e.trigger != condition_trigger::none);
             _handle_advanced_order_trigger(e, id);
         }
+
+        /* BUG FIX Feb 23 2018 - remove old ID from cache */
+        _id_cache.erase(id);
     }
 }
 

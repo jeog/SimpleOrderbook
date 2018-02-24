@@ -168,7 +168,7 @@ SOB_CLASS::get_order_info(id_type id) const
 {
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
-    return _order::template as_order_info(this, id);
+    return _order::as_order_info(this, id);
     /* --- CRITICAL SECTION --- */
 }
 

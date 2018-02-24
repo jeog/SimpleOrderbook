@@ -387,9 +387,8 @@ struct SOB_CLASS::_order {
     static order_info
     as_order_info(const SimpleOrderbookImpl *sob, id_type id, plevel p)
     {
-        ChainTy *c = _chain<ChainTy>::get(p);
-        const typename ChainTy::value_type& bndl = _order::find(c, id);
-        AdvancedOrderTicket aot = sob->_bndl_to_aot<ChainTy>(bndl);
+        const auto& bndl = _order::find<ChainTy>(p, id);
+        AdvancedOrderTicket aot = sob->_bndl_to_aot(bndl);
         bool is_buy = sob->_is_buy_order(p, bndl);
         return as_order_info(is_buy, sob->_itop(p), bndl, aot);
     }
@@ -461,9 +460,9 @@ protected:
         if( i == c->cend() ){
             return InnerChainTy::value_type::null;
         }
-        typename InnerChainTy::value_type bndl = *i; // TODO remove
+        auto bndl = std::move(*i); /* move before erase */
         c->erase(i);
-        sob->_id_cache.erase(id); // also erase from inside _trade (confusing)
+        sob->_id_cache.erase(id);
         return bndl;
     }
 };

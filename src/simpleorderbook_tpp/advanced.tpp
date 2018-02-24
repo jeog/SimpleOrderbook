@@ -620,9 +620,8 @@ SOB_CLASS::_adjust_trailing_stop(id_type id, bool buy_stop)
 
 
 SOB_TEMPLATE
-template<typename ChainTy>
 AdvancedOrderTicket
-SOB_CLASS::_bndl_to_aot(const typename _chain<ChainTy>::bndl_type& bndl) const
+SOB_CLASS::_bndl_to_aot(const _order_bndl& bndl) const
 {
     AdvancedOrderTicket aot = AdvancedOrderTicket::null;
     aot.change_condition(bndl.cond);

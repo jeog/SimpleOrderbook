@@ -386,6 +386,7 @@ private:
         plevel _low_sell_stop;
         plevel _high_sell_stop;
 
+        // TODO test cache is in-line after advanced execution
         std::unordered_map<id_type, std::pair<double,bool>> _id_cache;
 
         std::set<id_type> _trailing_sell_stops;
@@ -828,9 +829,8 @@ private:
         _assert_internal_pointers() const;
 
         /* build an advanced ticket from a linked/contingent order bndl (OCO/OTO) */
-        template<typename ChainTy>
         AdvancedOrderTicket
-        _bndl_to_aot(const typename _chain<ChainTy>::bndl_type& bndl) const;
+        _bndl_to_aot(const _order_bndl& bndl) const;
 
         /* check/build internal param object from user input for advanced
          * order types (uses _tick_price_or_throw to check user input) */
