@@ -97,6 +97,7 @@ SOB_CLASS::~SimpleOrderbookImpl()
                 _order_dispatcher_thread.join();
             }
         }catch(...){
+            std::cerr<< "exception in sob destructor" << std::endl;
         }        
     }
 

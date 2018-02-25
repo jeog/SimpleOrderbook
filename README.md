@@ -27,62 +27,97 @@ SimpleOrderbook is a C++(11) financial market orderbook and matching engine with
 - (manually) grow orderbooks as necessary
 - access via a CPython extension module
 
-#### Design & Performance
+#### Design
 
-- The 'spine' of the orderbook is a vector which allows:
-    - random access and simple pointer/index math internally
-    - operations on cached internal pointers/indices of important levels
-- The vector is initialized to user-requested size when the book is created but can be grown manually: 
-    - all of the price details of stored orders (e.g stop-limit price) are saved as doubles
-    - we simply let the STL implementation do its thing, get the new base address, and adjust the internal pointers by the offset
-- The vector contains pairs of doubly-linked lists ('chains') which allows:
-    - one list for limits and a seperate list for stops
-    - the potential to add new chains for advanced orders (e.g AON orders)
-    - quick push/pop so order insert/execution is O(C) for basic order types (see below)
-    - quick removal from inside the list
-- Orders are referenced by ID #s that are generated sequentially and cached - with their respective price level and chain type - in an unordered_map (hash table) allowing for:
-    - collission-free O(C) lookup from the cache and O(N) lookup from the chain, so
-    - worst case pull/remove (every order is at 1 price level) O(N) compexity viz-a-viz # of active orders
-    - best case pull/remove (no more than 1 order at each price level) O(C) complexity viz-a-viz # of active orders
-- The effect of advanced orders on all this is currently unknown
+The 'spine' of the orderbook is a vector which allows:
+- random access and simple pointer/index math internally
+- operations on cached internal pointers/indices of important levels
 
-##### Basic Order Insert & Execution:
+The vector is initialized to user-requested size when the book is created but can be grown manually. We simply let the STL implementation do its thing, get the new base address, and adjust the internal pointers by the offset
 
-- n orders: 40% limits, 20% markets, 20% stops, 20% stop-limits
-- prices are distributed normally around the mid-point w/ a SD 20% of the range
+The vector contains pairs of doubly-linked lists ('chains') which allows:
+- one list for limits and another for stops
+- the potential to add new chains for advanced orders (e.g AON orders)
+- quick push/pop so order insert/execution is O(C) for limit/market orders (see below)
+- quick removal from inside the list
+
+Orders are referenced by ID #s that are generated sequentially and cached - with their respective price level and chain type - in an unordered_map (hash table) allowing for:
+- collision-free O(C) lookup from the cache and O(N) lookup from the chain, so
+- worst case pull/remove (every order is at 1 price level) O(N) compexity viz-a-viz # of active orders
+- best case pull/remove (no more than 1 order at each price level) O(C) complexity viz-a-viz # of active orders
+
+The effect of advanced orders on all this is currently unknown.
+
+#### Performance Tests
+
+- use orderbooks of 1/100 TickRatio of varying sizes
+- average 15 seperate runs of each test using 3 async threads on quad-core 3GHz
+
+##### limit order tests
+
+- prices are distributed normally around the mid-point w/ a SD 5% of the range
 - order sizes are distributed log-normally * 200 using a 0 mean and 1 SD
 - buy/sell condition from a simple .50 bernoulli 
-- average 10 seperate runs of each
-- use a TickRatio of 1/10000
 
-n orders | total time | time per order
----------|------------|----------------
-100      | 0.003898   | 0.000039 
-1000     | 0.036946   | 0.000037
-10000    | 0.300888   | 0.000030 
-100000   | 3.173736   | 0.000032 
-1000000  | 36.754020  | 0.000037 
+```
+                              total run-time (seconds)
 
-##### Basic Order Pull:
+                                 number of orders
+
+                   | 100       1000      10000     100000    1000000   
+          ---------|---------------------------------------------------
+          100      | 0.004405  0.037736  0.407753  2.678031  23.890100 
+ book     1000     | 0.055565  0.035489  0.367174  2.855679  24.148191 
+ size     10000    | 0.100778  0.031463  0.284640  2.574857  23.947135 
+(ticks)   100000   | 0.107541  0.046319  0.241876  2.780733  26.784672 
+          1000000  | 0.111391  0.123336  0.749582  6.548299  54.941044 
+```
+
+##### limit-market-stop order tests 
+
+- n orders: 40% limits, 20% markets, 20% stops, 20% stop-limits
+- prices are distributed normally around the mid-point w/ a SD 5% of the range
+- order sizes are distributed log-normally * 200 using a 0 mean and 1 SD
+- buy/sell condition from a simple .50 bernoulli 
+
+```
+                               total run-time (seconds)
+
+                                  number of orders
+
+                    | 100       1000      10000     100000    1000000   
+           ---------|----------------------------------------------------
+           100      | 0.078109  0.037642  0.327290  2.733742  25.651184 
+ book      1000     | 0.004829  0.041559  0.308936  2.922551  25.777793 
+ size      10000    | 0.007302  0.071191  0.457302  4.519175  39.826512 
+(ticks)    100000   | 0.018162  0.154411  1.435792  14.013720 137.937090
+           1000000  | 0.133269  0.937834  9.102124  88.924342 865.178036
+```
+
+##### pull tests
 
 - n orders are inserted, ids are stored
     - 50% limits, 25% stops, 25% stop-limits
-    - prices are distributed normally around the mid-point w/ a SD 20% of the range
+    - prices are distributed normally around the mid-point w/ a SD 5% of the range
     - order sizes are distributed log-normally * 200 using a 0 mean and 1 SD 
     - buy/sell for limits is dependent on price relative to mid-point (WANT NO TRADES)
     - buy/sell condition for stops from a simple .50 benoulli
 - ids are randomly shuffled
 - loop through and remove each id
-- average 10 seperate runs of each
-- use a TickRatio of 1/10000
 
-n orders | total time | time per order 
----------|------------|----------------
-100      | 0.001949   | 0.000019
-1000     | 0.024924   | 0.000025
-10000    | 0.373072   | 0.000037
-100000   | 14.051795  | 0.000141
-1000000  | 615.977580 | 0.000616
+```
+                              total run-time (seconds)
+
+                                 number of orders
+
+                   | 100       1000      10000     100000    1000000   
+          ---------|----------------------------------------------------
+          100      | 0.002782  0.034298  0.368496  18.314278 843.814040
+ book     1000     | 0.003305  0.036822  0.283831  3.564208  209.716251
+ size     10000    | 0.003661  0.036820  0.256872  2.328352  37.820628 
+(ticks)   100000   | 0.005768  0.032059  0.286232  2.277516  22.304643 
+          1000000  | 0.017245  0.051085  0.223735  2.500732  21.855382 
+```
 
 #### Getting Started
 
