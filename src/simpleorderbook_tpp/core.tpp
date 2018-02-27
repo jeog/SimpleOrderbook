@@ -557,17 +557,6 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
 
 
 SOB_TEMPLATE
-void
-SOB_CLASS::_adjust_trailing_stops(bool buy_stops)
-{
-    auto& ids = buy_stops ? _trailing_buy_stops : _trailing_sell_stops;
-    for( auto id : ids ){
-        _adjust_trailing_stop(id, buy_stops);
-    }
-}
-
-
-SOB_TEMPLATE
 id_type
 SOB_CLASS::_push_order_and_wait( order_type oty,
                                  bool buy,

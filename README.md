@@ -56,7 +56,7 @@ The effect of advanced orders on all this is currently unknown.
 ##### limit order tests
 
 - prices are distributed normally around the mid-point w/ a SD 5% of the range
-- order sizes are distributed log-normally * 200 using a 0 mean and 1 SD
+- order sizes are distributed log-normally * 200 (Gibrat's distribution)
 - buy/sell condition from a simple .50 bernoulli 
 
 ```
@@ -77,7 +77,7 @@ The effect of advanced orders on all this is currently unknown.
 
 - n orders: 40% limits, 20% markets, 20% stops, 20% stop-limits
 - prices are distributed normally around the mid-point w/ a SD 5% of the range
-- order sizes are distributed log-normally * 200 using a 0 mean and 1 SD
+- order sizes are distributed log-normally * 200 (Gibrat's distribution)
 - buy/sell condition from a simple .50 bernoulli 
 
 ```
@@ -99,8 +99,8 @@ The effect of advanced orders on all this is currently unknown.
 - n orders are inserted, ids are stored
     - 50% limits, 25% stops, 25% stop-limits
     - prices are distributed normally around the mid-point w/ a SD 5% of the range
-    - order sizes are distributed log-normally * 200 using a 0 mean and 1 SD 
-    - buy/sell for limits is dependent on price relative to mid-point (WANT NO TRADES)
+    - order sizes are distributed log-normally * 200 (Gibrat's distribution) 
+    - buy/sell for limits is dependent on price relative to mid-point (NO TRADES)
     - buy/sell condition for stops from a simple .50 benoulli
 - ids are randomly shuffled
 - loop through and remove each id
