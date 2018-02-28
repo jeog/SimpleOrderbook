@@ -133,7 +133,7 @@ AdvancedOrderTicketBRACKET::build_sell_stop_limit( double loss_stop,
     if( loss_limit > loss_stop ){
         throw std::invalid_argument("loss_limit > loss_stop");
     }
-    if( !target_limit || !loss_limit || !target_limit ){
+    if( !loss_stop || !loss_limit || !target_limit ){
         throw std::invalid_argument("invalid price(s)");
     }
     return AdvancedOrderTicketBRACKET(trigger, false, sz, loss_limit,
@@ -149,7 +149,7 @@ AdvancedOrderTicketBRACKET::build_sell_stop( double loss_stop,
     if( target_limit <= loss_stop ){
         throw std::invalid_argument("target_limit <= loss_stop");
     }
-    if( !target_limit || !target_limit ){
+    if( !loss_stop || !target_limit ){
         throw std::invalid_argument("invalid price(s)");
     }
     return AdvancedOrderTicketBRACKET(trigger, false, sz, 0, loss_stop,
@@ -169,7 +169,7 @@ AdvancedOrderTicketBRACKET::build_buy_stop_limit( double loss_stop,
     if( loss_limit < loss_stop ){
         throw std::invalid_argument("loss_limit < loss_stop");
     }
-    if( !target_limit || !loss_limit || !target_limit ){
+    if( !loss_stop || !loss_limit || !target_limit ){
         throw std::invalid_argument("invalid price(s)");
     }
     return AdvancedOrderTicketBRACKET(trigger, true, sz, loss_limit,
@@ -185,7 +185,7 @@ AdvancedOrderTicketBRACKET::build_buy_stop( double loss_stop,
     if( target_limit >= loss_stop ){
         throw std::invalid_argument("target_limit >= loss_stop");
     }
-    if( !target_limit || !target_limit ){
+    if( !loss_stop || !target_limit ){
         throw std::invalid_argument("invalid price(s)");
     }
     return AdvancedOrderTicketBRACKET(trigger, true, sz, 0, loss_stop,
