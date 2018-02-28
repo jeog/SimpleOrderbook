@@ -500,7 +500,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         if( cb ){
             callback_msg msg = limit ? callback_msg::stop_to_limit
                                      : callback_msg::stop_to_market;
-            _push_callback(msg, cb, id, id_new, (limit ? limit : 0), sz);
+            _push_callback(msg, cb, id, id_new, limit, sz);
         }
 
         order_type ot = limit ? order_type::limit : order_type::market;
@@ -886,7 +886,9 @@ SOB_CLASS::_grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg)
 
     plevel old_beg = _beg;
     plevel old_end = _end;
+#ifndef NDEBUG
     size_t old_sz = _book.size();
+#endif
 
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
