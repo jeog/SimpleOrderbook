@@ -135,6 +135,9 @@ public:
                  size_t sz,
                  condition_trigger trigger = default_trigger )
     {
+        if( !limit ){
+            throw std::invalid_argument("invalid price");
+        }
         return AdvancedOrderTicketOCO(trigger, is_buy, sz, limit, 0.0);
     }
 
@@ -144,6 +147,9 @@ public:
                 size_t sz,
                 condition_trigger trigger = default_trigger )
     {
+        if( !stop ){
+            throw std::invalid_argument("invalid price");
+        }
         return AdvancedOrderTicketOCO(trigger, is_buy, sz, 0.0, stop);
     }
 
@@ -154,6 +160,9 @@ public:
                       size_t sz,
                       condition_trigger trigger = default_trigger )
     {
+        if( !limit || !stop ){
+            throw std::invalid_argument("invalid price(s)");
+        }
         return AdvancedOrderTicketOCO(trigger, is_buy, sz, limit, stop);
     }
 };
@@ -183,6 +192,9 @@ public:
                  size_t sz,
                  condition_trigger trigger = default_trigger )
     {
+        if( !limit ){
+            throw std::invalid_argument("invalid price");
+        }
         return AdvancedOrderTicketOTO(trigger, is_buy, sz, limit, 0.0);
     }
 
@@ -192,6 +204,9 @@ public:
                 size_t sz,
                 condition_trigger trigger = default_trigger )
     {
+        if( !stop ){
+            throw std::invalid_argument("invalid price");
+        }
         return AdvancedOrderTicketOTO(trigger, is_buy, sz, 0.0, stop);
     }
 
@@ -202,6 +217,9 @@ public:
                       size_t sz,
                       condition_trigger trigger = default_trigger )
     {
+        if( !limit || !stop ){
+            throw std::invalid_argument("invalid price(s)");
+        }
         return AdvancedOrderTicketOTO(trigger, is_buy, sz, limit, stop);
     }
 };
