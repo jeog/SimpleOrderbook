@@ -15,22 +15,19 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see http://www.gnu.org/licenses.
 */
 
-#ifndef JO_SOB_TEST
-#define JO_SOB_TEST
+#ifndef JO_PERFORMANCE_TEST
+#define JO_PERFORMANCE_TEST
 
-#ifdef DEBUG
-#undef NDEBUG
-#else
-#define NDEBUG
-#endif
-
-#ifdef NDEBUG
-#define RUN_PERFORMANCE_TESTS
-#endif
+#include "../test.hpp"
 
 #ifdef RUN_PERFORMANCE_TESTS
 
-#include "../include/simpleorderbook.hpp"
+#include <vector>
+
+int
+run_performance_tests();
+
+extern const categories_ty performance_categories;
 
 #define DECL_PERFORMANCE_TEST_FUNC(name) \
 double TEST_##name(sob::FullInterface *full_orderbook, int n)
@@ -59,4 +56,4 @@ generate_limit_stop(int n, int limit_ratio=1);
 
 #endif /* RUN_PERFORMANCE_TESTS */
 
-#endif /* JO_SOB_TEST */
+#endif /* JO_PERFORMANCE_TEST */

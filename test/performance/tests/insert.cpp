@@ -20,8 +20,9 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #ifdef RUN_PERFORMANCE_TESTS
 
 #include <chrono>
-#include <algorithm>
+#include <stdexcept>
 
+using namespace std;
 using namespace sob;
 
 double
@@ -32,15 +33,15 @@ TEST_n_limits(FullInterface *ob, int n)
     auto buy_sells = generate_buy_sells(n);
     id_type id = 0;
 
-    auto start = std::chrono::steady_clock::now();
+    auto start = chrono::steady_clock::now();
     for(int i = 0; i < n; ++i){
         id = ob->insert_limit_order( buy_sells[i], prices[i], sizes[i] );
         if( !id ){
-            throw std::runtime_error("insert limit failed");
+            throw runtime_error("insert limit order failed");
         }
     }
-    auto end = std::chrono::steady_clock::now();
-    std::chrono::duration<double> sec = end - start;
+    auto end = chrono::steady_clock::now();
+    chrono::duration<double> sec = end - start;
     return sec.count();
 }
 
@@ -58,7 +59,7 @@ TEST_n_basics(FullInterface *ob, int n)
     ob->insert_limit_order( true, ob->min_price(), n * 1000);
     ob->insert_limit_order( false, ob->max_price(), n * 1000);
 
-    auto start = std::chrono::steady_clock::now();
+    auto start = chrono::steady_clock::now();
     for(int i = 0; i < n; ++i){
         switch( order_types[i] ){
         case order_type::market:
@@ -74,15 +75,15 @@ TEST_n_basics(FullInterface *ob, int n)
             id = ob->insert_stop_order( buy_sells[i], prices[i], prices[i], sizes[i] );
             break;
         default:
-            throw std::runtime_error("invalid order type");
+            throw runtime_error("invalid order type");
         }
         if( !id ){
-            throw std::runtime_error("insert limit failed");
+            throw runtime_error("insert " + order_types[i] + " failed");
         }
     }
 
-    auto end = std::chrono::steady_clock::now();
-    std::chrono::duration<double> sec = end - start;
+    auto end = chrono::steady_clock::now();
+    chrono::duration<double> sec = end - start;
     return sec.count();
 }
 

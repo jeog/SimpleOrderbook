@@ -20,8 +20,11 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #ifdef RUN_PERFORMANCE_TESTS
 
 #include <chrono>
-#include <algorithm>
+#include <random>
+#include <vector>
+#include <stdexcept>
 
+using namespace std;
 using namespace sob;
 
 double
@@ -33,7 +36,7 @@ TEST_n_pulls(FullInterface *ob, int n)
     auto buy_sells = generate_buy_sells(n);
     auto order_types = generate_limit_stop(n, 2);
     id_type id = 0;
-    std::vector<id_type> active_ids;
+    vector<id_type> active_ids;
 
     /* no trades should occur */
     for(int i = 0; i < n; ++i){
@@ -48,24 +51,24 @@ TEST_n_pulls(FullInterface *ob, int n)
             id = ob->insert_stop_order( buy_sells[i], prices[i], prices[i], sizes[i]);
             break;
         default:
-            throw std::runtime_error("invalid order type");
+            throw runtime_error("invalid order type");
         }
         if( !id ){
-            throw std::runtime_error("insert limit failed");
+            throw runtime_error("insert " + order_types[i] + " failed");
         }
         active_ids.push_back(id);
     }
 
-    std::random_shuffle(active_ids.begin(), active_ids.end());
+    random_shuffle(active_ids.begin(), active_ids.end());
 
-    auto start = std::chrono::steady_clock::now();
+    auto start = chrono::steady_clock::now();
     for( id_type i : active_ids ){
         if( !ob->pull_order(i) ){
-            throw std::runtime_error("failed to pull");
+            throw runtime_error("pull order failed");
         }
     }
-    auto end = std::chrono::steady_clock::now();
-    std::chrono::duration<double> sec = end - start;
+    auto end = chrono::steady_clock::now();
+    chrono::duration<double> sec = end - start;
     return sec.count();
 }
 
@@ -79,7 +82,7 @@ TEST_n_replaces(FullInterface *ob, int n)
     auto buy_sells = generate_buy_sells(n);
     auto order_types = generate_limit_stop(n, 2);
     id_type id = 0;
-    std::vector<id_type> active_ids;
+    vector<id_type> active_ids;
 
     /* no trades should occur */
     for(int i = 0; i < n; ++i){
@@ -94,21 +97,21 @@ TEST_n_replaces(FullInterface *ob, int n)
             id = ob->insert_stop_order( buy_sells[i], prices[i], prices[i], sizes[i]);
             break;
         default:
-            throw std::runtime_error("invalid order type");
+            throw runtime_error("invalid order type");
         }
         if( !id ){
-            throw std::runtime_error("insert limit failed");
+            throw runtime_error("insert " + order_types[i] + " failed");
         }
         active_ids.push_back(id);
     }
 
-    std::random_shuffle(active_ids.begin(), active_ids.end());
-    std::random_shuffle(prices.begin(), prices.end());
-    std::random_shuffle(sizes.begin(), sizes.end());
-    std::random_shuffle(buy_sells.begin(), buy_sells.end());
-    std::random_shuffle(order_types.begin(), order_types.end());
+    random_shuffle(active_ids.begin(), active_ids.end());
+    random_shuffle(prices.begin(), prices.end());
+    random_shuffle(sizes.begin(), sizes.end());
+    random_shuffle(buy_sells.begin(), buy_sells.end());
+    random_shuffle(order_types.begin(), order_types.end());
 
-    auto start = std::chrono::steady_clock::now();
+    auto start = chrono::steady_clock::now();
     for(int i = 0; i <n; ++i){
         switch( order_types[i] ){
         id = active_ids[i];
@@ -125,14 +128,14 @@ TEST_n_replaces(FullInterface *ob, int n)
                                               prices[i], sizes[i] );
             break;
         default:
-            throw std::runtime_error("invalid order type");
+            throw runtime_error("invalid order type");
         }
         if( !id ){
-            throw std::runtime_error("insert limit failed");
+            throw runtime_error("insert " + order_types[i] + " failed");
         }
     }
-    auto end = std::chrono::steady_clock::now();
-    std::chrono::duration<double> sec = end - start;
+    auto end = chrono::steady_clock::now();
+    chrono::duration<double> sec = end - start;
     return sec.count();
 }
 

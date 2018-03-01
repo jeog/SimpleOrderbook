@@ -18,51 +18,40 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #ifdef RUN_PERFORMANCE_TESTS
 
-#include <chrono>
-#include <ratio>
-#include <random>
+#include <functional>
+#include <map>
 #include <string>
-#include <iomanip>
-#include <iostream>
-#include <fstream>
+#include <vector>
 #include <tuple>
-#include <cstdlib>
-#include <set>
+#include <exception>
+#include <iostream>
+#include <iomanip>
+#include <future>
 
 namespace {
 
-typedef std::function<double(sob::FullInterface*,int)> test_ty;
+using namespace std;
+using namespace sob;
 
-typedef std::tuple<double, double> proxy_args_ty;
-typedef std::tuple< int,
-                    const sob::DefaultFactoryProxy,
-                    const std::vector<proxy_args_ty> > proxy_info_ty;
+typedef function<double(FullInterface*,int)> test_ty;
+typedef map<int, map< int, double>> exec_results_ty;
+typedef map<string, map<int, exec_results_ty> > total_results_ty;
 
-typedef std::map<int, std::map< int, double>> exec_results_ty;
-typedef std::map<std::string, std::map<int, exec_results_ty> > total_results_ty;
-
-
-const std::vector<int> NORDERS = {100, 1000, 10000, 100000, 1000000};
+const vector<int> NORDERS = {100, 1000, 10000, 100000, 1000000};
 const int NRUNS = 15;
 const int NTHREADS = 3;
 
-
-const std::vector<proxy_info_ty>
+const vector<proxy_info_ty>
 proxies = {
-    { std::make_tuple(
-         100,
-         sob::SimpleOrderbook::BuildFactoryProxy<sob::hundredth_tick>(),
-         std::vector<proxy_args_ty>{
-            std::make_tuple(.0, 1.0),
-            std::make_tuple(.0, 10.0),
-            std::make_tuple(.0, 100.0),
-            std::make_tuple(.0, 1000.0),
-            std::make_tuple(.0, 10000.0) }
-        )
-    },
+    make_proxy_info<100>( {make_tuple(.0, 1.0),
+                           make_tuple(.0, 10.0),
+                           make_tuple(.0, 100.0),
+                           make_tuple(.0, 1000.0),
+                           make_tuple(.0, 10000.0)}
+    )
 };
 
-const std::vector< std::pair<std::string, const test_ty> >
+const vector< pair<string, const test_ty> >
 tests = {
         {"n_limits", TEST_n_limits},
         {"n_basics", TEST_n_basics},
@@ -71,15 +60,12 @@ tests = {
 };
 
 
-int
-run_performance_tests();
-
 exec_results_ty
 exec_perf_tests(const test_ty& func, const proxy_info_ty& proxy_info);
 
 double
 exec_perf_test_async( const test_ty& func,
-                      const std::vector<sob::FullInterface*>& orderbooks,
+                      const vector<FullInterface*>& orderbooks,
                       int norders );
 
 void
@@ -88,26 +74,9 @@ display_performance_results(const total_results_ty& results);
 }; /* namespace */
 
 
-int main(int argc, char* argv[])
-{
-    using namespace std;
-
-    cout<< "*** BEGIN SIMPLEORDERBOOK PERFORMANCE TESTS ***" << endl;
-    int err = run_performance_tests();
-    if( err ){
-        cout<< endl << endl
-            << "*** " << " ERROR (" << err << ") ***" << endl
-            << "*** " << " ERROR (" << err << ") ***" << endl
-            << "*** " << " ERROR (" << err << ") ***" << endl
-            << endl << endl;
-        return err;
-    }
-    cout<< "*** END SIMPLEORDERBOOK PERFORMANCE TESTS ***" << endl;
-    return 0;
-}
-
-
-namespace{
+const categories_ty performance_categories = {
+        {"PERFORMANCE", run_performance_tests},
+};
 
 int
 run_performance_tests()
@@ -125,8 +94,13 @@ run_performance_tests()
 
         for( auto& proxy_info : proxies ){
             int proxy_denom = get<0>(proxy_info);
-            results[test_name][proxy_denom] =
-                    exec_perf_tests(test_func, proxy_info);
+            try{
+                results[test_name][proxy_denom] =
+                        exec_perf_tests(test_func, proxy_info);
+            }catch(std::exception& e){
+                cerr<< e.what() << endl;
+                return 1;
+            }
         }
         cout<< "** END PERFORMANCE TEST - " << test.first << " **" << endl;
     }
@@ -141,12 +115,11 @@ run_performance_tests()
 }
 
 
+namespace{
+
 exec_results_ty
 exec_perf_tests(const test_ty& func, const proxy_info_ty& proxy_info)
 {
-    using namespace sob;
-    using namespace std;
-
     vector<FullInterface*> orderbooks;
     exec_results_ty results;
 
@@ -180,12 +153,9 @@ exec_perf_tests(const test_ty& func, const proxy_info_ty& proxy_info)
 
 double
 exec_perf_test_async( const test_ty& func,
-                      const std::vector<sob::FullInterface*>& orderbooks,
+                      const vector<FullInterface*>& orderbooks,
                       int norders )
 {
-    using namespace sob;
-    using namespace std;
-
     double time_total = 0;
     for( int i = 0; i < NRUNS; ){
         vector<future<double>> futs;
@@ -214,8 +184,6 @@ exec_perf_test_async( const test_ty& func,
 void
 display_performance_results(const total_results_ty& results)
 {
-    using namespace std;
-
     const size_t CW = 10;
     const size_t WTOTAL = (NORDERS.size() + 1) * 10 + 2;
     const string LPAD(CW, ' ');
