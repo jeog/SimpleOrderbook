@@ -53,7 +53,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #define RUN_NO_TESTS
 #endif
 
-#if defined(RUN_FUNCTIONAL_TESTS) || defined(RUN_PERFORMANCE_TESTS)
+#ifndef RUN_NO_TESTS
 #include <vector>
 #include <string>
 #include <functional>

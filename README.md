@@ -53,7 +53,7 @@ The effect of advanced orders on all this is currently unknown.
 - use orderbooks of 1/100 TickRatio of varying sizes
 - average 15 seperate runs of each test using 3 async threads on quad-core 3GHz
 
-##### limit order tests
+##### limit insert/execute tests
 
 - prices are distributed normally around the mid-point w/ a SD 5% of the range
 - order sizes are distributed log-normally * 200 (Gibrat's distribution)
@@ -73,7 +73,7 @@ The effect of advanced orders on all this is currently unknown.
           1000000  | 0.111391  0.123336  0.749582  6.548299  54.941044 
 ```
 
-##### limit-market-stop order tests 
+##### limit-market-stop insert/execute tests 
 
 - n orders: 40% limits, 20% markets, 20% stops, 20% stop-limits
 - prices are distributed normally around the mid-point w/ a SD 5% of the range
@@ -85,13 +85,14 @@ The effect of advanced orders on all this is currently unknown.
 
                                   number of orders
 
-                    | 100       1000      10000     100000    1000000   
-           ---------|----------------------------------------------------
-           100      | 0.078109  0.037642  0.327290  2.733742  25.651184 
- book      1000     | 0.004829  0.041559  0.308936  2.922551  25.777793 
- size      10000    | 0.007302  0.071191  0.457302  4.519175  39.826512 
-(ticks)    100000   | 0.018162  0.154411  1.435792  14.013720 137.937090
-           1000000  | 0.133269  0.937834  9.102124  88.924342 865.178036
+                     | 100       1000      10000     100000    1000000   
+           ----------|---------------------------------------------------
+           100       | 0.080961  0.024926  0.105564  0.628655  6.689639  
+ book      1000      | 0.005010  0.012864  0.102578  0.731523  7.943568  
+ size      10000     | 0.009163  0.025979  0.189808  2.969369  40.821409 
+(nticks)   100000    | 0.028511  0.154295  1.395979  13.595632 134.985267
+           1000000   | 0.124991  0.932704  9.051801  87.083653 803.292552
+
 ```
 
 ##### pull tests
@@ -103,7 +104,7 @@ The effect of advanced orders on all this is currently unknown.
     - buy/sell for limits is dependent on price relative to mid-point (NO TRADES)
     - buy/sell condition for stops from a simple .50 benoulli
 - ids are randomly shuffled
-- loop through and remove each id
+- loop through ids and pull each order
 
 ```
                               total run-time (seconds)
@@ -118,6 +119,33 @@ The effect of advanced orders on all this is currently unknown.
 (ticks)   100000   | 0.005768  0.032059  0.286232  2.277516  22.304643 
           1000000  | 0.017245  0.051085  0.223735  2.500732  21.855382 
 ```
+
+##### replace tests
+
+- n orders are inserted, ids are stored
+    - 50% limits, 25% stops, 25% stop-limits
+    - prices are distributed normally around the mid-point w/ a SD 5% of the range
+    - order sizes are distributed log-normally * 200 (Gibrat's distribution) 
+    - buy/sell for limits is dependent on price relative to mid-point (NO TRADES)
+    - buy/sell condition for stops from a simple .50 benoulli
+- ids are randomly shuffled
+- prices, sizes, order-types, and stop buy/sell conditions are randomly shuffled
+- loop through ids and replace each order w/ a new one using shuffled paramaters
+
+```
+                              total run-time (seconds)
+
+                                 number of orders
+
+                    | 100       1000      10000     100000    1000000   
+          ----------|---------------------------------------------------
+          100       | 0.006674  0.061500  0.967072  58.781692 2734.051533
+ book     1000      | 0.004304  0.073134  0.732614  9.427554  739.328514
+ size     10000     | 0.004156  0.084600  0.489680  5.946597  101.958501
+(nticks)  100000    | 0.003232  0.051590  0.615821  4.959309  48.252919 
+          1000000   | 0.003170  0.073187  0.592255  5.396056  43.466088 
+```
+
 
 #### Getting Started
 

@@ -19,6 +19,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <structmember.h>
 #include <sstream>
 #include <iomanip>
+#include <chrono>
 
 #include "../../include/common.hpp"
 #include "../../include/simpleorderbook.hpp"
@@ -1163,6 +1164,11 @@ PyInit_simpleorderbook(void)
     set_const_attributes(mod, CALLBACK_MESSAGES);
     set_const_attributes(mod, SIDES_OF_MARKET);
     register_atexit_callee();
+
+    /* build datetime */
+    std::string dt = std::string(__DATE__) + " " + std::string(__TIME__);
+    PyObject_SetAttrString( mod, "_BUILD_DATETIME",
+            Py_BuildValue("s", dt.c_str()) );
 
     PyEval_InitThreads();
     return mod;

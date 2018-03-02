@@ -20,7 +20,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 namespace{
 
-#if defined(RUN_FUNCTIONAL_TESTS) || defined(RUN_PERFORMANCE_TESTS)
+#ifndef RUN_NO_TESTS
 int
 run(std::string name, const categories_ty& categories)
 {
