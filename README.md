@@ -53,6 +53,12 @@ The effect of advanced orders on all this is currently unknown.
 - use orderbooks of 1/100 TickRatio of varying sizes
 - average 15 seperate runs of each test using 3 async threads on quad-core 3GHz
 
+```
+    user@host:/usr/local/SimpleOrderbook/Release$ make all
+    user@host:/usr/local/SimpleOrderbook/Release-Test$ make all
+    user@host:/usr/local/SimpleOrderbook/Release-Test$ ./SimpleOrderbookPerformanceTest
+```
+
 ##### limit insert/execute tests
 
 - prices are distributed normally around the mid-point w/ a SD 5% of the range
@@ -146,20 +152,38 @@ The effect of advanced orders on all this is currently unknown.
           1000000   | 0.003170  0.073187  0.592255  5.396056  43.466088 
 ```
 
+#### Functional Tests
+
+```
+    user@host:/usr/local/SimpleOrderbook/Debug$ make all
+    user@host:/usr/local/SimpleOrderbook/Debug-Test$ make all
+    user@host:/usr/local/SimpleOrderbook/Debug-Test$ ./SimpleOrderbookFunctionalTest
+```
 
 #### Getting Started
 
-- **C++** 
+##### C++
 
-        user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -Iinclude -lpthread src/simpleorderbook.cpp src/advanced_order.cpp samples/example_code.cpp -o example_code.out
-        user@host:/usr/local/SimpleOrderbook$ ./example_code.out  
+1. Build the static library.
+2. Include simpleorderbook.hpp and link w/ library.
 
-- **python**
+```
+    user@host:/usr/local/SimpleOrderbook/Release$ make all
+    user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -Iinclude -lpthread samples/example_code.cpp Release/libSimpleOrderbook.a -o example_code.out
+    user@host:/usr/local/SimpleOrderbook$ ./example_code.out  
+```
 
-        user@host:/usr/local/SimpleOrderbook/python$ python setup.py install
-        user@host:/usr/local/SimpleOrderbook/python$ python
-        >>> import simpleorderbook           
+##### **python**
 
+1. Build the static library.
+2. Run the setup script.
+
+```
+    user@host:/usr/local/SimpleOrderbook/Release$ make all
+    user@host:/usr/local/SimpleOrderbook/python$ python setup.py install
+    user@host:/usr/local/SimpleOrderbook/python$ python
+    >>> import simpleorderbook           
+```
 #### Examples
  
         // example_code.cpp

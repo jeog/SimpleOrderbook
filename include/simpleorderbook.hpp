@@ -41,6 +41,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <tuple>
 #include <unordered_map>
 #include <cstddef>
+#include <type_traits>
 
 #include "interfaces.hpp"
 #include "resource_manager.hpp"

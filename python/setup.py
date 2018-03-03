@@ -15,32 +15,40 @@
 # along with this program. If not, see http://www.gnu.org/licenses. 
 #
 
-from distutils.core import setup,Extension
+from distutils.core import setup, Extension
 
-cpp_sources = [
-    "../src/simpleorderbook.cpp",
-    "../src/advanced_order.cpp",
+NAME = 'simpleorderbook'
+
+setup_dict = {
+    "name":NAME,
+    "version":'0.4',
+    "description": "financial-market orderbook and matching engine",
+    "author":"Jonathon Ogden",
+    "author_email":"jeog.dev@gmail.com"
+} 
+
+_cpp_sources = [
     "src/simpleorderbook_py.cpp",
     "src/callback_py.cpp", 
     "src/argparse_py.cpp"
 ]
 
-_setup_dict = {
-    "name":'simpleorderbook',
-    "version":'0.4',
-    "description": "financial-market orderbook and matching engine",
-    "author":"Jonathon Ogden",
-    "author_email":"jeog.dev@gmail.com"
-}   
+_cpp_includes = [
+    "../include", 
+    "./include"
+]
 
-_cpp_ext = Extension(
-    "simpleorderbook",
-    sources = cpp_sources,
-    include_dirs = ["../include, ./include"],
-    extra_compile_args=["-fPIC","-std=c++11"] #, "-g", "-O0"]
- )
+cpp_ext = Extension(
+    NAME,
+    sources = _cpp_sources,
+    include_dirs = _cpp_includes,
+    libraries=['SimpleOrderbook'],
+    library_dirs=["../Release"],
+    extra_compile_args=["-std=c++11"],    
+    undef_macros=["NDEBUG"], #internal DEBUG/NDEBUG checks should handle this
+)
 
-setup( ext_modules=[_cpp_ext], **_setup_dict )    
+if __name__ == '__main__':
+    setup( ext_modules=[cpp_ext], **setup_dict )    
 
-
-    
+   

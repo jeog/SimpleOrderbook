@@ -1140,6 +1140,11 @@ set_const_attributes(PyObject *mod, const std::map<int, T>& m)
     }
 }
 
+#ifdef DEBUG
+const bool is_debug_build = 1;
+#else
+const bool is_debug_build = 0;
+#endif /* DEBUG */
 
 }; /* namespace */
 
@@ -1169,6 +1174,10 @@ PyInit_simpleorderbook(void)
     std::string dt = std::string(__DATE__) + " " + std::string(__TIME__);
     PyObject_SetAttrString( mod, "_BUILD_DATETIME",
             Py_BuildValue("s", dt.c_str()) );
+
+    /* is debug build */
+    PyObject_SetAttrString( mod, "_BUILD_IS_DEBUG",
+            is_debug_build ? Py_True : Py_False );
 
     PyEval_InitThreads();
     return mod;
