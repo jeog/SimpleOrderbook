@@ -43,7 +43,7 @@ cpp_ext = Extension(
     sources = _cpp_sources,
     include_dirs = _cpp_includes,
     libraries=['SimpleOrderbook'],
-    library_dirs=["../Release"],
+    library_dirs=["../bin/release"],
     extra_compile_args=["-std=c++11"],    
     undef_macros=["NDEBUG"], #internal DEBUG/NDEBUG checks should handle this
 )

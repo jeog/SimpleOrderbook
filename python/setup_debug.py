@@ -21,7 +21,7 @@ import setup as _setup
 _setup.setup_dict['version'] += " (DEBUG)"
 _setup.setup_dict['description'] += " (DEBUG)"
 
-_setup.cpp_ext.library_dirs = ["../Debug"]
+_setup.cpp_ext.library_dirs = ["../bin/debug"]
 _setup.cpp_ext.extra_compile_args += ["-O0"]
 _setup.cpp_ext.define_macros = [("DEBUG",None)]
 

@@ -6,7 +6,7 @@ SimpleOrderbook is a C++(11) financial market orderbook and matching engine with
 #### Features 
 
 - market, limit, stop-market, and stop-limit order types
-- advanced orders/conditions: ***IN DEVELOPMENT (NOT STABLE)***
+- advanced orders/conditions: ***(IN DEVELOPMENT)***
     - one-cancels-other (OCO) 
     - one-triggers-other (OTO)
     - fill-or-kill (FOK)
@@ -14,7 +14,7 @@ SimpleOrderbook is a C++(11) financial market orderbook and matching engine with
     - trailing stop 
     - bracket /w trailing stop
     - all-or-none (AON) ***(not available yet)***
-- advanced condition triggers: ***IN DEVELOPMENT (NOT STABLE)***
+- advanced condition triggers: ***(IN DEVELOPMENT)***
     - fill-partial 
     - fill-full 
     - fill-n-percent ***(not available yet)***
@@ -52,11 +52,9 @@ The effect of advanced orders on all this is currently unknown.
 
 - use orderbooks of 1/100 TickRatio of varying sizes
 - average 15 seperate runs of each test using 3 async threads on quad-core 3GHz
-
-```
-    user@host:/usr/local/SimpleOrderbook/Release$ make all
-    user@host:/usr/local/SimpleOrderbook/Release-Test$ make all
-    user@host:/usr/local/SimpleOrderbook/Release-Test$ ./SimpleOrderbookPerformanceTest
+```    
+    user@host:/usr/local/SimpleOrderbook$ make performance-test
+    user@host:/usr/local/SimpleOrderbook$ bin/release/PerformanceTest
 ```
 
 ##### limit insert/execute tests
@@ -154,36 +152,69 @@ The effect of advanced orders on all this is currently unknown.
 
 #### Functional Tests
 
-```
-    user@host:/usr/local/SimpleOrderbook/Debug$ make all
-    user@host:/usr/local/SimpleOrderbook/Debug-Test$ make all
-    user@host:/usr/local/SimpleOrderbook/Debug-Test$ ./SimpleOrderbookFunctionalTest
-```
+    user@host:/usr/local/SimpleOrderbook$ make functional-test
+    user@host:/usr/local/SimpleOrderbook$ bin/debug/FunctionalTest #debug for asserts
+
+    *** BEGIN SIMPLEORDERBOOK FUNCTIONAL TESTS ***
+    
+    ...
+
+    SUCCESS
+
+    *** END SIMPLEORDERBOOK FUNCTIONAL TESTS ***
+
 
 #### Getting Started
 
 ##### C++
 
-1. Build the static library.
+1. Build the library.
 2. Include simpleorderbook.hpp and link w/ library.
-
 ```
-    user@host:/usr/local/SimpleOrderbook/Release$ make all
-    user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -Iinclude -lpthread samples/example_code.cpp Release/libSimpleOrderbook.a -o example_code.out
+    user@host:/usr/local/SimpleOrderbook$ make release
+    user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -Iinclude -lpthread samples/example_code.cpp bin/release/libSimpleOrderbook.a -o example_code.out
     user@host:/usr/local/SimpleOrderbook$ ./example_code.out  
 ```
 
-##### **python**
+##### Python
 
-1. Build the static library.
+1. Build the library.
 2. Run the setup script.
-
 ```
-    user@host:/usr/local/SimpleOrderbook/Release$ make all
+    user@host:/usr/local/SimpleOrderbook$ make release
     user@host:/usr/local/SimpleOrderbook/python$ python setup.py install
     user@host:/usr/local/SimpleOrderbook/python$ python
     >>> import simpleorderbook           
 ```
+
+#### Debug
+
+##### C++
+
+    user@host:/usr/local/SimpleOrderbook$ make debug
+    user@host:/usr/local/SimpleOrderbook$ g++ -g -O0 --std=c++11 -Iinclude -lpthread samples/example_code.cpp bin/debug/libSimpleOrderbook.a -o example_code.out
+    user@host:/usr/local/SimpleOrderbook$ gdb example_code.out  
+
+##### Python/C
+
+    TERMINAL #1
+    user@host:/usr/local/SimpleOrderbook$ make debug 
+    user@host:/usr/local/SimpleOrderbook/python$ python setup_debug.py install
+    user@host:/usr/local/SimpleOrderbook$ python 
+    >>> import simpleorderbook as sob
+    >>> import os
+    >>> os.getpid()
+    33333
+    ...
+    >>> ob = sob.SimpleOrderbook(sob.SOB_QUARTER_TICK,1,100)
+
+    TERMINAL #2
+    user@host:/usr/local/SimpleOrderbook$ gdb -p 33333
+    (gdb)b sob::SimpleOrderbook::SimpleOrderbookImpl<std::ratio<1l,4l>>::create  
+    (gdb)c
+    Continuing.
+    ...
+
 #### Examples
  
         // example_code.cpp
