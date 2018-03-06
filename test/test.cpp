@@ -15,6 +15,8 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see http://www.gnu.org/licenses.
 */
 
+#include <iostream>
+
 #include "functional/functional.hpp"
 #include "performance/performance.hpp"
 
@@ -47,7 +49,6 @@ run(std::string name, const categories_ty& categories)
 
 int main(int argc, char* argv[])
 {
-    using namespace std;
     int err = 0;
 
 #ifdef RUN_FUNCTIONAL_TESTS
@@ -65,7 +66,7 @@ int main(int argc, char* argv[])
 #endif /* RUN_PERFORMANCE_TESTS */
 
 #ifdef RUN_NO_TESTS
-    cout<< "*** NOT RUNNING ANY TESTS ***" << endl;
+    std::cout<< "*** NOT RUNNING ANY TESTS ***" << std::endl;
 #endif
 
     return err;

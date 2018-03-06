@@ -23,6 +23,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #define NDEBUG
 #endif
 
+#if !defined(RUN_FUNCTIONAL_TESTS) && !defined(RUN_PERFORMANCE_TESTS)
 /*
  * DEFAULT BEHAVIOR:
  *
@@ -34,8 +35,9 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #else
 #define RUN_PERFORMANCE_TESTS
 #endif
+#endif
 
-//#define RUN_ALL_TESTS /* DEBUG */
+/* NOTE: we can have both tests defined AND RUN_ALL_TESTS not defined */
 
 /* override default behavior */
 #ifdef RUN_ALL_TESTS
@@ -47,9 +49,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #ifdef RUN_NO_TESTS
 #undef RUN_FUNCTIONAL_TESTS
 #undef RUN_PERFORMANCE_TESTS
-#endif
-
-#if !defined(RUN_FUNCTIONAL_TESTS) && !defined(RUN_PERFORMANCE_TESTS)
+#elif !defined(RUN_FUNCTIONAL_TESTS) && !defined(RUN_PERFORMANCE_TESTS)
 #define RUN_NO_TESTS
 #endif
 
