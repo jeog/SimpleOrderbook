@@ -55,6 +55,7 @@ The effect of advanced orders on all this is currently unknown.
 ```    
     user@host:/usr/local/SimpleOrderbook$ make performance-test
     user@host:/usr/local/SimpleOrderbook$ bin/release/PerformanceTest
+    ...
 ```
 
 ##### limit insert/execute tests
