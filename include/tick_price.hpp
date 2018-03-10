@@ -19,19 +19,38 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #define JO_SOB_TICK_PRICE
 
 #include <ratio>
-#include <cmath>
 #include <limits>
+
+namespace tp {
+
+#ifdef _MSC_VER
+#include "cx_math.h"
+    using namespace cx;
+#else
+#include <cmath>
+    using std::pow;
+    using std::log10;
+    using std::round;
+#endif /* _MSC_VER */
 
 template< typename T>
 constexpr T const&
-max(T const& a, T const& b )
-{ return (a > b) ? a : b; };
+max(T const& a, T const& b)
+{ return (a > b) ? a : b; }
+
+template<typename TickRatio>
+struct round_precision {
+    static constexpr int value = max(
+        5, static_cast<int>(tp::round(tp::log10(TickRatio::den / TickRatio::num)))
+    );
+};
+
+}; /* tp */
+
 
 template< typename TickRatio,
-          double(*RoundFunction)(double) = round,
-          unsigned long RoundPrecision = max(
-              5, static_cast<int>(round(log10(TickRatio::den / TickRatio::num)))
-              ) >
+          double(*RoundFunction)(double) = tp::round,
+          unsigned long RoundPrecision = tp::round_precision<TickRatio>::value >
 class TickPrice{
     /* only accept ratio between 1/1 and 1/1000000, inclusive */
     static_assert(!std::ratio_greater<TickRatio,std::ratio<1,1>>::value,
@@ -46,7 +65,7 @@ class TickPrice{
     /* don't let precision overflow 'radj' (9 == floor(log10(pow(2,31)))*/
     static_assert(RoundPrecision <= 9, "RoundPrecision > 9");
     static_assert(RoundPrecision >= 0, "RoundPrecision < 0");
-    static constexpr long radj = pow(10,RoundPrecision);
+    static constexpr long radj = tp::round(tp::pow(10, RoundPrecision));
 
     long _n_whole;
     long _n_ticks;
@@ -70,7 +89,7 @@ public:
                   "ticks_per_unit > LONG_MAX");
 
     /* be sure precision is large enough for tick size */
-    static_assert( RoundPrecision >= round(log10(ticks_per_unit)),
+    static_assert( RoundPrecision >= tp::round(tp::log10(ticks_per_unit)),
                    "RoundPrecision not large enough for this ratio");
 
     TickPrice(long whole, long ticks)
@@ -95,7 +114,7 @@ public:
     explicit TickPrice(double r)
         :
             _n_whole( static_cast<long>(r) - static_cast<long>(r < 0) ),
-            _n_ticks( RoundFunction((r - _n_whole) * ticks_per_unit) )
+            _n_ticks( static_cast<long>(RoundFunction((r - _n_whole) * ticks_per_unit)) )
         {
             if( _n_ticks == ticks_per_unit ){
                 ++_n_whole;

@@ -108,12 +108,12 @@ TEST_advanced_OTO_1(sob::FullInterface *orderbook)
     orderbook->dump_sell_limits();
 
     double bp = orderbook->bid_price();
-    double tbp = orderbook->total_bid_size();
-    double tap = orderbook->total_ask_size();
+    size_t tbp = orderbook->total_bid_size();
+    size_t tap = orderbook->total_ask_size();
     double ap = orderbook->ask_price();
-    double bs = orderbook->bid_size();
-    double as = orderbook->ask_size();
-    double vol = orderbook->volume();
+    size_t bs = orderbook->bid_size();
+    size_t as = orderbook->ask_size();
+    unsigned long long vol = orderbook->volume();
 
     if( bp != 0 ){
         return 4;
@@ -235,11 +235,11 @@ TEST_advanced_OTO_2(sob::FullInterface *orderbook)
     orderbook->dump_buy_stops();
     orderbook->dump_sell_stops();
 
-    double tbs = orderbook->total_bid_size();
-    double tas = orderbook->total_ask_size();
-    double bs = orderbook->bid_size();
-    double as = orderbook->ask_size();
-    double vol = orderbook->volume();
+    size_t tbs = orderbook->total_bid_size();
+    size_t tas = orderbook->total_ask_size();
+    size_t bs = orderbook->bid_size();
+    size_t as = orderbook->ask_size();
+    unsigned long long vol = orderbook->volume();
 
     if( bs != 700 ){
         return 1;

@@ -17,8 +17,6 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #include <iomanip>
 
-#include "../../include/simpleorderbook.hpp"
-
 #define SOB_TEMPLATE template<typename TickRatio>
 #define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio>
 
@@ -330,30 +328,32 @@ SOB_CLASS::is_valid_price(double price) const
 
 SOB_TEMPLATE
 FullInterface*
-SOB_CLASS::create( TickPrice<TickRatio> min, TickPrice<TickRatio> max )
+SOB_CLASS::create(TickPrice<TickRatio> min, TickPrice<TickRatio> max)
 {
-    if( min < 0 || min > max ){
+    if (min < 0 || min > max) {
         throw std::invalid_argument("min < 0 || min > max");
     }
-    if( min == 0 ){
-       ++min; /* note: we adjust w/o client knowing */
+    if (min == 0) {
+        ++min; /* note: we adjust w/o client knowing */
     }
 
     // make inclusive
     size_t incr = static_cast<size_t>((max - min).as_ticks()) + 1;
-    if( incr < 3 ){
+    if (incr < 3) {
         throw std::invalid_argument("need at least 3 ticks");
     }
 
     FullInterface *tmp = new SimpleOrderbookImpl(min, incr);
-    if( tmp ){
-        if( !rmanager.add(tmp, master_rmanager) ){
+    if (tmp) {
+        if (!rmanager.add(tmp, master_rmanager)) {
             delete tmp;
             throw std::runtime_error("failed to add orderbook");
         }
     }
     return tmp;
 }
+
+
 
 };
 

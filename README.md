@@ -19,7 +19,7 @@ SimpleOrderbook is a C++(11) financial market orderbook and matching engine with
     - fill-full 
     - fill-n-percent ***(not available yet)***
 - cancel/replace orders by ID
-- user-defined callbacks on order execution/cancelation/advanced triggers etc.
+- callbacks on order execution/cancelation/advanced triggers etc.
 - query market state(bid size, volume etc.), dump orders to stdout, view Time & Sales 
 - extensible backend resource management(global and type-specific) via factory proxies 
 - tick sizing/rounding/math handled implicity by TickPrice\<std::ratio\> objects
@@ -43,15 +43,122 @@ The vector contains pairs of doubly-linked lists ('chains') which allows:
 
 Orders are referenced by ID #s that are generated sequentially and cached - with their respective price level and chain type - in an unordered_map (hash table) allowing for:
 - collision-free O(C) lookup from the cache and O(N) lookup from the chain, so
-- worst case pull/remove (every order is at 1 price level) O(N) compexity viz-a-viz # of active orders
-- best case pull/remove (no more than 1 order at each price level) O(C) complexity viz-a-viz # of active orders
+- worst case pull/remove (every order is at 1 price level) O(N) 
+- best case pull/remove (no more than 1 order at each price level) O(C) 
+
+See 'Performance Tests' section below for run times. 
 
 The effect of advanced orders on all this is currently unknown.
+
+
+#### Build
+
+The only necessary thing to build is the SimpleOrderbook static library. The functional and performance tests are optional.
+
+##### Linux/Unix/OS X
+```
+user@host:/usr/local/SimpleOrderbook$ make release #release build of lib 
+user@host:/usr/local/SimpleOrderbook$ make debug #debug build of lib
+user@host:/usr/local/SimpleOrderbook$ make functional-test #debug build of functional tests (depends on lib)
+user@host:/usr/local/SimpleOrderbook$ make performance-test #release build of performance tests (depends on lib)
+user@host:/usr/local/SimpleOrderbook$ make all #all of the above
+```
+
+##### Windows
+
+Use the VisualStudio solution in /vsbuild. You only need to build the SimpleOrderbook project but it's recommended to build the entire solution:
+
+1. file -> open -> Project/Solution -> SimpleOrderbook/vsbuild/vsbuild.sln
+2. select configuration to build (Release vs. Debug, Win32 vs. x64): 
+    - Build -> Configuration Manager
+    - Debug recommended for FunctionalTest (includes internal asserts)
+    - Release recommended for PerformanceTest   
+3. Build -> Build Solution
+
+
+#### Functional Tests(Optional)
+
+Crude tests of various functionalities. If anything (unexpectedly) fails please report: 
+- The header of each test (text between the '\*\*'s)
+- The error code returned
+- The system/architecture used
+- Any custom compiler options or changes to source 
+
+```
+    user@host:/usr/local/SimpleOrderbook$ make functional-test
+    user@host:/usr/local/SimpleOrderbook$ bin/debug/FunctionalTest 
+
+    *** BEGIN SIMPLEORDERBOOK FUNCTIONAL TESTS ***
+    ...
+    ** BEGIN - Test_basic_orders_1 - 1/4 - 0-10 **
+    ** END - Test_basic_orders_1 - 1/4 - 0-10 **
+    SUCCESS
+    ...
+
+    SUCCESS
+
+    *** END SIMPLEORDERBOOK FUNCTIONAL TESTS ***
+```
+
+Windows: FunctionalTest.exe in bin/debug/{platform}/ if you followed build recomendations above.
+
+
+#### Getting Started
+
+##### C++
+
+Include simpleorderbook.hpp and link w/ library.
+```
+    user@host:/usr/local/SimpleOrderbook$ make release
+    user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -Iinclude -lpthread samples/example_code.cpp bin/release/libSimpleOrderbook.a -o example_code.out
+    user@host:/usr/local/SimpleOrderbook$ ./example_code.out  
+```
+
+##### Python
+
+Run the setup script.
+```
+    user@host:/usr/local/SimpleOrderbook$ make release
+    user@host:/usr/local/SimpleOrderbook/python$ python setup.py install
+    user@host:/usr/local/SimpleOrderbook/python$ python
+    >>> import simpleorderbook           
+```
+
+#### Debug
+
+##### C++
+
+    user@host:/usr/local/SimpleOrderbook$ make debug
+    user@host:/usr/local/SimpleOrderbook$ g++ -g -O0 --std=c++11 -Iinclude -lpthread samples/example_code.cpp bin/debug/libSimpleOrderbook.a -o example_code.out
+    user@host:/usr/local/SimpleOrderbook$ gdb example_code.out  
+
+##### Python/C
+
+    TERMINAL #1
+    user@host:/usr/local/SimpleOrderbook$ make debug 
+    user@host:/usr/local/SimpleOrderbook/python$ python setup_debug.py install
+    user@host:/usr/local/SimpleOrderbook$ python 
+    >>> import simpleorderbook as sob
+    >>> import os
+    >>> os.getpid()
+    33333
+    ...
+    >>> ob = sob.SimpleOrderbook(sob.SOB_QUARTER_TICK,1,100)
+
+    TERMINAL #2
+    user@host:/usr/local/SimpleOrderbook$ gdb -p 33333
+    (gdb)b sob::SimpleOrderbook::SimpleOrderbookImpl<std::ratio<1l,4l>>::create  
+    (gdb)c
+    Continuing.
+    ...
+
 
 #### Performance Tests
 
 - use orderbooks of 1/100 TickRatio of varying sizes
-- average 15 seperate runs of each test using 3 async threads on quad-core 3GHz
+- average 15 seperate runs of each test using 3 threads on quad-core 3GHz
+- output is TOTAL run time, NOT per order
+- some of the tests take a while (edit test/performance.cpp to change)
 ```    
     user@host:/usr/local/SimpleOrderbook$ make performance-test
     user@host:/usr/local/SimpleOrderbook$ bin/release/PerformanceTest
@@ -151,70 +258,6 @@ The effect of advanced orders on all this is currently unknown.
           1000000   | 0.003170  0.073187  0.592255  5.396056  43.466088 
 ```
 
-#### Functional Tests
-
-    user@host:/usr/local/SimpleOrderbook$ make functional-test
-    user@host:/usr/local/SimpleOrderbook$ bin/debug/FunctionalTest #debug for asserts
-
-    *** BEGIN SIMPLEORDERBOOK FUNCTIONAL TESTS ***
-    
-    ...
-
-    SUCCESS
-
-    *** END SIMPLEORDERBOOK FUNCTIONAL TESTS ***
-
-
-#### Getting Started
-
-##### C++
-
-1. Build the library.
-2. Include simpleorderbook.hpp and link w/ library.
-```
-    user@host:/usr/local/SimpleOrderbook$ make release
-    user@host:/usr/local/SimpleOrderbook$ g++ --std=c++11 -Iinclude -lpthread samples/example_code.cpp bin/release/libSimpleOrderbook.a -o example_code.out
-    user@host:/usr/local/SimpleOrderbook$ ./example_code.out  
-```
-
-##### Python
-
-1. Build the library.
-2. Run the setup script.
-```
-    user@host:/usr/local/SimpleOrderbook$ make release
-    user@host:/usr/local/SimpleOrderbook/python$ python setup.py install
-    user@host:/usr/local/SimpleOrderbook/python$ python
-    >>> import simpleorderbook           
-```
-
-#### Debug
-
-##### C++
-
-    user@host:/usr/local/SimpleOrderbook$ make debug
-    user@host:/usr/local/SimpleOrderbook$ g++ -g -O0 --std=c++11 -Iinclude -lpthread samples/example_code.cpp bin/debug/libSimpleOrderbook.a -o example_code.out
-    user@host:/usr/local/SimpleOrderbook$ gdb example_code.out  
-
-##### Python/C
-
-    TERMINAL #1
-    user@host:/usr/local/SimpleOrderbook$ make debug 
-    user@host:/usr/local/SimpleOrderbook/python$ python setup_debug.py install
-    user@host:/usr/local/SimpleOrderbook$ python 
-    >>> import simpleorderbook as sob
-    >>> import os
-    >>> os.getpid()
-    33333
-    ...
-    >>> ob = sob.SimpleOrderbook(sob.SOB_QUARTER_TICK,1,100)
-
-    TERMINAL #2
-    user@host:/usr/local/SimpleOrderbook$ gdb -p 33333
-    (gdb)b sob::SimpleOrderbook::SimpleOrderbookImpl<std::ratio<1l,4l>>::create  
-    (gdb)c
-    Continuing.
-    ...
 
 #### Examples
  

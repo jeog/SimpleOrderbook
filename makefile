@@ -65,14 +65,6 @@ $(foreach var, $(TEST_SUBDIRS), \
 DEBUG_SOB_TEST_OBJS = $(addprefix $(DEBUG_BUILD_DIR)/, $(SOB_TEST_OBJS))
 RELEASE_SOB_TEST_OBJS = $(addprefix $(RELEASE_BUILD_DIR)/, $(SOB_TEST_OBJS))
 
-# include .d files for all builds/targets
-DEPS = \
-$(patsubst %.o, %.d, $(DEBUG_SOB_LIB_OBJS)) \
-$(patsubst %.o, %.d, $(RELEASE_SOB_LIB_OBJS)) \
-$(patsubst %.o, %.d, $(DEBUG_SOB_TEST_OBJS)) \
-$(patsubst %.o, %.d, $(RELEASE_SOB_TEST_OBJS)) 
--include $(DEP)
-
 # (internal) compiler options; CXXFLAGS should be set externally
 OURFLAGS += -std=c++11 -Wall -fmessage-length=0 -ftemplate-backtrace-limit=0
 DEBUG_FLAGS := -DDEBUG -g -O0
@@ -113,7 +105,7 @@ $(DEBUG_BUILD_DIR)/$(SOB_LIB_NAME): $(DEBUG_SOB_LIB_OBJS)
 $(DEBUG_BUILD_DIR)/src/%.o : $(PROJECT_ROOT)/src/%.cpp | $(DEBUG_SOB_LIB_SUBDIRS)
 	@echo 'Building file: $<'
 	@echo 'Invoking: GCC C++ Compiler'
-	g++ $(CXXFLAGS) $(OURFLAGS) -c -fPIC -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@)" -o "$@" "$<"
+	$(CXX) $(CXXFLAGS) $(OURFLAGS) -c -fPIC -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '			
 	
@@ -131,7 +123,7 @@ $(RELEASE_BUILD_DIR)/$(SOB_LIB_NAME): $(RELEASE_SOB_LIB_OBJS)
 $(RELEASE_BUILD_DIR)/src/%.o : $(PROJECT_ROOT)/src/%.cpp | $(RELEASE_SOB_LIB_SUBDIRS)
 	@echo 'Building file: $<'
 	@echo 'Invoking: GCC C++ Compiler'
-	g++ $(CXXFLAGS) $(OURFLAGS) -c -fPIC -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@)" -o "$@" "$<"
+	$(CXX) $(CXXFLAGS) $(OURFLAGS) -c -fPIC -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 
@@ -143,14 +135,14 @@ $(DEBUG_BUILD_DIR)/FunctionalTest $(DEBUG_BUILD_DIR)/SimpleOrderbookTest : \
 $(DEBUG_SOB_TEST_OBJS) $(DEBUG_BUILD_DIR)/$(SOB_LIB_NAME)
 	@echo 'Building target: $@'
 	@echo 'Invoking: GCC C++ Linker'
-	g++ $(CXXFLAGS) $(OURFLAGS) -o "$@" $(LIBS) $(DEBUG_SOB_TEST_OBJS) $(DEBUG_BUILD_DIR)/$(SOB_LIB_NAME)
+	$(CXX) $(CXXFLAGS) $(OURFLAGS) -o "$@" $(LIBS) $(DEBUG_SOB_TEST_OBJS) $(DEBUG_BUILD_DIR)/$(SOB_LIB_NAME)
 	@echo 'Finished building target: $@'
 	@echo ' '
 
 $(DEBUG_BUILD_DIR)/test/%.o : $(PROJECT_ROOT)/test/%.cpp | $(DEBUG_TEST_SUBDIRS)
 	@echo 'Building file: $<'	
 	@echo 'Invoking: GCC C++ Compiler'
-	g++ $(CXXFLAGS) $(OURFLAGS) -c -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@)" -o "$@" "$<"
+	$(CXX) $(CXXFLAGS) $(OURFLAGS) -c -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 
@@ -162,19 +154,26 @@ $(RELEASE_BUILD_DIR)/PerformanceTest $(RELEASE_BUILD_DIR)/SimpleOrderbookTest : 
 $(RELEASE_SOB_TEST_OBJS) $(RELEASE_BUILD_DIR)/$(SOB_LIB_NAME)
 	@echo 'Building target: $@'
 	@echo 'Invoking: GCC C++ Linker'
-	g++ $(CXXFLAGS) $(OURFLAGS) -o "$@"	$(LIBS) $(RELEASE_SOB_TEST_OBJS) $(RELEASE_BUILD_DIR)/$(SOB_LIB_NAME)
+	$(CXX) $(CXXFLAGS) $(OURFLAGS) -o "$@"	$(LIBS) $(RELEASE_SOB_TEST_OBJS) $(RELEASE_BUILD_DIR)/$(SOB_LIB_NAME)
 	@echo 'Finished building target: $@'
 	@echo ' '	
 	
 $(RELEASE_BUILD_DIR)/test/%.o : $(PROJECT_ROOT)/test/%.cpp | $(RELEASE_TEST_SUBDIRS) 
 	@echo 'Building file: $<'	
 	@echo 'Invoking: GCC C++ Compiler'
-	g++ $(CXXFLAGS) $(OURFLAGS) -c -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@)" -o "$@" "$<"
+	$(CXX) $(CXXFLAGS) $(OURFLAGS) -c -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 
 $(RELEASE_TEST_SUBDIRS):	
 	mkdir -p $@	
+
+
+# include .d files for all builds/targets
+-include $(patsubst %.o, %.d, $(DEBUG_SOB_LIB_OBJS)) 
+-include $(patsubst %.o, %.d, $(RELEASE_SOB_LIB_OBJS)) 
+-include $(patsubst %.o, %.d, $(DEBUG_SOB_TEST_OBJS)) 
+-include $(patsubst %.o, %.d, $(RELEASE_SOB_TEST_OBJS))
 
 
 clean:
@@ -201,6 +200,8 @@ clean-release-test:
 .PHONY : all performance-test functional-test release debug \
          clean clean-debug clean-release clean-functional-test \
          clean-performance-test clean-debug-test clean-release-test
+
+
 
 
 	

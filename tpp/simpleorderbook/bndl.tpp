@@ -15,26 +15,26 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see http://www.gnu.org/licenses.
 */
 
-#include "../../include/simpleorderbook.hpp"
-
 #define SOB_TEMPLATE template<typename TickRatio>
 #define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio>
 
 namespace sob{
 
 SOB_TEMPLATE
-constexpr SOB_CLASS::_order_bndl::_order_bndl()
+CONSTEXPR_IF_NOT_MSCV 
+SOB_CLASS::_order_bndl::_order_bndl()
      :
         _order_bndl(0, 0, nullptr)
      {
      }
 
 SOB_TEMPLATE
-constexpr SOB_CLASS::_order_bndl::_order_bndl( id_type id,
-                                               size_t sz,
-                                               order_exec_cb_type exec_cb,
-                                               order_condition cond,
-                                               condition_trigger trigger )
+CONSTEXPR_IF_NOT_MSCV 
+SOB_CLASS::_order_bndl::_order_bndl( id_type id,
+                                     size_t sz,
+                                     order_exec_cb_type exec_cb,
+                                     order_condition cond,
+                                     condition_trigger trigger )
     :
         id(id),
         sz(sz),
@@ -224,7 +224,8 @@ SOB_CLASS::_order_bndl::~_order_bndl()
    }
 
 SOB_TEMPLATE
-constexpr SOB_CLASS::stop_bndl::stop_bndl()
+CONSTEXPR_IF_NOT_MSCV
+SOB_CLASS::stop_bndl::stop_bndl()
     :
         _order_bndl(),
         is_buy(),
@@ -233,13 +234,14 @@ constexpr SOB_CLASS::stop_bndl::stop_bndl()
     }
 
 SOB_TEMPLATE
-constexpr SOB_CLASS::stop_bndl::stop_bndl( bool is_buy,
-                                           double limit,
-                                           id_type id,
-                                           size_t sz,
-                                           order_exec_cb_type exec_cb,
-                                           order_condition cond,
-                                           condition_trigger trigger )
+CONSTEXPR_IF_NOT_MSCV
+SOB_CLASS::stop_bndl::stop_bndl( bool is_buy,
+                                 double limit,
+                                 id_type id,
+                                 size_t sz,
+                                 order_exec_cb_type exec_cb,
+                                 order_condition cond,
+                                 condition_trigger trigger )
    :
        _order_bndl(id, sz, exec_cb, cond, trigger),
        is_buy(is_buy),
@@ -290,8 +292,9 @@ SOB_CLASS::stop_bndl::operator=(stop_bndl&& bndl)
 }
 
 SOB_TEMPLATE
-constexpr SOB_CLASS::order_location::order_location(const order_queue_elem& elem,
-                                                    bool is_primary)
+CONSTEXPR_IF_NOT_MSCV
+SOB_CLASS::order_location::order_location(const order_queue_elem& elem,
+                                          bool is_primary)
     :
         is_limit_chain(elem.type == order_type::limit),
         price(is_limit_chain ? elem.limit : elem.stop),
@@ -301,10 +304,11 @@ constexpr SOB_CLASS::order_location::order_location(const order_queue_elem& elem
     }
 
 SOB_TEMPLATE
-constexpr SOB_CLASS::order_location::order_location(bool is_limit,
-                                                    double price,
-                                                    id_type id,
-                                                    bool is_primary)
+CONSTEXPR_IF_NOT_MSCV
+SOB_CLASS::order_location::order_location(bool is_limit,
+                                          double price,
+                                          id_type id,
+                                          bool is_primary)
     :
         is_limit_chain(is_limit),
         price(price),

@@ -108,9 +108,9 @@ TEST_advanced_OCO_1(sob::FullInterface *orderbook)
 
     double bp = orderbook->bid_price();
     double ap = orderbook->ask_price();
-    double bs = orderbook->bid_size();
-    double as = orderbook->ask_size();
-    double vol = orderbook->volume();
+    size_t bs = orderbook->bid_size();
+    size_t as = orderbook->ask_size();
+    unsigned long long vol = orderbook->volume();
 
     if( bp != conv(beg + (n-5) * incr) ){
         return 4;
@@ -118,7 +118,7 @@ TEST_advanced_OCO_1(sob::FullInterface *orderbook)
         return 5;
     }else if( bs != sz ){
         return 6;
-    }else if( as != static_cast<int>(sz/2) ){
+    }else if( as != static_cast<size_t>(sz/2) ){
         return 7;
     }else if( vol != static_cast<unsigned long>(sz*3.5) ){
         return 8;
@@ -262,12 +262,12 @@ TEST_advanced_OCO_2(sob::FullInterface *orderbook)
     orderbook->dump_sell_limits();
 
     double bp = orderbook->bid_price();
-    double tbp = orderbook->total_bid_size();
-    double tap = orderbook->total_ask_size();
+    size_t tbp = orderbook->total_bid_size();
+    size_t tap = orderbook->total_ask_size();
     double ap = orderbook->ask_price();
-    double bs = orderbook->bid_size();
-    double as = orderbook->ask_size();
-    double vol = orderbook->volume();
+    size_t bs = orderbook->bid_size();
+    size_t as = orderbook->ask_size();
+    unsigned long long vol = orderbook->volume();
 
     if( bp != conv(end-incr) ){
         return 5;
@@ -515,11 +515,11 @@ TEST_advanced_OCO_4(sob::FullInterface *orderbook)
     orderbook->dump_buy_stops();
     orderbook->dump_sell_stops();
 
-    double tbs = orderbook->total_bid_size();
-    double tas = orderbook->total_ask_size();
-    double bs = orderbook->bid_size();
-    double as = orderbook->ask_size();
-    double vol = orderbook->volume();
+    size_t tbs = orderbook->total_bid_size();
+    size_t tas = orderbook->total_ask_size();
+    size_t bs = orderbook->bid_size();
+    size_t as = orderbook->ask_size();
+    unsigned long long vol = orderbook->volume();
     size_t nts = orderbook->time_and_sales().size();
 
     if( bs != 0 ){

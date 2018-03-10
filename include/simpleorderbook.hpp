@@ -65,6 +65,12 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #define SOB_RESOURCE_MANAGER ResourceManager_Debug
 #endif
 
+#ifdef _MSC_VER
+#define CONSTEXPR_IF_NOT_MSCV 
+#else
+#define CONSTEXPR_IF_NOT_MSCV constexpr
+#endif /* _MSC_VER */
+
 namespace sob {
 
 /*
@@ -293,11 +299,12 @@ private:
                 size_t nticks;
             };
             operator bool() const { return sz; }
-            constexpr _order_bndl();
-            constexpr _order_bndl(id_type id, size_t sz,
-                                  order_exec_cb_type exec_cb,
-                                  order_condition cond = order_condition::none,
-                                  condition_trigger trigger = condition_trigger::none);
+            CONSTEXPR_IF_NOT_MSCV _order_bndl();
+            CONSTEXPR_IF_NOT_MSCV 
+            _order_bndl(id_type id, size_t sz,
+                        order_exec_cb_type exec_cb,
+                        order_condition cond = order_condition::none,
+                        condition_trigger trigger = condition_trigger::none);
             _order_bndl(const _order_bndl& bndl);
             _order_bndl(_order_bndl&& bndl);
             _order_bndl& operator=(const _order_bndl& bndl);
@@ -321,11 +328,12 @@ private:
                 : public _order_bndl {
             bool is_buy;
             double limit;
-            constexpr stop_bndl();
-            constexpr stop_bndl(bool is_buy, double limit, id_type id, size_t sz,
-                                order_exec_cb_type exec_cb,
-                                order_condition cond = order_condition::none,
-                                condition_trigger trigger = condition_trigger::none);
+            CONSTEXPR_IF_NOT_MSCV stop_bndl();
+            CONSTEXPR_IF_NOT_MSCV 
+            stop_bndl(bool is_buy, double limit, id_type id, size_t sz,
+                      order_exec_cb_type exec_cb,
+                      order_condition cond = order_condition::none,
+                      condition_trigger trigger = condition_trigger::none);
             stop_bndl(const stop_bndl& bndl);
             stop_bndl(stop_bndl&& bndl);
             stop_bndl& operator=(const stop_bndl& bndl);
@@ -339,10 +347,10 @@ private:
             double price;
             id_type id;
             bool is_primary;
-            constexpr order_location(const order_queue_elem& elem,
-                                     bool is_primary);
-            constexpr order_location(bool is_limit, double price, id_type id,
-                                     bool is_primary);
+            CONSTEXPR_IF_NOT_MSCV 
+            order_location(const order_queue_elem& elem, bool is_primary);
+            CONSTEXPR_IF_NOT_MSCV
+            order_location(bool is_limit, double price, id_type id, bool is_primary);
         };
 
         /* info held for each exec callback in the deferred callback vector*/
@@ -667,11 +675,11 @@ private:
 
         inline plevel
         _generate_trailing_stop(bool buy_stop, size_t nticks)
-        { return nticks ? (_last + (buy_stop ? nticks : -nticks)) : 0; }
+        { return nticks ? (_last + (buy_stop ? nticks : (nticks*-1))) : 0; }
 
         inline plevel
         _generate_trailing_limit(bool buy_limit, size_t nticks)
-        { return nticks ? (_last + (buy_limit ? -nticks : nticks)) : 0; }
+        { return nticks ? (_last + (buy_limit ? (nticks*-1) : nticks)) : 0; }
 
         /* push order onto the order queue and block until execution */
         id_type
@@ -785,13 +793,20 @@ private:
         { return _ptoi( TickPrice<TickRatio>(price)); }
 
         TickPrice<TickRatio>
-        _itop(plevel p) const;
+        _itop(plevel p) const;        
 
-        /* calculate chain_size of orders at each price level
-         * use depth ticks on each side of last  */
+        /* 
+         * calculate chain_size of orders at each price level
+         * use depth ticks on each side of last  
+         *
+         * note: need to use trailing return to make MSCV happy
+         */
         template<side_of_market Side, typename ChainTy = limit_chain_type>
-        std::map<double, typename _depth<Side>::mapped_type >
-        _market_depth(size_t depth) const;
+        auto //std::map<double, typename _depth<Side>::mapped_type >
+        _market_depth(size_t depth) const
+            -> std::map<double, typename std::conditional<Side == side_of_market::both, 
+                                                          std::pair<size_t, side_of_market>, 
+                                                          size_t>::type >;
 
         /* total size of bid or ask limits */
         template<side_of_market Side, typename ChainTy = limit_chain_type>
@@ -1179,10 +1194,10 @@ struct order_info {
 
 }; /* sob */
 
-#include "../src/simpleorderbook_tpp/util.tpp"
-#include "../src/simpleorderbook_tpp/bndl.tpp"
-#include "../src/simpleorderbook_tpp/public.tpp"
-#include "../src/simpleorderbook_tpp/core.tpp"
-#include "../src/simpleorderbook_tpp/advanced.tpp"
+#include "../tpp/simpleorderbook/util.tpp"
+#include "../tpp/simpleorderbook/bndl.tpp"
+#include "../tpp/simpleorderbook/public.tpp"
+#include "../tpp/simpleorderbook/core.tpp"
+#include "../tpp/simpleorderbook/advanced.tpp"
 
 #endif

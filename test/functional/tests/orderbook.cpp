@@ -214,7 +214,7 @@ TEST_tick_price_1()
 
     for( size_t i = 0; i < tps.size(); ++ i ){
         long w = tps[i].as_whole();
-        long t = tps[i].as_ticks();
+        long long t = tps[i].as_ticks();
         double d = static_cast<double>(tps[i]);
         if( w != wholes[i]){
             return 1;
@@ -241,7 +241,7 @@ TEST_tick_price_1()
 
     for( size_t i = 0; i < tps2.size(); ++ i ){
         long w = tps2[i].as_whole();
-        long t = tps2[i].as_ticks();
+        long long t = tps2[i].as_ticks();
         double d = static_cast<double>(tps2[i]);
         if( w != wholes[i]){
             return 4;

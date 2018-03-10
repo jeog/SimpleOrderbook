@@ -22,10 +22,11 @@ along with this program. If not, see http://www.gnu.org/licenses.
  *  The bulk of simpleorderbook is implemented via template code in:
  *
  *      include/simpleorderbook.hpp,
- *      src/simpleorderbook_tpp/bndl.tpp
- *      src/simpleorderbook_tpp/core.tpp
- *      src/simpleorderbook_tpp/public.tpp
- *      src/simpleorderbook_tpp/util.tpp
+ *      tpp/simpleorderbook/bndl.tpp
+ *      tpp/simpleorderbook/core.tpp
+ *      tpp/simpleorderbook/public.tpp
+ *      tpp/simpleorderbook/util.tpp
+ *      tpp/simpleorderbook/advanced.tpp
  *
  *  Interfaces are declared in: 
  *
@@ -170,13 +171,14 @@ to_string(const condition_trigger& ct)
     }
 }
 
-
 std::string
 to_string(const clock_type::time_point& tp)
 {
-    auto sys_tp = std::chrono::system_clock::now() + (tp - clock_type::now());
+    // TODO what are we doing here?
+    auto sys_tp = std::chrono::system_clock::now() +
+        std::chrono::duration_cast<std::chrono::microseconds>(tp - clock_type::now());
     std::time_t t = std::chrono::system_clock::to_time_t(sys_tp);
-    std::string ts = std::ctime(&t);
+    std::string ts = std::ctime(&t); 
     ts.resize(ts.size() -1);
     return ts;
 }

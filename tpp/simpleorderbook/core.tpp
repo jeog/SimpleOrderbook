@@ -18,7 +18,6 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <iterator>
 #include <iomanip>
 #include <climits>
-#include "../../include/simpleorderbook.hpp"
 
 #define SOB_TEMPLATE template<typename TickRatio>
 #define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio>
@@ -733,8 +732,11 @@ SOB_CLASS::_find(id_type id) const
 
 SOB_TEMPLATE
 template<side_of_market Side, typename ChainTy>
-std::map<double, typename SOB_CLASS::template _depth<Side>::mapped_type>
-SOB_CLASS::_market_depth(size_t depth) const
+auto 
+SOB_CLASS::_market_depth(size_t depth) const 
+    -> std::map<double, typename std::conditional<Side == side_of_market::both, 
+                                                  std::pair<size_t, side_of_market>, 
+                                                  size_t>::type>    
 {
     plevel h;
     plevel l;    
