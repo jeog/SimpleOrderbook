@@ -26,72 +26,22 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include "../include/common_py.hpp"
 #include "../include/argparse_py.hpp"
 #include "../include/callback_py.hpp"
-
-#ifndef IGNORE_TO_DEBUG_NATIVE
+#include "../include/advanced_order_py.hpp"
 
 namespace {
 
-struct pySOBBundle{
-    sob::FullInterface *interface;
-    sob::SimpleOrderbook::FactoryProxy<> proxy;
-    pySOBBundle( sob::FullInterface *interface,
-                 sob::SimpleOrderbook::FactoryProxy<> proxy)
-        :
-            interface(interface),
-            proxy(proxy)
-        {
-        }
-};
-
 typedef struct {
     PyObject_HEAD
-    PyObject *sob_bndl;
+    sob::FullInterface *interface;
+    int sobty;
 } pySOB;
-
-constexpr sob::FullInterface*
-to_interface(const pySOB *sob)
-{ return ((pySOBBundle*)(sob->sob_bndl))->interface; }
-
-template<typename T>
-constexpr std::pair<int, std::pair<std::string, sob::DefaultFactoryProxy>>
-sob_type_make_entry(int index, std::string name)
-{
-    return std::make_pair(index,
-               std::make_pair(name,
-                   sob::SimpleOrderbook::BuildFactoryProxy<T>()) );
-}
-
-const std::map<int, std::pair<std::string, sob::DefaultFactoryProxy>>
-SOB_TYPES = {
-    sob_type_make_entry<sob::quarter_tick>(1, "SOB_QUARTER_TICK"),
-    sob_type_make_entry<sob::tenth_tick>(2, "SOB_TENTH_TICK"),
-    sob_type_make_entry<sob::thirty_secondth_tick>(3, "SOB_THIRTY_SECONDTH_TICK"),
-    sob_type_make_entry<sob::hundredth_tick>(4, "SOB_HUNDREDTH_TICK"),
-    sob_type_make_entry<sob::thousandth_tick>(5, "SOB_THOUSANDTH_TICK"),
-    sob_type_make_entry<sob::ten_thousandth_tick>(6, "SOB_TEN_THOUSANDTH_TICK")
-};
-
-const std::map<int, std::string>
-CALLBACK_MESSAGES = {
-    {static_cast<int>(sob::callback_msg::cancel), "MSG_CANCEL"},
-    {static_cast<int>(sob::callback_msg::fill), "MSG_FILL"},
-    {static_cast<int>(sob::callback_msg::stop_to_limit), "MSG_STOP_TO_LIMIT"}
-};
-
-const std::map<int, std::string>
-SIDES_OF_MARKET = {
-    {static_cast<int>(sob::side_of_market::bid), "SIDE_BID"},
-    {static_cast<int>(sob::side_of_market::ask), "SIDE_ASK"},
-    {static_cast<int>(sob::side_of_market::both), "SIDE_BOTH"}
-};
 
 #define CALLDOWN_FOR_STATE(apicall, rtype, sobcall) \
     static PyObject* SOB_ ## sobcall(pySOB *self){ \
         rtype ret; \
         Py_BEGIN_ALLOW_THREADS \
         try{ \
-            sob::FullInterface *ob = to_interface(self); \
-            ret = ob->sobcall(); \
+            ret = self->interface->sobcall(); \
         }catch(std::exception& e){ \
             Py_BLOCK_THREADS \
             CONVERT_AND_THROW_NATIVE_EXCEPTION(e); \
@@ -128,8 +78,7 @@ CALLDOWN_FOR_STATE_ULONGLONG( volume )
     static PyObject* SOB_ ## sobcall(pySOB *self){ \
         Py_BEGIN_ALLOW_THREADS \
         try{ \
-            sob::FullInterface *ob = to_interface(self); \
-            ob->sobcall(); \
+            self->interface->sobcall(); \
         }catch(std::exception& e){ \
             Py_BLOCK_THREADS \
             CONVERT_AND_THROW_NATIVE_EXCEPTION(e); \
@@ -150,27 +99,32 @@ CALLDOWN_TO_DUMP( dump_sell_stops )
 #undef CALLDOWN_FOR_STATE_ULONGLONG
 #undef CALLDOWN_TO_DUMP
 
+
 template<bool BuyOrder, bool ReplaceOrder>
-PyObject* 
+PyObject*
 SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
 {
     double limit;
     long size;
     sob::id_type id = 0;
     PyObject *cb = nullptr;
+    PyObject *aot = nullptr;
 
     if( !OrderMethodArgs<ReplaceOrder>::parse(args, kwds,
-            sob::order_type::limit, &id, &limit, &size, &cb) )
+            sob::order_type::limit, &id, &limit, &size, &cb, &aot) )
     {
         return NULL;
     }
 
     Py_BEGIN_ALLOW_THREADS
     try{
-        sob::FullInterface *ob = to_interface(self);
+        sob::AdvancedOrderTicket native_aot = py_to_native_aot(aot);
+        sob::FullInterface *ob = self->interface;
         id = ReplaceOrder
-           ? ob->replace_with_limit_order(id, BuyOrder, limit, size, wrap_cb(cb))
-           : ob->insert_limit_order(BuyOrder, limit, size, wrap_cb(cb));
+           ? ob->replace_with_limit_order(id, BuyOrder, limit, size,
+                                          wrap_cb(cb), native_aot)
+           : ob->insert_limit_order(BuyOrder, limit, size, wrap_cb(cb),
+                                    native_aot);
     }catch(std::exception& e){
         Py_BLOCK_THREADS
         CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
@@ -181,26 +135,30 @@ SOB_trade_limit(pySOB *self, PyObject *args, PyObject *kwds)
     return PyLong_FromUnsignedLong(id);
 }
 
+
 template<bool BuyOrder, bool ReplaceOrder>
-PyObject* 
+PyObject*
 SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
 {
     long size;
     sob::id_type id = 0;
     PyObject *cb = nullptr;
+    PyObject *aot = nullptr;
 
     if( !OrderMethodArgs<ReplaceOrder>::parse(args, kwds,
-            sob::order_type::market, &id, &size, &cb) )
+            sob::order_type::market, &id, &size, &cb, &aot) )
     {
         return NULL;
     }
 
     Py_BEGIN_ALLOW_THREADS
     try{
-        sob::FullInterface *ob = to_interface(self);
+        sob::AdvancedOrderTicket native_aot = py_to_native_aot(aot);
+        sob::FullInterface *ob = self->interface;
         id = ReplaceOrder
-           ? ob->replace_with_market_order(id, BuyOrder, size, wrap_cb(cb))
-           : ob->insert_market_order(BuyOrder, size, wrap_cb(cb));
+           ? ob->replace_with_market_order(id, BuyOrder, size, wrap_cb(cb),
+                                           native_aot)
+           : ob->insert_market_order(BuyOrder, size, wrap_cb(cb),  native_aot);
     }catch(std::exception& e){
         Py_BLOCK_THREADS
         CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
@@ -211,27 +169,31 @@ SOB_trade_market(pySOB *self, PyObject *args, PyObject *kwds)
     return PyLong_FromUnsignedLong(id);
 }
 
+
 template<bool BuyOrder, bool ReplaceOrder>
-PyObject* 
+PyObject*
 SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
 {
     double stop;
     long size;
     sob::id_type id = 0;
     PyObject *cb = nullptr;
+    PyObject *aot = nullptr;
 
     if( !OrderMethodArgs<ReplaceOrder>::parse(args, kwds,
-            sob::order_type::stop, &id, &stop, &size, &cb) )
+            sob::order_type::stop, &id, &stop, &size, &cb, &aot) )
     {
         return NULL;
     }
 
     Py_BEGIN_ALLOW_THREADS
     try{
-        sob::FullInterface *ob = to_interface(self);
+        sob::AdvancedOrderTicket native_aot = py_to_native_aot(aot);
+        sob::FullInterface *ob = self->interface;
         id = ReplaceOrder
-           ? ob->replace_with_stop_order(id, BuyOrder, stop, size, wrap_cb(cb))
-           : ob->insert_stop_order(BuyOrder, stop, size, wrap_cb(cb));
+           ? ob->replace_with_stop_order(id, BuyOrder, stop, size, wrap_cb(cb),
+                                         native_aot)
+           : ob->insert_stop_order(BuyOrder, stop, size, wrap_cb(cb), native_aot);
     }catch(std::exception& e){
         Py_BLOCK_THREADS
         CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
@@ -242,8 +204,9 @@ SOB_trade_stop(pySOB *self,PyObject *args,PyObject *kwds)
     return PyLong_FromUnsignedLong(id);
 }
 
+
 template<bool BuyOrder, bool ReplaceOrder>
-PyObject* 
+PyObject*
 SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
 {
     double stop;
@@ -251,19 +214,23 @@ SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
     long size;
     sob::id_type id = 0;
     PyObject *cb = nullptr;
+    PyObject *aot = nullptr;
 
     if( !OrderMethodArgs<ReplaceOrder>::parse(args, kwds,
-            sob::order_type::stop_limit, &id, &stop, &limit, &size, &cb) )
+            sob::order_type::stop_limit, &id, &stop, &limit, &size, &cb, &aot) )
     {
         return NULL;
     }
 
     Py_BEGIN_ALLOW_THREADS
     try{
-        sob::FullInterface *ob = to_interface(self);
+        sob::AdvancedOrderTicket native_aot = py_to_native_aot(aot);
+        sob::FullInterface *ob = self->interface;
         id = ReplaceOrder
-           ? ob->replace_with_stop_order(id, BuyOrder, stop, limit, size, wrap_cb(cb))
-           : ob->insert_stop_order(BuyOrder, stop, limit, size, wrap_cb(cb));
+           ? ob->replace_with_stop_order(id, BuyOrder, stop, limit, size,
+                                         wrap_cb(cb), native_aot)
+           : ob->insert_stop_order(BuyOrder, stop, limit, size, wrap_cb(cb),
+                                   native_aot);
     }catch(std::exception& e){
         Py_BLOCK_THREADS
         CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
@@ -275,20 +242,20 @@ SOB_trade_stop_limit(pySOB *self, PyObject *args, PyObject *kwds)
 }
 
 
-PyObject* 
+PyObject*
 SOB_pull_order(pySOB *self, PyObject *args, PyObject *kwds)
 {
-    static char* kwlist[] = {MethodArgs::id, NULL};
+    static char* kwlist[] = {Strings::id, NULL};
 
     sob::id_type id;
     if( !MethodArgs::parse(args, kwds, "k", kwlist, &id) ){
-        return false;
+        return NULL;
     }
 
     bool rval = false;
     Py_BEGIN_ALLOW_THREADS
     try{
-        rval = to_interface(self)->pull_order(id);
+        rval = self->interface->pull_order(id);
     }catch(std::exception& e){
         Py_BLOCK_THREADS
         CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
@@ -298,6 +265,36 @@ SOB_pull_order(pySOB *self, PyObject *args, PyObject *kwds)
 
     return PyBool_FromLong(static_cast<long>(rval));
 }
+
+
+PyObject*
+SOB_get_order_info(pySOB *self, PyObject *args, PyObject *kwds)
+{
+    static char* kwlist[] = {Strings::id, NULL};
+
+    sob::id_type id;
+    if( !MethodArgs::parse(args, kwds, "k", kwlist, &id) ){
+        return NULL;
+    }
+
+    sob::order_info oi;
+    Py_BEGIN_ALLOW_THREADS
+    try{
+        oi = self->interface->get_order_info(id);
+    }catch(std::exception& e){
+        Py_BLOCK_THREADS
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
+        Py_UNBLOCK_THREADS
+    }
+    Py_END_ALLOW_THREADS
+
+    if( !oi ){
+        Py_RETURN_NONE;
+    }
+
+    return pyOrderInfo_create(oi);
+}
+
 
 PyObject*
 timesales_to_list(const std::vector<sob::timesale_entry_type>& vec, size_t n)
@@ -323,6 +320,7 @@ timesales_to_list(const std::vector<sob::timesale_entry_type>& vec, size_t n)
     return list;
 }
 
+
 PyObject*
 SOB_time_and_sales(pySOB *self, PyObject *args)
 {
@@ -334,8 +332,7 @@ SOB_time_and_sales(pySOB *self, PyObject *args)
     PyObject *list;
     Py_BEGIN_ALLOW_THREADS
     try{
-        sob::FullInterface *ob = to_interface(self);
-        auto vec = ob->time_and_sales();
+        auto vec = self->interface->time_and_sales();
         size_t vsz = vec.size();
         size_t n = (arg <= 0) ? vsz : std::min(vsz,(size_t)arg);
         Py_BLOCK_THREADS
@@ -411,21 +408,24 @@ template<sob::side_of_market Side>
 PyObject*
 SOB_market_depth(pySOB *self, PyObject *args, PyObject *kwds)
 {
-    static char* kwlist[] = {MethodArgs::depth, NULL};
+    static char* kwlist[] = {Strings::depth, NULL};
 
     long depth = 0;
-    if( !MethodArgs::parse(args, kwds, "l", kwlist, &depth) ){
+    if( !MethodArgs::parse(args, kwds, "|l", kwlist, &depth) ){
         return NULL;
     }
-    if(depth <= 0){
-        PyErr_SetString(PyExc_ValueError, "depth must be > 0");
+    if(depth < 0){
+        PyErr_SetString(PyExc_ValueError, "depth < 0");
         return NULL;
     }
 
     PyObject *dict;
     Py_BEGIN_ALLOW_THREADS
     try{
-        sob::FullInterface *ob = to_interface(self);
+        sob::FullInterface *ob = self->interface;
+        if(depth == 0){
+            depth = ob->ticks_in_range() + 1;
+        }
         auto md = DepthHelper<Side>::get(ob, (size_t)depth);
         Py_BLOCK_THREADS
         dict = DepthHelper<>::to_dict(md);
@@ -446,7 +446,7 @@ PyObject*
 SOB_grow_book(pySOB *self, PyObject *args, PyObject *kwds)
 {
     static char* kwlist[] = {
-        Above ? MethodArgs::new_max : MethodArgs::new_min,
+        Above ? Strings::new_max : Strings::new_min,
         NULL
     };
 
@@ -458,7 +458,7 @@ SOB_grow_book(pySOB *self, PyObject *args, PyObject *kwds)
     Py_BEGIN_ALLOW_THREADS
     try{
         sob::ManagementInterface *ob =
-            dynamic_cast<sob::ManagementInterface*>(to_interface(self));
+            dynamic_cast<sob::ManagementInterface*>(self->interface);
         if( Above ){
             ob->grow_book_above(m);
         }else{
@@ -476,7 +476,7 @@ SOB_grow_book(pySOB *self, PyObject *args, PyObject *kwds)
 PyObject*
 SOB_is_valid_price(pySOB *self, PyObject *args, PyObject *kwds)
 {
-    static char* kwlist[] = { MethodArgs::price, NULL };
+    static char* kwlist[] = { Strings::price, NULL };
 
     double price;
     if( !MethodArgs::parse(args, kwds, "d", kwlist, &price) ){
@@ -485,7 +485,7 @@ SOB_is_valid_price(pySOB *self, PyObject *args, PyObject *kwds)
 
     bool is_valid = false;
     try{
-        is_valid = to_interface(self)->is_valid_price(price);
+        is_valid = self->interface->is_valid_price(price);
     }catch(std::exception& e){
         CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
     }
@@ -496,7 +496,7 @@ SOB_is_valid_price(pySOB *self, PyObject *args, PyObject *kwds)
 PyObject*
 SOB_price_to_tick(pySOB *self, PyObject *args, PyObject *kwds)
 {
-    static char* kwlist[] = {MethodArgs::price, NULL};
+    static char* kwlist[] = {Strings::price, NULL};
 
     double price;
 
@@ -506,7 +506,7 @@ SOB_price_to_tick(pySOB *self, PyObject *args, PyObject *kwds)
 
     double tick = 0;
     try{
-        tick = to_interface(self)->price_to_tick(price);
+        tick = self->interface->price_to_tick(price);
     }catch(std::exception& e){
         CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
     }
@@ -517,10 +517,10 @@ SOB_price_to_tick(pySOB *self, PyObject *args, PyObject *kwds)
 PyObject*
 SOB_ticks_in_range(pySOB *self, PyObject *args, PyObject *kwds)
 {
-    static char* kwlist[] = { MethodArgs::lower, MethodArgs::upper, NULL};
+    static char* kwlist[] = { Strings::lower, Strings::upper, NULL};
 
-    double lower = -1.0;
-    double upper = -1.0;
+    double lower = -1. * std::numeric_limits<double>::max();
+    double upper = -1. * std::numeric_limits<double>::max();
 
     if( !MethodArgs::parse(args, kwds, "|dd", kwlist, &lower, &upper) ){
         return NULL;
@@ -528,14 +528,19 @@ SOB_ticks_in_range(pySOB *self, PyObject *args, PyObject *kwds)
 
     long long ticks = 0;
     try{
-        sob::FullInterface *ob = to_interface(self);
-        if(lower < 0){
-            lower = ob->min_price();
+        sob::FullInterface *ob = self->interface;
+        // doesn't check for bad single arg
+        if( lower == upper && upper == (-1. * std::numeric_limits<double>::max())){
+            ticks = ob->ticks_in_range();
+        }else if( !ob->is_valid_price(lower) || !ob->is_valid_price(upper) ){
+            PyErr_SetString(PyExc_ValueError, "invalid price");
+            return NULL;
+        }else if( lower > upper ){
+            PyErr_SetString(PyExc_ValueError, "lower > upper");
+            return NULL;
+        }else{
+            ticks = ob->ticks_in_range(lower, upper);
         }
-        if(upper < 0){
-            upper = ob->max_price();
-        }
-        ticks = ob->ticks_in_range(lower, upper);
     }catch(std::exception& e){
         CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
     }
@@ -546,10 +551,10 @@ SOB_ticks_in_range(pySOB *self, PyObject *args, PyObject *kwds)
 PyObject*
 SOB_tick_memory_required(pySOB *self, PyObject *args, PyObject *kwds)
 {
-    static char* kwlist[] = { MethodArgs::lower, MethodArgs::upper, NULL };
+    static char* kwlist[] = { Strings::lower, Strings::upper, NULL };
 
-    double lower = -1.0;
-    double upper = -1.0;
+    double lower = -1. * std::numeric_limits<double>::max();
+    double upper = -1. * std::numeric_limits<double>::max();
 
     if( !MethodArgs::parse(args, kwds, "|dd", kwlist, &lower, &upper) ){
         return NULL;
@@ -557,14 +562,19 @@ SOB_tick_memory_required(pySOB *self, PyObject *args, PyObject *kwds)
 
     unsigned long long mem = 0;
     try{
-        sob::FullInterface *ob = to_interface(self);
-        if(lower < 0){
-            lower = ob->min_price();
+        sob::FullInterface *ob = self->interface;
+        // doesn't check for bad single arg
+        if( lower == upper && upper == (-1. * std::numeric_limits<double>::max())){
+            mem = ob->tick_memory_required();
+        }else if( !ob->is_valid_price(lower) || !ob->is_valid_price(upper) ){
+            PyErr_SetString(PyExc_ValueError, "invalid price");
+            return NULL;
+        }else if( lower > upper ){
+            PyErr_SetString(PyExc_ValueError, "lower > upper");
+            return NULL;
+        }else{
+            mem = ob->tick_memory_required(lower, upper);
         }
-        if(upper < 0){
-            upper = ob->max_price();
-        }
-        mem = ob->tick_memory_required(lower, upper);
     }catch(std::exception& e){
         CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
     }
@@ -572,22 +582,91 @@ SOB_tick_memory_required(pySOB *self, PyObject *args, PyObject *kwds)
 }
 
 
-struct MDef{
-    template<typename F>
-    static constexpr PyMethodDef
-    NoArgs( const char* name, F func, const char* desc )
-    { return {name, (PyCFunction)func, METH_NOARGS, desc}; }
+PyObject*
+pySOB_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+    PyObject *self = type->tp_alloc(type,0);
+    if( !self ){
+        PyErr_SetString(PyExc_MemoryError, "pySOB_type->tp_alloc failed");
+    }
+    return self;
+}
 
-    template<typename F>
-    static constexpr PyMethodDef
-    KeyArgs( const char* name, F func, const char* desc )
-    { return {name, (PyCFunction)func, METH_VARARGS | METH_KEYWORDS, desc}; }
 
-    template<typename F>
-    static constexpr PyMethodDef
-    VarArgs( const char* name, F func, const char* desc )
-    { return {name, (PyCFunction)func, METH_VARARGS, desc}; }
-};
+int
+pySOB_init(pySOB *self, PyObject *args, PyObject *kwds)
+{
+    double low, high;
+    int sobty;
+
+    static char* kwlist[] = { Strings::sob_type, Strings::low,
+                              Strings::high, NULL };
+    if( !MethodArgs::parse(args, kwds, "idd", kwlist, &sobty, &low, &high) ){
+        return -1;
+    }
+
+    if(low == 0){
+        PyErr_SetString(PyExc_ValueError, "low == 0");
+        return -1;
+    }
+    if(low > high){ // not consistent with native checks
+        PyErr_SetString(PyExc_ValueError, "low > high");
+        return -1;
+    }
+
+    if( SOB_TYPES.find(sobty) == SOB_TYPES.end() ){
+        PyErr_SetString(PyExc_ValueError, "invalid orderbook type");
+        return -1;
+    }
+
+    sob::DefaultFactoryProxy proxy(SOB_TYPES.at(sobty).second);
+    sob::FullInterface *ob = nullptr;
+
+    Py_BEGIN_ALLOW_THREADS
+    try{
+        ob = proxy.create(low,high);
+    }catch(const std::runtime_error & e){
+        Py_BLOCK_THREADS
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        Py_UNBLOCK_THREADS
+    }catch(const std::exception & e){
+        Py_BLOCK_THREADS
+        PyErr_SetString(PyExc_Exception, e.what());
+        Py_UNBLOCK_THREADS
+    }catch(...){
+        Py_BLOCK_THREADS
+        Py_FatalError("fatal error creating orderbook");
+        Py_UNBLOCK_THREADS // unnecessary
+    }
+    Py_END_ALLOW_THREADS
+
+    if( PyErr_Occurred() ){
+        if( ob ){
+            Py_BEGIN_ALLOW_THREADS
+            proxy.destroy(ob);
+            Py_END_ALLOW_THREADS
+        }
+        Py_DECREF(self);
+        return -1;
+    }
+
+    self->interface = ob;
+    self->sobty = sobty;
+    return 0;
+}
+
+
+void
+pySOB_delete(pySOB *self)
+{
+    if( self->sobty && self->interface ){
+        sob::DefaultFactoryProxy proxy(SOB_TYPES.at(self->sobty).second);
+        Py_BEGIN_ALLOW_THREADS
+        proxy.destroy( self->interface );
+        Py_END_ALLOW_THREADS
+    }
+    Py_TYPE(self)->tp_free((PyObject*)self);
+}
 
 
 PyMethodDef pySOB_methods[] = {
@@ -776,6 +855,11 @@ PyMethodDef pySOB_methods[] = {
     MDef::KeyArgs("replace_with_sell_stop_limit",SOB_trade_stop_limit<false,true>,
         DOCS_REPLACE_WITH_STOP_AND_LIMIT("sell")),
 
+    MDef::KeyArgs("get_order_info", SOB_get_order_info,
+        " get order info for a particular ID \n\n"
+        "    def get_order_info(id) -> OrderInfo \n\n"
+        "    id :: int :: order ID \n\n"
+        "    returns -> OrderInfo \n"),
 
     MDef::VarArgs("time_and_sales",SOB_time_and_sales,
         " get list of time & sales information \n\n"
@@ -794,91 +878,7 @@ PyMethodDef pySOB_methods[] = {
 #undef DOCS_REPLACE_WITH_STOP_OR_LIMIT
 #undef DOCS_REPLACE_WITH_STOP_AND_LIMIT
 
-PyObject*
-SOB_New(PyTypeObject *type, PyObject *args, PyObject *kwds)
-{
-    pySOB *self;
-    double low, high;
-    int sobty;
-
-    static char* kwlist[] = { MethodArgs::sob_type, MethodArgs::low,
-                              MethodArgs::high, NULL };
-    if( !MethodArgs::parse(args, kwds, "idd", kwlist, &sobty, &low, &high) ){
-        return NULL;
-    }
-    if(low == 0){
-        PyErr_SetString(PyExc_ValueError, "low == 0");
-        return NULL;
-    }
-    if(low > high){ // not consistent with native checks
-        PyErr_SetString(PyExc_ValueError, "low > high");
-        return NULL;
-    }
-
-    if( SOB_TYPES.find(sobty) == SOB_TYPES.end() ){
-        PyErr_SetString(PyExc_ValueError, "invalid orderbook type");
-        return NULL;
-    }
-    sob::DefaultFactoryProxy proxy(SOB_TYPES.at(sobty).second);
-
-    self = (pySOB*)type->tp_alloc(type,0);
-    if( !self ){
-        PyErr_SetString(PyExc_MemoryError, "pySOB_type->tp_alloc failed");
-        return NULL;
-    }
-
-    sob::FullInterface *ob = nullptr;
-    pySOBBundle *bndl = nullptr;
-    Py_BEGIN_ALLOW_THREADS
-    try{
-        sob::FullInterface *ob = proxy.create(low,high);
-        bndl = new pySOBBundle(ob, proxy);
-    }catch(const std::runtime_error & e){
-        Py_BLOCK_THREADS
-        PyErr_SetString(PyExc_RuntimeError, e.what());
-        Py_UNBLOCK_THREADS
-    }catch(const std::exception & e){
-        Py_BLOCK_THREADS
-        PyErr_SetString(PyExc_Exception, e.what());
-        Py_UNBLOCK_THREADS
-    }catch(...){
-        Py_BLOCK_THREADS
-        Py_FatalError("fatal error creating orderbook");
-        Py_UNBLOCK_THREADS // unnecessary
-    }
-    Py_END_ALLOW_THREADS
-
-    if( PyErr_Occurred() ){
-        if( bndl ){
-            delete bndl;
-        }
-        if( ob ){
-            Py_BEGIN_ALLOW_THREADS
-            proxy.destroy(ob);
-            Py_END_ALLOW_THREADS
-        }
-        Py_DECREF(self);
-        return NULL;
-    }
-
-    self->sob_bndl = (PyObject*)bndl;
-    return (PyObject*)self;
-}
-
-
-void
-SOB_Delete(pySOB *self)
-{
-    if( self->sob_bndl ){
-        pySOBBundle *bndl = ((pySOBBundle*)(self->sob_bndl));
-        Py_BEGIN_ALLOW_THREADS
-        bndl->proxy.destroy( bndl->interface );
-        Py_END_ALLOW_THREADS
-        self->sob_bndl = nullptr;
-        delete bndl;
-    }
-    Py_TYPE(self)->tp_free((PyObject*)self);
-}
+}; /* namespace */
 
 
 PyTypeObject pySOB_type = {
@@ -886,312 +886,18 @@ PyTypeObject pySOB_type = {
     "simpleorderbook.SimpleOrderbook",
     sizeof(pySOB),
     0,
-    (destructor)SOB_Delete,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
+    (destructor)pySOB_delete,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     Py_TPFLAGS_DEFAULT,
     "SimpleOrderbook: interface for a C++ financial orderbook and matching engine.\n\n"
     "  type  ::  int  :: type of orderbook (e.g SOB_QUARTER_TICK)\n"
     "  low   :: float :: minimum price can trade at\n"
     "  high  :: float :: maximum price can trade at\n" ,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
+    0, 0, 0, 0, 0, 0,
     pySOB_methods,
+    0, 0, 0, 0, 0, 0, 0,
+    (initproc)pySOB_init,
     0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    SOB_New,
+    pySOB_new,
 };
-
-
-PyObject*
-TickSize(pySOB *self, PyObject *args, PyObject *kwds)
-{
-    static char* kwlist[] = { MethodArgs::sob_type, NULL};
-
-    int sobty;
-
-    if( !MethodArgs::parse(args, kwds, "i", kwlist, &sobty) ){
-        return NULL;
-    }
-
-    auto sobty_entry = SOB_TYPES.find(sobty);
-    if( sobty_entry == SOB_TYPES.end() ){
-        PyErr_SetString(PyExc_ValueError, "invalid orderbook type");
-        return NULL;
-    }
-    //noexcept
-    return PyFloat_FromDouble( sobty_entry->second.second.tick_size() );
-}
-
-
-PyObject*
-PriceToTick(pySOB *self, PyObject *args, PyObject *kwds)
-{
-    static char* kwlist[] = { MethodArgs::sob_type, MethodArgs::price, NULL};
-
-    int sobty;
-    double price;
-
-    if( !MethodArgs::parse(args, kwds, "id", kwlist, &sobty, &price) ){
-        return NULL;
-    }
-
-    auto sobty_entry = SOB_TYPES.find(sobty);
-    if( sobty_entry == SOB_TYPES.end() ){
-        PyErr_SetString(PyExc_ValueError, "invalid orderbook type");
-        return NULL;
-    }
-
-    double tick = 0;
-    try{
-        tick = sobty_entry->second.second.price_to_tick(price);
-    }catch(std::exception& e){
-        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
-    }
-    return PyFloat_FromDouble(tick);
-}
-
-
-PyObject*
-TicksInRange(pySOB *self, PyObject *args, PyObject *kwds)
-{
-    static char* kwlist[] = { MethodArgs::sob_type, MethodArgs::lower,
-                              MethodArgs::upper, NULL};
-
-    int sobty;
-    double lower;
-    double upper;
-
-    if( !MethodArgs::parse(args, kwds, "idd", kwlist, &sobty, &lower, &upper) ){
-        return NULL;
-    }
-
-    auto sobty_entry = SOB_TYPES.find(sobty);
-    if( sobty_entry == SOB_TYPES.end() ){
-        PyErr_SetString(PyExc_ValueError, "invalid orderbook type");
-        return NULL;
-    }
-
-    long long ticks = 0;
-    try{
-        ticks = sobty_entry->second.second.ticks_in_range(lower, upper);
-    }catch(std::exception& e){
-        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
-    }
-    return PyLong_FromLongLong(ticks);
-}
-
-PyObject*
-TickMemoryRequired(pySOB *self, PyObject *args, PyObject *kwds)
-{
-    static char* kwlist[] = { MethodArgs::sob_type, MethodArgs::lower,
-                              MethodArgs::upper, NULL};
-
-    int sobty;
-    double lower;
-    double upper;
-
-    if( !MethodArgs::parse(args, kwds, "idd", kwlist, &sobty, &lower, &upper) ){
-        return NULL;
-    }
-
-    auto sobty_entry = SOB_TYPES.find(sobty);
-    if( sobty_entry == SOB_TYPES.end() ){
-        PyErr_SetString(PyExc_ValueError, "invalid orderbook type");
-        return NULL;
-    }
-
-    unsigned long long mem = 0;
-    try{
-        mem = sobty_entry->second.second.tick_memory_required(lower, upper);
-    }catch(std::exception& e){
-        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
-    }
-    return PyLong_FromUnsignedLongLong(mem);
-}
-
-
-PyMethodDef methods[] = {
-    MDef::KeyArgs("tick_size", TickSize,
-                  "tick size of orderbook \n\n"
-                  "def tick_size(sobty) -> tick size \n\n"
-                  "    sobty :: int :: SOB_* constant of orderbook type \n\n"
-                  "    returns -> float \n"),
-
-    MDef::KeyArgs("price_to_tick", PriceToTick,
-                  "convert a price to a tick value \n\n"
-                  "    def price_to_tick(sobty, price) -> tick \n\n"
-                  "    sobty :: int   :: SOB_* constant of orderbook type \n"
-                  "    price :: float :: price \n\n"
-                  "    returns -> float \n"),
-
-    MDef::KeyArgs("ticks_in_range", TicksInRange,
-                  "number of ticks between two prices \n\n"
-                  "    def ticks_in_range(sobty, lower, upper) "
-                  "-> number of ticks \n\n"
-                  "    sobty :: int   :: SOB_* constant of orderbook type \n"
-                  "    lower :: float :: lower price \n"
-                  "    upper :: float :: upper price \n\n"
-                  "    returns -> int \n"),
-
-    MDef::KeyArgs("tick_memory_required", TickMemoryRequired,
-                  "bytes of memory required for (pre-allocating) orderbook "
-                  "internals. THIS IS NOT TOTAL MEMORY NEEDED! \n\n"
-                  "    def tick_memory_required(sobty, lower, upper) "
-                  "-> number of bytes \n\n"
-                  "    sobty :: int   :: SOB_* constant of orderbook type \n"
-                  "    lower :: float :: lower price \n"
-                  "    upper :: float :: upper price \n\n"
-                  "    returns -> int \n"),
-    {NULL}
-};
-
-
-struct PyModuleDef module_def= {
-    PyModuleDef_HEAD_INIT,
-    "simpleorderbook",
-    NULL,
-    -1,
-    methods,
-    NULL,
-    NULL,
-    NULL,
-    NULL
-};
-
-
-PyObject*
-atexit_callee(PyObject *self, PyObject *args)
-{
-    exiting_pre_finalize = true;
-    Py_RETURN_NONE;
-}
-
-void
-register_atexit_callee()
-{
-    static PyMethodDef def = {
-            "__atexit_callee", atexit_callee, METH_NOARGS, ""
-    };
-    PyCFunctionObject *func = (PyCFunctionObject *)PyCFunction_New(&def, NULL);
-    if( func == NULL ){
-        std::cerr << "warn: failed to create atexit_callee function object"
-                  << std::endl;
-        return;
-    }
-
-    PyObject *mod = PyImport_ImportModule("atexit");
-    if( !mod ){
-        std::cerr << "warn: failed to import 'atexit'" << std::endl;
-        Py_DECREF(func);
-        return;
-    }
-
-    PyObject *ret = PyObject_CallMethod(mod, "register", "O", func);
-    Py_DECREF(func);
-    Py_DECREF(mod);
-    if( ret ){
-        Py_DECREF(ret);
-    }else{
-        std::cerr<< "warn: failed to register atexit_callee" << std::endl;
-    }
-}
-
-template<typename T>
-inline std::string
-attr_str(T val)
-{ return val; }
-
-template<typename T>
-inline std::string
-attr_str(const std::pair<std::string, T>& val)
-{ return val.first; }
-
-template<typename T>
-void
-set_const_attributes(PyObject *mod, const std::map<int, T>& m)
-{
-    for( const auto& p : m ){
-        PyObject *indx = Py_BuildValue("i",p.first);
-        PyObject_SetAttrString(mod, attr_str(p.second).c_str(), indx);
-    }
-}
-
-#ifdef DEBUG
-const bool is_debug_build = 1;
-#else
-const bool is_debug_build = 0;
-#endif /* DEBUG */
-
-}; /* namespace */
-
-volatile bool exiting_pre_finalize = false;
-
-PyMODINIT_FUNC 
-PyInit_simpleorderbook(void)
-{
-    if( PyType_Ready(&pySOB_type) < 0 ){
-        return NULL;
-    }
-
-    PyObject *mod = PyModule_Create(&module_def);
-    if( !mod ){
-        return NULL;
-    }
-
-    Py_INCREF(&pySOB_type);
-    PyModule_AddObject(mod, "SimpleOrderbook", (PyObject*)&pySOB_type);
-
-    set_const_attributes(mod, SOB_TYPES);
-    set_const_attributes(mod, CALLBACK_MESSAGES);
-    set_const_attributes(mod, SIDES_OF_MARKET);
-    register_atexit_callee();
-
-    /* build datetime */
-    std::string dt = std::string(__DATE__) + " " + std::string(__TIME__);
-    PyObject_SetAttrString( mod, "_BUILD_DATETIME",
-            Py_BuildValue("s", dt.c_str()) );
-
-    /* is debug build */
-    PyObject_SetAttrString( mod, "_BUILD_IS_DEBUG",
-            is_debug_build ? Py_True : Py_False );
-
-    PyEval_InitThreads();
-    return mod;
-}
-
-std::string
-to_string(PyObject *arg)
-{
-    // TODO inspect the PyObject
-    std::stringstream ss;
-    ss<< std::hex << static_cast<void*>(arg);
-    return ss.str();
-}
-
-#endif /* IGNORE_TO_DEBUG_NATIVE */
-
 

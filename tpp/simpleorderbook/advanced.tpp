@@ -25,6 +25,9 @@ namespace sob{
 //      and we callback with new ID BEFORE the user gets the original ID
 //      from the initial call !
 
+// TODO allow for '_active' conditions to return initial advanced information
+//      as order_info; i.e. trailing_stop should give you the 'nticks' value
+
 SOB_TEMPLATE
 void
 SOB_CLASS::_route_advanced_order(const order_queue_elem& e)

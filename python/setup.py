@@ -28,9 +28,19 @@ setup_dict = {
 } 
 
 _cpp_sources = [
-    "src/simpleorderbook_py.cpp",
+    "src/module_py.cpp",
+    "src/orderbook_py.cpp",    
+    "src/order_info_py.cpp",
     "src/callback_py.cpp", 
-    "src/argparse_py.cpp"
+    "src/argparse_py.cpp",
+    "src/strings_py.cpp",
+    "src/advanced/advanced_order_py.cpp",
+    "src/advanced/one_cancels_other_py.cpp",
+    "src/advanced/one_triggers_other_py.cpp",
+    "src/advanced/fill_or_kill_py.cpp",
+    "src/advanced/bracket_py.cpp",
+    "src/advanced/trailing_stop_py.cpp",
+    "src/advanced/trailing_bracket_py.cpp"
 ]
 
 _cpp_includes = [
@@ -44,7 +54,7 @@ cpp_ext = Extension(
     include_dirs = _cpp_includes,
     libraries=['SimpleOrderbook'],
     library_dirs=["../bin/release"],
-    extra_compile_args=["-std=c++11"],    
+    extra_compile_args=["-std=c++11", "-Wno-invalid-offsetof"],    
     undef_macros=["NDEBUG"], #internal DEBUG/NDEBUG checks should handle this
 )
 

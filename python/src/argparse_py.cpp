@@ -17,37 +17,25 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #include "../include/argparse_py.hpp"
 
-#ifndef IGNORE_TO_DEBUG_NATIVE
-
-char MethodArgs::id[] = "id";
-char MethodArgs::stop[] = "stop";
-char MethodArgs::limit[] = "limit";
-char MethodArgs::size[] = "size";
-char MethodArgs::callback[] = "callback";
-char MethodArgs::depth[] = "depth";
-char MethodArgs::sob_type[] = "sob_type";
-char MethodArgs::low[] = "low";
-char MethodArgs::high[] = "high";
-char MethodArgs::new_max[] = "new_max";
-char MethodArgs::new_min[] = "new_min";
-char MethodArgs::price[] = "price";
-char MethodArgs::lower[] = "lower";
-char MethodArgs::upper[] = "upper";
-
-const std::map<sob::order_type, std::array<char*,6>>
+const std::map<sob::order_type, std::array<char*,7>>
 OrderMethodArgsBase::keywords = {
-    {sob::order_type::limit, {id, limit, size, callback}},
-    {sob::order_type::market, {id, size, callback}},
-    {sob::order_type::stop, {id, stop, size, callback}},
-    {sob::order_type::stop_limit, {id, stop, limit, size, callback}}
+    {sob::order_type::limit, {Strings::id, Strings::limit, Strings::size,
+                              Strings::callback, Strings::advanced, NULL, NULL}},
+    {sob::order_type::market, {Strings::id, Strings::size, Strings::callback,
+                               Strings::advanced, NULL, NULL, NULL}},
+    {sob::order_type::stop, {Strings::id, Strings::stop, Strings::size,
+                             Strings::callback, Strings::advanced, NULL, NULL}},
+    {sob::order_type::stop_limit, {Strings::id, Strings::stop, Strings::limit,
+                                   Strings::size, Strings::callback,
+                                   Strings::advanced, NULL}}
 };
 
 const std::map<sob::order_type, std::string>
 OrderMethodArgsBase::format_strs = {
-    {sob::order_type::limit, "kdl|O"},
-    {sob::order_type::market, "kl|O"},
-    {sob::order_type::stop, "kdl|O"},
-    {sob::order_type::stop_limit, "kddl|O"}
+    {sob::order_type::limit, "kdl|OO"},
+    {sob::order_type::market, "kl|OO"},
+    {sob::order_type::stop, "kdl|OO"},
+    {sob::order_type::stop_limit, "kddl|OO"}
 };
 
 std::string
@@ -63,4 +51,3 @@ MethodArgs::build_keywords_str(char **kwds){
     return s;
 }
 
-#endif /* IGNORE_TO_DEBUG_NATIVE */

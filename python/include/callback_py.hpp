@@ -21,8 +21,6 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include "../../include/common.hpp"
 #include "common_py.hpp"
 
-#ifndef IGNORE_TO_DEBUG_NATIVE
-
 class PyFuncWrap {
 protected:
     PyObject *const cb;
@@ -69,6 +67,5 @@ wrap_cb(PyObject *cb)
 { return cb ? sob::order_exec_cb_type(ExecCallbackWrap(cb))
             : sob::order_exec_cb_type(); }
 
-#endif /* IGNORE_TO_DEBUG_NATIVE */
 
-#endif
+#endif /* JO_SOB_CALLBACK_PY */

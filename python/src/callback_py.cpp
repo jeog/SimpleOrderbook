@@ -19,8 +19,6 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include "../../include/simpleorderbook.hpp"
 #include "../include/callback_py.hpp"
 
-#ifndef IGNORE_TO_DEBUG_NATIVE
-
 PyFuncWrap::PyFuncWrap(PyObject *callback)
     :
         cb(callback)
@@ -97,7 +95,4 @@ ExecCallbackWrap::operator()( sob::callback_msg msg,
     Py_XDECREF(args);
     PyGILState_Release(gs);
 }
-
-#endif /* IGNORE_TO_DEBUG_NATIVE */
-
 

@@ -25,8 +25,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #include "../../include/common.hpp"
 #include "common_py.hpp"
-
-#ifndef IGNORE_TO_DEBUG_NATIVE
+#include "strings_py.hpp"
 
 class MethodArgs {
     template<typename T, typename... TArgs>
@@ -43,10 +42,6 @@ class MethodArgs {
     build_keywords_str(char **kwds);
 
 public:
-    static char id[], stop[], limit[], size[], callback[], depth[],
-                sob_type[], low[], high[], new_max[], new_min[],
-                price[], lower[], upper[];
-
     template<typename ...TArgs>
     static bool
     parse( PyObject *args,
@@ -108,7 +103,7 @@ public:
 class OrderMethodArgsBase
         : protected MethodArgs {
 protected:
-    static const std::map<sob::order_type, std::array<char*,6>> keywords;
+    static const std::map<sob::order_type, std::array<char*,7>> keywords;
     static const std::map<sob::order_type, std::string> format_strs;
 };
 
@@ -124,11 +119,11 @@ protected:
        check order of (id_arg + targs) in caller */
     template<typename T, typename T2, typename ...TArgs>
     static bool
-    check_args(T arg1, T2 arg2, TArgs... args)
+    check_args(T arg1, T2 arg2, TArgs... args) // 4 ???
     { return check_args(arg2, args...); }
 
     static bool
-    check_args(long *size, PyObject **cb)
+    check_args(long *size, PyObject **cb, PyObject **advanced)
     {
         if( *cb && !PyCallable_Check(*cb) ){
             PyErr_SetString(PyExc_TypeError,"callback must be callable");
@@ -191,6 +186,4 @@ public:
     }
 };
 
-#endif /* IGNORE_TO_DEBUG_NATIVE */
-
-#endif
+#endif /* JO_SOB_ARGPARSE_PY */

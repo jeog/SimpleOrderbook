@@ -21,8 +21,12 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <Python.h>
 
 #include <sstream>
+#include <map>
 
-#ifndef IGNORE_TO_DEBUG_NATIVE
+#include "../../include/simpleorderbook.hpp"
+
+#define BUILD_PY_OBJ_MEMBER_DEF(m, mtyval, oty) \
+{Strings::m, mtyval, offsetof(oty, m), READONLY, Strings::m ## _doc}
 
 /* do better than this */
 #define CONVERT_AND_THROW_NATIVE_EXCEPTION(e) \
@@ -33,13 +37,51 @@ do{ \
     return NULL; \
 }while(0)
 
+extern const std::map<int, std::pair<std::string,
+                                     sob::DefaultFactoryProxy>> SOB_TYPES;
+extern const std::map<int, std::string> ORDER_TYPES;
+extern const std::map<int, std::string> CALLBACK_MESSAGES;
+extern const std::map<int, std::string> SIDES_OF_MARKET;
+extern const std::map<int, std::string> ORDER_CONDITIONS;
+extern const std::map<int, std::string> CONDITION_TRIGGERS;
+
 extern volatile bool exiting_pre_finalize;
+
+extern PyTypeObject pySOB_type;
+extern PyTypeObject pyOrderInfo_type;
+
+typedef struct {
+    PyObject_HEAD
+    int order_type;
+    bool is_buy;
+    double limit;
+    double stop;
+    size_t size;
+    PyObject* advanced;
+} pyOrderInfo;
+
+PyObject*
+pyOrderInfo_create(const sob::order_info& oi);
+
+struct MDef{
+    template<typename F>
+    static constexpr PyMethodDef
+    NoArgs( const char* name, F func, const char* desc )
+    { return {name, (PyCFunction)func, METH_NOARGS, desc}; }
+
+    template<typename F>
+    static constexpr PyMethodDef
+    KeyArgs( const char* name, F func, const char* desc )
+    { return {name, (PyCFunction)func, METH_VARARGS | METH_KEYWORDS, desc}; }
+
+    template<typename F>
+    static constexpr PyMethodDef
+    VarArgs( const char* name, F func, const char* desc )
+    { return {name, (PyCFunction)func, METH_VARARGS, desc}; }
+};
 
 std::string
 to_string(PyObject *arg);
 
 using std::to_string;
-
-#endif /* IGNORE_TO_DEBUG_NATIVE */
-
-#endif
+#endif /* JO_SOB_COMMON_PY */

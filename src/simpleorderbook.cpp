@@ -269,6 +269,16 @@ std::ostream&
 operator<<(std::ostream& out, const AdvancedOrderTicket& aot)
 { return (out << to_string(aot)); }
 
+order_info::order_info()
+    :
+        type(sob::order_type::null),
+        is_buy(0),
+        limit(0),
+        stop(0),
+        size(0),
+        advanced(sob::AdvancedOrderTicket::null)
+    {
+    }
 
 order_info::order_info( order_type type,
                         bool is_buy,

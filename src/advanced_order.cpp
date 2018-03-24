@@ -241,6 +241,9 @@ const order_condition AdvancedOrderTicketOTO::condition =
 const order_condition AdvancedOrderTicketFOK::condition =
         order_condition::fill_or_kill;
 
+const order_condition AdvancedOrderTicketBRACKET::condition =
+        order_condition::bracket;
+
 const order_condition AdvancedOrderTicketTrailingStop::condition =
         order_condition::trailing_stop;
 

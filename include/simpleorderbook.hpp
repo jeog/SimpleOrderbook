@@ -1182,6 +1182,8 @@ struct order_info {
     inline operator bool()
     { return type != order_type::null; }
 
+    order_info();
+
     order_info(order_type type,
                bool is_buy,
                double limit,
