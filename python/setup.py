@@ -16,8 +16,12 @@
 #
 
 from distutils.core import setup, Extension
+from os import walk as _walk
+from os.path import join as _join, dirname as _dirname
+from glob import glob as _glob
 
 NAME = 'simpleorderbook'
+SOURCE_DIR = _join(_dirname(__file__),'src')
 
 setup_dict = {
     "name":NAME,
@@ -27,34 +31,19 @@ setup_dict = {
     "author_email":"jeog.dev@gmail.com"
 } 
 
-_cpp_sources = [
-    "src/module_py.cpp",
-    "src/orderbook_py.cpp",    
-    "src/order_info_py.cpp",
-    "src/callback_py.cpp", 
-    "src/argparse_py.cpp",
-    "src/strings_py.cpp",
-    "src/advanced/advanced_order_py.cpp",
-    "src/advanced/one_cancels_other_py.cpp",
-    "src/advanced/one_triggers_other_py.cpp",
-    "src/advanced/fill_or_kill_py.cpp",
-    "src/advanced/bracket_py.cpp",
-    "src/advanced/trailing_stop_py.cpp",
-    "src/advanced/trailing_bracket_py.cpp"
-]
+cpp_sources = [f for d,_,files in _walk(SOURCE_DIR) \
+               for f in _glob(_join(d, "*.cpp")) + _glob(_join(d, "*.c"))]
 
-_cpp_includes = [
-    "../include", 
-    "./include"
-]
+cpp_include_dirs = ["../include", "./include"]
+cpp_compile_flags = ["-std=c++11", "-Wno-invalid-offsetof"]
 
 cpp_ext = Extension(
     NAME,
-    sources = _cpp_sources,
-    include_dirs = _cpp_includes,
+    sources = cpp_sources,
+    include_dirs = cpp_include_dirs,
     libraries=['SimpleOrderbook'],
     library_dirs=["../bin/release"],
-    extra_compile_args=["-std=c++11", "-Wno-invalid-offsetof"],    
+    extra_compile_args=cpp_compile_flags,    
     undef_macros=["NDEBUG"], #internal DEBUG/NDEBUG checks should handle this
 )
 
