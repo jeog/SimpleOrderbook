@@ -15,21 +15,25 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see http://www.gnu.org/licenses.
 */
 
-#define SOB_TEMPLATE template<typename TickRatio>
-#define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio>
+#include "../../include/simpleorderbook.hpp"
+
+#define SOB_CLASS SimpleOrderbook::SimpleOrderbookBase
 
 namespace sob{
 
-SOB_TEMPLATE
-CONSTEXPR_IF_NOT_MSCV 
+typename SimpleOrderbook::SimpleOrderbookBase::limit_bndl
+SimpleOrderbook::SimpleOrderbookBase::limit_bndl::null;
+
+typename SimpleOrderbook::SimpleOrderbookBase::stop_bndl
+SimpleOrderbook::SimpleOrderbookBase::stop_bndl::null;
+
 SOB_CLASS::_order_bndl::_order_bndl()
      :
         _order_bndl(0, 0, nullptr)
      {
      }
 
-SOB_TEMPLATE
-CONSTEXPR_IF_NOT_MSCV 
+
 SOB_CLASS::_order_bndl::_order_bndl( id_type id,
                                      size_t sz,
                                      order_exec_cb_type exec_cb,
@@ -45,7 +49,7 @@ SOB_CLASS::_order_bndl::_order_bndl( id_type id,
     {
     }
 
-SOB_TEMPLATE
+
 SOB_CLASS::_order_bndl::_order_bndl(const _order_bndl& bndl)
     :
         id(bndl.id),
@@ -58,7 +62,7 @@ SOB_CLASS::_order_bndl::_order_bndl(const _order_bndl& bndl)
     }
 
 
-SOB_TEMPLATE
+
 SOB_CLASS::_order_bndl::_order_bndl(_order_bndl&& bndl)
     :
         id(bndl.id),
@@ -71,7 +75,7 @@ SOB_CLASS::_order_bndl::_order_bndl(_order_bndl&& bndl)
     }
 
 
-SOB_TEMPLATE
+
 typename SOB_CLASS::_order_bndl&
 SOB_CLASS::_order_bndl::operator=(const _order_bndl& bndl)
 {
@@ -87,7 +91,7 @@ SOB_CLASS::_order_bndl::operator=(const _order_bndl& bndl)
 }
 
 
-SOB_TEMPLATE
+
 typename SOB_CLASS::_order_bndl&
 SOB_CLASS::_order_bndl::operator=(_order_bndl&& bndl)
 {
@@ -103,7 +107,6 @@ SOB_CLASS::_order_bndl::operator=(_order_bndl&& bndl)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_order_bndl::_copy_union(const _order_bndl& bndl)
 {
@@ -146,7 +149,6 @@ SOB_CLASS::_order_bndl::_copy_union(const _order_bndl& bndl)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_order_bndl::_move_union(_order_bndl& bndl)
 {
@@ -184,7 +186,6 @@ SOB_CLASS::_order_bndl::_move_union(_order_bndl& bndl)
 }
 
 
-SOB_TEMPLATE
 SOB_CLASS::_order_bndl::~_order_bndl()
    {
        switch(cond){
@@ -223,8 +224,7 @@ SOB_CLASS::_order_bndl::~_order_bndl()
        }
    }
 
-SOB_TEMPLATE
-CONSTEXPR_IF_NOT_MSCV
+
 SOB_CLASS::stop_bndl::stop_bndl()
     :
         _order_bndl(),
@@ -233,8 +233,7 @@ SOB_CLASS::stop_bndl::stop_bndl()
     {
     }
 
-SOB_TEMPLATE
-CONSTEXPR_IF_NOT_MSCV
+
 SOB_CLASS::stop_bndl::stop_bndl( bool is_buy,
                                  double limit,
                                  id_type id,
@@ -249,7 +248,7 @@ SOB_CLASS::stop_bndl::stop_bndl( bool is_buy,
    {
    }
 
-SOB_TEMPLATE
+
 SOB_CLASS::stop_bndl::stop_bndl(const stop_bndl& bndl)
    :
        _order_bndl(bndl),
@@ -258,7 +257,7 @@ SOB_CLASS::stop_bndl::stop_bndl(const stop_bndl& bndl)
    {
    }
 
-SOB_TEMPLATE
+
 SOB_CLASS::stop_bndl::stop_bndl(stop_bndl&& bndl)
    :
         _order_bndl(std::move(bndl)),
@@ -267,7 +266,7 @@ SOB_CLASS::stop_bndl::stop_bndl(stop_bndl&& bndl)
    {
    }
 
-SOB_TEMPLATE
+
 typename SOB_CLASS::stop_bndl&
 SOB_CLASS::stop_bndl::operator=(const stop_bndl& bndl)
 {
@@ -279,7 +278,7 @@ SOB_CLASS::stop_bndl::operator=(const stop_bndl& bndl)
     return *this;
 }
 
-SOB_TEMPLATE
+
 typename SOB_CLASS::stop_bndl&
 SOB_CLASS::stop_bndl::operator=(stop_bndl&& bndl)
 {
@@ -291,8 +290,7 @@ SOB_CLASS::stop_bndl::operator=(stop_bndl&& bndl)
     return *this;
 }
 
-SOB_TEMPLATE
-CONSTEXPR_IF_NOT_MSCV
+
 SOB_CLASS::order_location::order_location(const order_queue_elem& elem,
                                           bool is_primary)
     :
@@ -303,8 +301,7 @@ SOB_CLASS::order_location::order_location(const order_queue_elem& elem,
     {
     }
 
-SOB_TEMPLATE
-CONSTEXPR_IF_NOT_MSCV
+
 SOB_CLASS::order_location::order_location(bool is_limit,
                                           double price,
                                           id_type id,
@@ -319,7 +316,6 @@ SOB_CLASS::order_location::order_location(bool is_limit,
 
 };
 
-#undef SOB_TEMPLATE
 #undef SOB_CLASS
 
 

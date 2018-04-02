@@ -65,12 +65,6 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #define SOB_RESOURCE_MANAGER ResourceManager_Debug
 #endif
 
-#ifdef _MSC_VER
-#define CONSTEXPR_IF_NOT_MSCV 
-#else
-#define CONSTEXPR_IF_NOT_MSCV constexpr
-#endif /* _MSC_VER */
-
 namespace sob {
 
 /*
@@ -234,23 +228,10 @@ public:
     { return master_rmanager.is_managed(interface); }
 
 private:
-    template<typename TickRatio>
-    class SimpleOrderbookImpl
-            : public ManagementInterface{
+    class SimpleOrderbookBase
+        : public ManagementInterface{
     protected:
-        SimpleOrderbookImpl( TickPrice<TickRatio> min, size_t incr );
-        ~SimpleOrderbookImpl();
-
-    private:
-        SimpleOrderbookImpl(const SimpleOrderbookImpl& sob);
-        SimpleOrderbookImpl(SimpleOrderbookImpl&& sob);
-        SimpleOrderbookImpl& operator=(const SimpleOrderbookImpl& sob);
-        SimpleOrderbookImpl& operator=(SimpleOrderbookImpl&& sob);
-
-        /* manage instances created by factory proxy */
-        static SOB_RESOURCE_MANAGER<FullInterface, ImplDeleter> rmanager;
-
-        /* info held for each order in the execution queue */
+         /* info held for each order in the execution queue */
         typedef struct{
             order_type type;
             bool is_buy;
@@ -299,8 +280,7 @@ private:
                 size_t nticks;
             };
             operator bool() const { return sz; }
-            CONSTEXPR_IF_NOT_MSCV _order_bndl();
-            CONSTEXPR_IF_NOT_MSCV 
+            _order_bndl();
             _order_bndl(id_type id, size_t sz,
                         order_exec_cb_type exec_cb,
                         order_condition cond = order_condition::none,
@@ -328,8 +308,7 @@ private:
                 : public _order_bndl {
             bool is_buy;
             double limit;
-            CONSTEXPR_IF_NOT_MSCV stop_bndl();
-            CONSTEXPR_IF_NOT_MSCV 
+            stop_bndl();
             stop_bndl(bool is_buy, double limit, id_type id, size_t sz,
                       order_exec_cb_type exec_cb,
                       order_condition cond = order_condition::none,
@@ -347,9 +326,7 @@ private:
             double price;
             id_type id;
             bool is_primary;
-            CONSTEXPR_IF_NOT_MSCV 
             order_location(const order_queue_elem& elem, bool is_primary);
-            CONSTEXPR_IF_NOT_MSCV
             order_location(bool is_limit, double price, id_type id, bool is_primary);
         };
 
@@ -377,9 +354,13 @@ private:
         typedef std::pair<limit_chain_type,stop_chain_type> chain_pair_type;
         typedef chain_pair_type *plevel;
 
-        TickPrice<TickRatio> _base;
+        typedef std::function<double(plevel)> itop_ty;
+        typedef std::function<plevel(double)> ptoi_ty;
 
-        /* THE ORDER BOOK */
+        SimpleOrderbookBase(size_t incr, itop_ty itop, ptoi_ty ptoi);
+        ~SimpleOrderbookBase();
+
+         /* THE ORDER BOOK */
         std::vector<chain_pair_type> _book;
 
         /* cached internal pointers(iterators) of the orderbook */
@@ -430,6 +411,9 @@ private:
         /* async order queu thread */
         std::thread _order_dispatcher_thread;
 
+        itop_ty _itop;
+        ptoi_ty _ptoi;
+
         /*
          * internal pointer utilities:
          *   ::get : get current (high/low, stop/limit) order pointers for
@@ -437,7 +421,7 @@ private:
          *           'depth' arg adjusts by some scalar index around bid/ask.
          */
         template<side_of_market Side = side_of_market::both,
-                 typename Impl=SimpleOrderbookImpl>
+                 typename Impl=SimpleOrderbookBase>
         struct _high_low;
 
         /*
@@ -460,8 +444,6 @@ private:
          *   ::get : get appropriate chain from plevel
          *   ::size : get size of chain
          *   ::as_order_type: convert chain type to order type (stop or limit)
-         *   ::push : push (move) order bndl onto chain
-         *   ::pop : pop (and return) order bundle from chain
          */
         template<typename ChainTy, typename Dummy = void>
         struct _chain;
@@ -470,7 +452,7 @@ private:
          * market depth utilites
          *   ::build_value : create element values for depth-of-market maps
          */
-        template<side_of_market Side, typename Impl=SimpleOrderbookImpl>
+        template<side_of_market Side, typename Impl=SimpleOrderbookBase>
         struct _depth;
 
         /*
@@ -482,7 +464,7 @@ private:
          */
         template<bool BidSide,
                  bool Redirect = BidSide,
-                 typename Impl=SimpleOrderbookImpl>
+                 typename Impl=SimpleOrderbookBase>
         struct _core_exec;
 
         /*
@@ -494,7 +476,7 @@ private:
          *   ::fillable : check if an order can immediate fill against this level
          */
         template<bool BuyLimit=true,
-                 typename Impl=SimpleOrderbookImpl>
+                 typename Impl=SimpleOrderbookBase>
         struct _limit_exec;
 
         /*
@@ -509,8 +491,16 @@ private:
          */
         template<bool BuyStop,
                  bool Redirect = BuyStop,
-                 typename Impl=SimpleOrderbookImpl>
+                 typename Impl=SimpleOrderbookBase>
         struct _stop_exec;
+
+        /*
+         * chain operation utilities:
+         *   ::push : push (move) order bndl onto chain
+         *   ::pop : pop (and return) order bundle from chain
+         */
+        template<typename ChainTy, typename Dummy = void>
+        struct _chain_op;
 
         /* handles the async/consumer side of the order queue */
         void
@@ -634,7 +624,6 @@ private:
         void
         _insert_FOK_order(const order_queue_elem& e);
 
-
         /* internal insert orders once/if we have an id */
         template<bool BuyLimit>
         fill_type
@@ -665,11 +654,11 @@ private:
         void
         _adjust_trailing_stop(id_type id, bool buy_stop);
 
-        inline void
+        void
         _trailing_stop_insert(id_type id, bool is_buy)
         { (is_buy ? _trailing_buy_stops : _trailing_sell_stops).insert(id); }
 
-        inline void
+        void
         _trailing_stop_erase(id_type id, bool is_buy)
         { (is_buy ? _trailing_buy_stops : _trailing_sell_stops).erase(id); }
 
@@ -771,42 +760,29 @@ private:
                         size_t sz )
         { _deferred_callbacks.push_back({msg, cb, id1, id2, price, sz}); }
 
-        inline bool
-        _is_buy_order(plevel p, const limit_bndl& o) const
-        { return (p < _ask); }
+        bool
+        _is_buy_order(plevel p, const limit_bndl& o) const;
 
-        inline bool
-        _is_buy_order(plevel p, const stop_bndl& o) const
-        { return _order::is_buy_stop(o); }
+        bool
+        _is_buy_order(plevel p, const stop_bndl& o) const;
 
         /* generate order ids; don't worry about overflow */
         inline id_type
         _generate_id()
         { return ++_last_id; }
 
-        /* price-to-index and index-to-price utilities  */
-        plevel
-        _ptoi(TickPrice<TickRatio> price) const;
-
-        inline plevel
-        _ptoi(double price) const
-        { return _ptoi( TickPrice<TickRatio>(price)); }
-
-        TickPrice<TickRatio>
-        _itop(plevel p) const;        
-
         /* 
-         * calculate chain_size of orders at each price level
-         * use depth ticks on each side of last  
-         *
-         * note: need to use trailing return to make MSCV happy
-         */
+        * calculate chain_size of orders at each price level
+        * use depth ticks on each side of last
+        *
+        * note: need to use trailing return to make MSCV happy
+        */
         template<side_of_market Side, typename ChainTy = limit_chain_type>
-        auto //std::map<double, typename _depth<Side>::mapped_type >
+        auto
         _market_depth(size_t depth) const
-            -> std::map<double, typename std::conditional<Side == side_of_market::both, 
-                                                          std::pair<size_t, side_of_market>, 
-                                                          size_t>::type >;
+         -> std::map<double, typename std::conditional<Side == side_of_market::both,
+                                                       std::pair<size_t, side_of_market>,
+                                                       size_t>::type >;
 
         /* total size of bid or ask limits */
         template<side_of_market Side, typename ChainTy = limit_chain_type>
@@ -828,9 +804,6 @@ private:
                                  plevel new_end,
                                  long long addr_offset);
 
-        /* called by ManagementInterface to increase book size */
-        void
-        _grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg);
 
         /* convert to valid tick price (throw invalid_argument if bad input) */
         double
@@ -849,33 +822,33 @@ private:
         _bndl_to_aot(const _order_bndl& bndl) const;
 
         /* check/build internal param object from user input for advanced
-         * order types (uses _tick_price_or_throw to check user input) */
+        * order types (uses _tick_price_or_throw to check user input) */
         std::unique_ptr<OrderParamaters>
         _build_nticks_params(bool buy,
-                             size_t size,
-                             const OrderParamaters *order) const;
+                          size_t size,
+                          const OrderParamaters *order) const;
 
         std::unique_ptr<OrderParamaters>
         _build_price_params(const OrderParamaters *order) const;
 
         std::pair<std::unique_ptr<OrderParamaters>,
-                  std::unique_ptr<OrderParamaters>>
+               std::unique_ptr<OrderParamaters>>
         _build_advanced_params(bool buy,
-                               size_t size,
-                               const AdvancedOrderTicket& advanced) const;
+                            size_t size,
+                            const AdvancedOrderTicket& advanced) const;
 
         /* check prices levels for limit-OCO orders are valid */
         void
         _check_limit_order(bool buy,
-                           double limit,
-                           std::unique_ptr<OrderParamaters> & op,
-                           order_condition oc) const;
+                        double limit,
+                        std::unique_ptr<OrderParamaters> & op,
+                        order_condition oc) const;
 
         template<typename T>
         static constexpr long long
         bytes_offset(T *l, T *r)
         { return (reinterpret_cast<unsigned long long>(l) -
-                  reinterpret_cast<unsigned long long>(r)); }
+               reinterpret_cast<unsigned long long>(r)); }
 
         template<typename T>
         static constexpr T*
@@ -887,38 +860,38 @@ private:
         plevel_offset(plevel l, plevel r)
         { return static_cast<long>(bytes_offset(l, r) / sizeof(*l)); }
 
-    public:
+     public:
         id_type
         insert_limit_order(bool buy,
-                           double limit,
+                          double limit,
+                          size_t size,
+                          order_exec_cb_type exec_cb = nullptr,
+                          const AdvancedOrderTicket& advanced
+                              = AdvancedOrderTicket::null);
+
+        id_type
+        insert_market_order(bool buy,
                            size_t size,
                            order_exec_cb_type exec_cb = nullptr,
                            const AdvancedOrderTicket& advanced
                                = AdvancedOrderTicket::null);
 
         id_type
-        insert_market_order(bool buy,
-                            size_t size,
-                            order_exec_cb_type exec_cb = nullptr,
-                            const AdvancedOrderTicket& advanced
-                                = AdvancedOrderTicket::null);
+        insert_stop_order(bool buy,
+                         double stop,
+                         size_t size,
+                         order_exec_cb_type exec_cb = nullptr,
+                         const AdvancedOrderTicket& advanced
+                             = AdvancedOrderTicket::null);
 
         id_type
         insert_stop_order(bool buy,
-                          double stop,
-                          size_t size,
-                          order_exec_cb_type exec_cb = nullptr,
-                          const AdvancedOrderTicket& advanced
-                              = AdvancedOrderTicket::null);
-
-        id_type
-        insert_stop_order(bool buy,
-                          double stop,
-                          double limit,
-                          size_t size,
-                          order_exec_cb_type exec_cb = nullptr,
-                          const AdvancedOrderTicket& advanced
-                              = AdvancedOrderTicket::null);
+                         double stop,
+                         double limit,
+                         size_t size,
+                         order_exec_cb_type exec_cb = nullptr,
+                         const AdvancedOrderTicket& advanced
+                             = AdvancedOrderTicket::null);
 
         bool
         pull_order(id_type id);
@@ -928,45 +901,40 @@ private:
 
         id_type
         replace_with_limit_order(id_type id,
-                                 bool buy,
-                                 double limit,
-                                 size_t size,
-                                 order_exec_cb_type exec_cb = nullptr,
-                                 const AdvancedOrderTicket& advanced
-                                     = AdvancedOrderTicket::null);
-
-        id_type
-        replace_with_market_order(id_type id,
-                                  bool buy,
-                                  size_t size,
-                                  order_exec_cb_type exec_cb = nullptr,
-                                  const AdvancedOrderTicket& advanced
-                                      = AdvancedOrderTicket::null);
-
-        id_type
-        replace_with_stop_order(id_type id,
                                 bool buy,
-                                double stop,
-                                size_t size,
-                                order_exec_cb_type exec_cb = nullptr,
-                                const AdvancedOrderTicket& advanced
-                                    = AdvancedOrderTicket::null);
-
-        id_type
-        replace_with_stop_order(id_type id,
-                                bool buy,
-                                double stop,
                                 double limit,
                                 size_t size,
                                 order_exec_cb_type exec_cb = nullptr,
                                 const AdvancedOrderTicket& advanced
                                     = AdvancedOrderTicket::null);
 
-        void
-        grow_book_above(double new_max);
+        id_type
+        replace_with_market_order(id_type id,
+                                 bool buy,
+                                 size_t size,
+                                 order_exec_cb_type exec_cb = nullptr,
+                                 const AdvancedOrderTicket& advanced
+                                     = AdvancedOrderTicket::null);
 
-        void
-        grow_book_below(double new_min);
+        id_type
+        replace_with_stop_order(id_type id,
+                               bool buy,
+                               double stop,
+                               size_t size,
+                               order_exec_cb_type exec_cb = nullptr,
+                               const AdvancedOrderTicket& advanced
+                                   = AdvancedOrderTicket::null);
+
+        id_type
+        replace_with_stop_order(id_type id,
+                               bool buy,
+                               double stop,
+                               double limit,
+                               size_t size,
+                               order_exec_cb_type exec_cb = nullptr,
+                               const AdvancedOrderTicket& advanced
+                                   = AdvancedOrderTicket::null);
+
 
         void
         dump_internal_pointers(std::ostream& out = std::cout) const;
@@ -974,34 +942,34 @@ private:
         inline void
         dump_limits(std::ostream& out = std::cout) const
         { _dump_orders<limit_chain_type>(
-                out, std::min(_low_buy_limit, _ask),
-                std::max(_high_sell_limit, _bid), side_of_trade::both); }
+               out, std::min(_low_buy_limit, _ask),
+               std::max(_high_sell_limit, _bid), side_of_trade::both); }
 
         inline void
         dump_buy_limits(std::ostream& out = std::cout) const
         { _dump_orders<limit_chain_type>(
-                out, _low_buy_limit, _bid, side_of_trade::buy); }
+               out, _low_buy_limit, _bid, side_of_trade::buy); }
 
         inline void
         dump_sell_limits(std::ostream& out = std::cout) const
         { _dump_orders<limit_chain_type>(
-                out, _ask, _high_sell_limit, side_of_trade::sell); }
+               out, _ask, _high_sell_limit, side_of_trade::sell); }
 
         inline void
         dump_stops(std::ostream& out = std::cout) const
         { _dump_orders<stop_chain_type>(
-                out, std::min(_low_buy_stop, _low_sell_stop),
-                std::max(_high_buy_stop, _high_sell_stop), side_of_trade::both); }
+               out, std::min(_low_buy_stop, _low_sell_stop),
+               std::max(_high_buy_stop, _high_sell_stop), side_of_trade::both); }
 
         inline void
         dump_buy_stops(std::ostream& out = std::cout) const
         { _dump_orders<stop_chain_type>(
-                out, _low_buy_stop , _high_buy_stop, side_of_trade::buy); }
+               out, _low_buy_stop , _high_buy_stop, side_of_trade::buy); }
 
         inline void
         dump_sell_stops(std::ostream& out = std::cout) const
         { _dump_orders<stop_chain_type>(
-                out, _low_sell_stop, _high_sell_stop, side_of_trade::sell); }
+               out, _low_sell_stop, _high_sell_stop, side_of_trade::sell); }
 
         inline std::map<double, size_t>
         bid_depth(size_t depth=8) const
@@ -1035,13 +1003,11 @@ private:
         max_price() const
         { return _itop(_end - 1); }
 
-        inline size_t
-        bid_size() const
-        { return (_bid >= _beg) ? _chain<limit_chain_type>::size(&_bid->first) : 0; }
+        size_t
+        bid_size() const;
 
-        inline size_t
-        ask_size() const
-        { return (_ask < _end) ? _chain<limit_chain_type>::size(&_ask->first) : 0; }
+        size_t
+        ask_size() const;
 
         inline size_t
         total_bid_size() const
@@ -1070,6 +1036,44 @@ private:
         inline const std::vector<timesale_entry_type>&
         time_and_sales() const
         { return _timesales; }
+
+    };
+
+    /* (non-inline) definitions in tpp/orderbook/impl.tpp */
+    template<typename TickRatio>
+    class SimpleOrderbookImpl
+            : SimpleOrderbookBase{
+        /* manage instances created by factory proxy */
+        static SOB_RESOURCE_MANAGER<FullInterface, ImplDeleter> rmanager;
+
+        SimpleOrderbookImpl(const SimpleOrderbookImpl& sob) = delete;
+        SimpleOrderbookImpl(SimpleOrderbookImpl&& sob) = delete;
+        SimpleOrderbookImpl& operator=(const SimpleOrderbookImpl& sob) = delete;
+        SimpleOrderbookImpl& operator=(SimpleOrderbookImpl&& sob) = delete;
+
+        SimpleOrderbookImpl( TickPrice<TickRatio> min, size_t incr );
+        ~SimpleOrderbookImpl() {}
+
+        /* lowest price */
+        TickPrice<TickRatio> _base;
+
+        /* price-to-index and index-to-price utilities  */
+        plevel
+        _ptoi(TickPrice<TickRatio> price) const;
+
+        TickPrice<TickRatio>
+        _itop(plevel p) const;
+
+        /* called by ManagementInterface to increase book size */
+        void
+        _grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg);
+
+    public:
+        void
+        grow_book_above(double new_max);
+
+        void
+        grow_book_below(double new_min);
 
         inline double
         tick_size() const
@@ -1163,14 +1167,6 @@ SimpleOrderbook::SimpleOrderbookImpl<TickRatio>::rmanager(
         typeid(TickRatio).name()
         );
 
-template<typename TickRatio>
-typename SimpleOrderbook::SimpleOrderbookImpl<TickRatio>::limit_bndl
-SimpleOrderbook::SimpleOrderbookImpl<TickRatio>::limit_bndl::null;
-
-template<typename TickRatio>
-typename SimpleOrderbook::SimpleOrderbookImpl<TickRatio>::stop_bndl
-SimpleOrderbook::SimpleOrderbookImpl<TickRatio>::stop_bndl::null;
-
 struct order_info {
     order_type type;
     bool is_buy;
@@ -1196,10 +1192,10 @@ struct order_info {
 
 }; /* sob */
 
-#include "../tpp/simpleorderbook/util.tpp"
-#include "../tpp/simpleorderbook/bndl.tpp"
-#include "../tpp/simpleorderbook/public.tpp"
-#include "../tpp/simpleorderbook/core.tpp"
-#include "../tpp/simpleorderbook/advanced.tpp"
+/* the structs in SimpleOrderbookBase we use use for member specializations */
+#include "../tpp/orderbook/base_util.tpp"
 
-#endif
+/* method definitions for SimpleOrderbookImpl */
+#include "../tpp/orderbook/impl.tpp"
+
+#endif /* JO_SOB_SIMPLEORDERBOOK */

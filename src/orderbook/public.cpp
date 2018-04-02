@@ -17,12 +17,16 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #include <iomanip>
 
-#define SOB_TEMPLATE template<typename TickRatio>
-#define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio>
+#include "../../include/simpleorderbook.hpp"
+
+#define SOB_CLASS SimpleOrderbook::SimpleOrderbookBase
+
+// NOTE - only explicitly instantiate members needed for link and not
+//        done implicitly. If (later) called from outside public.cpp
+//        need to add them.
 
 namespace sob{
 
-SOB_TEMPLATE
 id_type
 SOB_CLASS::insert_limit_order( bool buy,
                                double limit,
@@ -58,7 +62,7 @@ SOB_CLASS::insert_limit_order( bool buy,
 }
 
 
-SOB_TEMPLATE
+
 id_type
 SOB_CLASS::insert_market_order( bool buy,
                                 size_t size,
@@ -92,7 +96,7 @@ SOB_CLASS::insert_market_order( bool buy,
 }
 
 
-SOB_TEMPLATE
+
 id_type
 SOB_CLASS::insert_stop_order( bool buy,
                               double stop,
@@ -104,7 +108,7 @@ SOB_CLASS::insert_stop_order( bool buy,
 }
 
 
-SOB_TEMPLATE
+
 id_type
 SOB_CLASS::insert_stop_order( bool buy,
                               double stop,
@@ -148,7 +152,6 @@ SOB_CLASS::insert_stop_order( bool buy,
 }
 
 
-SOB_TEMPLATE
 bool
 SOB_CLASS::pull_order(id_type id)
 {
@@ -160,7 +163,7 @@ SOB_CLASS::pull_order(id_type id)
                                 condition_trigger::none, nullptr, nullptr, id);
 }
 
-SOB_TEMPLATE
+
 order_info
 SOB_CLASS::get_order_info(id_type id) const
 {
@@ -171,7 +174,6 @@ SOB_CLASS::get_order_info(id_type id) const
 }
 
 
-SOB_TEMPLATE
 id_type
 SOB_CLASS::replace_with_limit_order( id_type id,
                                      bool buy,
@@ -188,7 +190,6 @@ SOB_CLASS::replace_with_limit_order( id_type id,
 }
 
 
-SOB_TEMPLATE
 id_type
 SOB_CLASS::replace_with_market_order( id_type id,
                                       bool buy,
@@ -204,7 +205,6 @@ SOB_CLASS::replace_with_market_order( id_type id,
 }
 
 
-SOB_TEMPLATE
 id_type
 SOB_CLASS::replace_with_stop_order( id_type id,
                                     bool buy,
@@ -221,7 +221,6 @@ SOB_CLASS::replace_with_stop_order( id_type id,
 }
 
 
-SOB_TEMPLATE
 id_type
 SOB_CLASS::replace_with_stop_order( id_type id,
                                     bool buy,
@@ -239,47 +238,6 @@ SOB_CLASS::replace_with_stop_order( id_type id,
 }
 
 
-SOB_TEMPLATE
-void
-SOB_CLASS::grow_book_above(double new_max)
-{
-    auto diff = TickPrice<TickRatio>(new_max) - max_price();
-
-    if( diff > std::numeric_limits<long>::max() ){
-        throw std::invalid_argument("new_max too far from old max to grow");
-    }
-    if( diff > 0 ){
-        size_t incr = static_cast<size_t>(diff.as_ticks());
-        _grow_book(_base, incr, false);
-    }
-}
-
-
-SOB_TEMPLATE
-void
-SOB_CLASS::grow_book_below(double new_min)
-{
-    if( _base == 1 ){ // can't go any lower
-        return;
-    }
-
-    TickPrice<TickRatio> new_base(new_min);
-    if( new_base < 1 ){
-        new_base = TickPrice<TickRatio>(1);
-    }
-
-    auto diff = _base - new_base;
-    if( diff > std::numeric_limits<long>::max() ){
-        throw std::invalid_argument("new_min too far from old min to grow");
-    }
-    if( diff > 0 ){
-        size_t incr = static_cast<size_t>(diff.as_ticks());
-        _grow_book(new_base, incr, true);
-    }
-}
-
-
-SOB_TEMPLATE
 void
 SOB_CLASS::dump_internal_pointers(std::ostream& out) const
 {
@@ -316,46 +274,14 @@ SOB_CLASS::dump_internal_pointers(std::ostream& out) const
 }
 
 
-SOB_TEMPLATE
-bool
-SOB_CLASS::is_valid_price(double price) const
-{
-    long long offset = (TickPrice<TickRatio>(price) - _base).as_ticks();
-    plevel p = _beg + offset;
-    return (p >= _beg && p < _end);
-}
+size_t
+SOB_CLASS::bid_size() const
+{ return (_bid >= _beg) ? _chain<limit_chain_type>::size(&_bid->first) : 0; }
 
+size_t
+SOB_CLASS::ask_size() const
+{ return (_ask < _end) ? _chain<limit_chain_type>::size(&_ask->first) : 0; }
 
-SOB_TEMPLATE
-FullInterface*
-SOB_CLASS::create(TickPrice<TickRatio> min, TickPrice<TickRatio> max)
-{
-    if (min < 0 || min > max) {
-        throw std::invalid_argument("min < 0 || min > max");
-    }
-    if (min == 0) {
-        ++min; /* note: we adjust w/o client knowing */
-    }
+}; /* sob */
 
-    // make inclusive
-    size_t incr = static_cast<size_t>((max - min).as_ticks()) + 1;
-    if (incr < 3) {
-        throw std::invalid_argument("need at least 3 ticks");
-    }
-
-    FullInterface *tmp = new SimpleOrderbookImpl(min, incr);
-    if (tmp) {
-        if (!rmanager.add(tmp, master_rmanager)) {
-            delete tmp;
-            throw std::runtime_error("failed to add orderbook");
-        }
-    }
-    return tmp;
-}
-
-
-
-};
-
-#undef SOB_TEMPLATE
 #undef SOB_CLASS

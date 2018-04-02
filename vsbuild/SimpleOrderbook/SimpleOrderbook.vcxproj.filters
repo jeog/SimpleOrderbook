@@ -47,21 +47,24 @@
     <ClCompile Include="..\..\src\simpleorderbook.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\orderbook\advanced.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\orderbook\bndl.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\orderbook\core.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\orderbook\public.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\..\tpp\simpleorderbook\core.tpp">
+    <None Include="..\..\tpp\orderbook\base_util.tpp">
       <Filter>Source Files</Filter>
     </None>
-    <None Include="..\..\tpp\simpleorderbook\public.tpp">
-      <Filter>Source Files</Filter>
-    </None>
-    <None Include="..\..\tpp\simpleorderbook\advanced.tpp">
-      <Filter>Source Files</Filter>
-    </None>
-    <None Include="..\..\tpp\simpleorderbook\bndl.tpp">
-      <Filter>Source Files</Filter>
-    </None>
-    <None Include="..\..\tpp\simpleorderbook\util.tpp">
+    <None Include="..\..\tpp\orderbook\impl.tpp">
       <Filter>Source Files</Filter>
     </None>
   </ItemGroup>

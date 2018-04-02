@@ -15,10 +15,13 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see http://www.gnu.org/licenses.
 */
 
-#define SOB_TEMPLATE template<typename TickRatio>
-#define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio>
+#include "../../include/simpleorderbook.hpp"
 
-namespace sob{
+#define SOB_CLASS SimpleOrderbook::SimpleOrderbookBase
+
+// NOTE - only explicitly instantiate members needed for link and not
+//        done implicitly. If (later) called from outside advanced.cpp
+//        need to add them.
 
 // TODO figure out how to handle race condition concerning callbacks and
 //      ID changes when an advanced order fills immediately(upon _inject)
@@ -28,7 +31,8 @@ namespace sob{
 // TODO allow for '_active' conditions to return initial advanced information
 //      as order_info; i.e. trailing_stop should give you the 'nticks' value
 
-SOB_TEMPLATE
+namespace sob{
+
 void
 SOB_CLASS::_route_advanced_order(const order_queue_elem& e)
 {
@@ -64,7 +68,6 @@ SOB_CLASS::_route_advanced_order(const order_queue_elem& e)
 }
 
 
-SOB_TEMPLATE
 bool
 SOB_CLASS::_handle_advanced_order_trigger(_order_bndl& bndl, id_type id)
 {
@@ -93,7 +96,6 @@ SOB_CLASS::_handle_advanced_order_trigger(_order_bndl& bndl, id_type id)
 }
 
 
-SOB_TEMPLATE
 bool
 SOB_CLASS::_handle_advanced_order_cancel(_order_bndl& bndl, id_type id)
 {
@@ -115,7 +117,6 @@ SOB_CLASS::_handle_advanced_order_cancel(_order_bndl& bndl, id_type id)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_handle_OTO(_order_bndl& bndl, id_type id)
 {
@@ -131,7 +132,6 @@ SOB_CLASS::_handle_OTO(_order_bndl& bndl, id_type id)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_handle_BRACKET(_order_bndl& bndl, id_type id)
 {
@@ -153,7 +153,6 @@ SOB_CLASS::_handle_BRACKET(_order_bndl& bndl, id_type id)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_handle_TRAILING_BRACKET(_order_bndl& bndl, id_type id)
 {
@@ -175,7 +174,6 @@ SOB_CLASS::_handle_TRAILING_BRACKET(_order_bndl& bndl, id_type id)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_handle_TRAILING_STOP(_order_bndl& bndl, id_type id)
 {
@@ -189,7 +187,6 @@ SOB_CLASS::_handle_TRAILING_STOP(_order_bndl& bndl, id_type id)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id)
 {
@@ -219,7 +216,6 @@ SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_exec_OTO_order(const OrderParamaters *op,
                            const order_exec_cb_type& cb,
@@ -237,7 +233,6 @@ SOB_CLASS::_exec_OTO_order(const OrderParamaters *op,
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_exec_BRACKET_order(const OrderParamaters *op1,
                                const OrderParamaters *op2,
@@ -269,7 +264,6 @@ SOB_CLASS::_exec_BRACKET_order(const OrderParamaters *op1,
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
                                         const OrderParamaters *op2,
@@ -296,7 +290,6 @@ SOB_CLASS::_exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_exec_TRAILING_STOP_order(const OrderParamaters *op,
                                      const order_exec_cb_type& cb,
@@ -320,7 +313,6 @@ SOB_CLASS::_exec_TRAILING_STOP_order(const OrderParamaters *op,
 }
 
 
-SOB_TEMPLATE
 template<typename T>
 void
 SOB_CLASS::_exec_OCO_order(const T& t,
@@ -343,7 +335,6 @@ SOB_CLASS::_exec_OCO_order(const T& t,
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
 {
@@ -392,7 +383,6 @@ SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_insert_OTO_order(const order_queue_elem& e)
 {
@@ -415,7 +405,6 @@ SOB_CLASS::_insert_OTO_order(const order_queue_elem& e)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_insert_BRACKET_order(const order_queue_elem& e)
 {
@@ -444,7 +433,6 @@ SOB_CLASS::_insert_BRACKET_order(const order_queue_elem& e)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_insert_TRAILING_BRACKET_order(const order_queue_elem& e)
 {
@@ -471,7 +459,6 @@ SOB_CLASS::_insert_TRAILING_BRACKET_order(const order_queue_elem& e)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_insert_TRAILING_STOP_order(const order_queue_elem& e)
 {
@@ -492,7 +479,6 @@ SOB_CLASS::_insert_TRAILING_STOP_order(const order_queue_elem& e)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e)
 {
@@ -538,12 +524,11 @@ SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e)
      o1.cond = o2.cond = e.cond;
      o1.trigger = o2.trigger = e.cond_trigger;
 
-     _chain<stop_chain_type>::push(this, p, std::move(o2));
+     _chain_op<stop_chain_type>::push(this, p, std::move(o2));
      _trailing_stop_insert(id2, op->is_buy());
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_insert_TRAILING_STOP_ACTIVE_order(const order_queue_elem& e)
 {
@@ -557,12 +542,11 @@ SOB_CLASS::_insert_TRAILING_STOP_ACTIVE_order(const order_queue_elem& e)
 
     bndl.nticks = op->stop_nticks();
     plevel p = _generate_trailing_stop(op->is_buy(), bndl.nticks);
-    _chain<stop_chain_type>::push(this, p, std::move(bndl));
+    _chain_op<stop_chain_type>::push(this, p, std::move(bndl));
     _trailing_stop_insert(e.id, e.is_buy);
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_insert_FOK_order(const order_queue_elem& e)
 {
@@ -583,7 +567,6 @@ SOB_CLASS::_insert_FOK_order(const order_queue_elem& e)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_adjust_trailing_stops(bool buy_stops)
 {
@@ -594,7 +577,6 @@ SOB_CLASS::_adjust_trailing_stops(bool buy_stops)
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_adjust_trailing_stop(id_type id, bool buy_stop)
 {
@@ -602,7 +584,7 @@ SOB_CLASS::_adjust_trailing_stop(id_type id, bool buy_stop)
     assert( !cinfo.second );
     plevel p = _ptoi( cinfo.first );
 
-    stop_bndl bndl = _chain<stop_chain_type>::pop(this, p, id);
+    stop_bndl bndl = _chain_op<stop_chain_type>::pop(this, p, id);
     assert( bndl );
     assert( bndl.nticks );
     assert( bndl.is_buy == buy_stop );
@@ -627,11 +609,10 @@ SOB_CLASS::_adjust_trailing_stop(id_type id, bool buy_stop)
         linked.linked_trailer->second.price = price;
     }
 
-    _chain<stop_chain_type>::push(this, p, std::move(bndl));
+    _chain_op<stop_chain_type>::push(this, p, std::move(bndl));
 }
 
 
-SOB_TEMPLATE
 AdvancedOrderTicket
 SOB_CLASS::_bndl_to_aot(const _order_bndl& bndl) const
 {
@@ -685,7 +666,6 @@ SOB_CLASS::_bndl_to_aot(const _order_bndl& bndl) const
 }
 
 
-SOB_TEMPLATE
 std::pair<std::unique_ptr<OrderParamaters>,
           std::unique_ptr<OrderParamaters>>
 SOB_CLASS::_build_advanced_params(bool buy,
@@ -721,7 +701,6 @@ SOB_CLASS::_build_advanced_params(bool buy,
 }
 
 
-SOB_TEMPLATE
 std::unique_ptr<OrderParamaters>
 SOB_CLASS::_build_nticks_params(bool buy,
                                size_t size,
@@ -743,7 +722,6 @@ SOB_CLASS::_build_nticks_params(bool buy,
 }
 
 
-SOB_TEMPLATE
 std::unique_ptr<OrderParamaters>
 SOB_CLASS::_build_price_params(const OrderParamaters *order) const
 {
@@ -781,7 +759,6 @@ SOB_CLASS::_build_price_params(const OrderParamaters *order) const
 }
 
 
-SOB_TEMPLATE
 void
 SOB_CLASS::_check_limit_order( bool buy,
                                double limit,
@@ -812,5 +789,4 @@ SOB_CLASS::_check_limit_order( bool buy,
 
 }; /* sob */
 
-#undef SOB_TEMPLATE
 #undef SOB_CLASS

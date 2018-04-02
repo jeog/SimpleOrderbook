@@ -32,7 +32,8 @@ DEBUG_BUILD_DIR := $(BUILD_DIR)/debug
 RELEASE_BUILD_DIR := $(BUILD_DIR)/release
 
 # source file dirs for the main lib
-SOB_LIB_SUBDIRS = src
+SOB_LIB_SUBDIRS = src \
+src/orderbook
 
 DEBUG_SOB_LIB_SUBDIRS = $(addprefix $(DEBUG_BUILD_DIR)/, $(SOB_LIB_SUBDIRS))
 RELEASE_SOB_LIB_SUBDIRS = $(addprefix $(RELEASE_BUILD_DIR)/, $(SOB_LIB_SUBDIRS))
