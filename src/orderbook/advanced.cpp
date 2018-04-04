@@ -559,7 +559,7 @@ SOB_CLASS::_insert_FOK_order(const order_queue_elem& e)
      * if size of 0 is fillable; if p is <= _bid or >= _ask (and they are
      * valid) we know there's at least 1 order available to trade against
      */
-    if( !_limit_exec<>::fillable(this, p, sz, e.is_buy) ){
+    if( !_limit_is_fillable(p, sz, e.is_buy) ){
         _push_callback(callback_msg::kill, e.exec_cb, e.id, e.id, e.limit, e.sz);
         return;
     }

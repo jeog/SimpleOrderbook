@@ -207,6 +207,24 @@ SOB_CLASS::_inject_order(const order_queue_elem& e, bool partial_ok)
 }
 
 
+template<typename ChainTy>
+bool
+SOB_CLASS::_is_fillable(plevel l, plevel h, size_t sz)
+{
+    size_t tot = 0;
+    for( ; l <= h; ++l){
+        for( const auto& e : *_chain<ChainTy>::get(l) ){
+            tot += e.sz;
+            if( tot >= sz ){
+                return true;
+            }
+        }
+    }
+    return false;
+}
+template bool SOB_CLASS::_is_fillable<SOB_CLASS::limit_chain_type>(plevel, plevel, size_t);
+
+
 /*
  *  _trade<bool> : the guts of order execution:
  *      match orders against the order book,

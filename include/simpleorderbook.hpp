@@ -420,8 +420,7 @@ private:
          *           various chain/order types and sides of market. Optional
          *           'depth' arg adjusts by some scalar index around bid/ask.
          */
-        template<side_of_market Side = side_of_market::both,
-                 typename Impl=SimpleOrderbookBase>
+        template<side_of_market Side = side_of_market::both>
         struct _high_low;
 
         /*
@@ -445,14 +444,14 @@ private:
          *   ::size : get size of chain
          *   ::as_order_type: convert chain type to order type (stop or limit)
          */
-        template<typename ChainTy, typename Dummy = void>
+        template<typename ChainTy, bool BaseOnly=false>
         struct _chain;
 
         /*
          * market depth utilites
          *   ::build_value : create element values for depth-of-market maps
          */
-        template<side_of_market Side, typename Impl=SimpleOrderbookBase>
+        template<side_of_market Side>
         struct _depth;
 
         /*
@@ -462,9 +461,7 @@ private:
          *   ::find_new_best_inside : adjust the internal pointers to the new
          *                            best bids/asks after trade activity
          */
-        template<bool BidSide,
-                 bool Redirect = BidSide,
-                 typename Impl=SimpleOrderbookBase>
+        template<bool BidSide, bool Redirect = BidSide>
         struct _core_exec;
 
         /*
@@ -475,8 +472,7 @@ private:
          *                               order pull
          *   ::fillable : check if an order can immediate fill against this level
          */
-        template<bool BuyLimit=true,
-                 typename Impl=SimpleOrderbookBase>
+        template<bool BuyLimit>
         struct _limit_exec;
 
         /*
@@ -489,9 +485,7 @@ private:
          *                                  stop is triggered
          *   ::stop_chain_is_empty : no active stop orders in this chain
          */
-        template<bool BuyStop,
-                 bool Redirect = BuyStop,
-                 typename Impl=SimpleOrderbookBase>
+        template<bool BuyStop, bool Redirect = BuyStop>
         struct _stop_exec;
 
         /*
@@ -499,7 +493,7 @@ private:
          *   ::push : push (move) order bndl onto chain
          *   ::pop : pop (and return) order bundle from chain
          */
-        template<typename ChainTy, typename Dummy = void>
+        template<typename ChainTy, bool BaseOnly=false>
         struct _chain_op;
 
         /* handles the async/consumer side of the order queue */
@@ -522,6 +516,15 @@ private:
         /* if we need immediate (partial/full) fill info for basic order type*/
         bool
         _inject_order(const order_queue_elem& e, bool partial_ok);
+
+        inline bool
+        _limit_is_fillable(plevel p, size_t sz, bool is_buy)
+        { return is_buy ? (_ask < _end) && _is_fillable(_ask, p, sz)
+                        : (_bid >= _beg) && _is_fillable(p, _bid, sz); }
+
+        template<typename ChainTy=limit_chain_type>
+        bool
+        _is_fillable(plevel l, plevel h, size_t sz);
 
         template<bool BidSide>
         size_t
