@@ -1,4 +1,4 @@
-## SimpleOrderbook 
+## SimpleOrderbook v0.5
 - - -
 
 SimpleOrderbook is a C++(11) financial market orderbook and matching engine with a Python extension module.
