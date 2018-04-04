@@ -188,24 +188,12 @@ init_base(pyAOT *self)
     return 0;
 }
 
-/* type checks, see specializations for implementation */
 template<typename T>
 sob::AdvancedOrderTicket
-py_to_native_aot(T* obj)
-{
-    static_assert( std::is_base_of<pyAOT, T>::value
-                   || std::is_same<PyObject, T>::value, "invalid type");
-    return sob::AdvancedOrderTicket::null;
-}
+py_to_native_aot(T* obj);
 
-/* type checks, see specializations for implementation */
 template<typename T>
 T*
-native_aot_to_py(const sob::AdvancedOrderTicket& aot)
-{
-    static_assert( std::is_base_of<pyAOT, T>::value
-                   || std::is_same<PyObject, T>::value, "invalid type");
-    return nullptr;
-}
+native_aot_to_py(const sob::AdvancedOrderTicket& aot);
 
 #endif /* JO_SOB_ADVANCED_PY */

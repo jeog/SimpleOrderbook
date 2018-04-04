@@ -16,6 +16,7 @@
 #
 
 import simpleorderbook as sob
+import os
 
 TICK_TYPE = sob.SOB_QUARTER_TICK
 P_TO_T = lambda p : sob.price_to_tick(TICK_TYPE, p)
@@ -263,11 +264,17 @@ def test_BRACKET():
     md = book.market_depth()
     if md[BOOK_MIN][0] != 99*SZ:
         raise Exception("*** ERROR orders still exists in book ***")  
-               
+        
+    null_fd = os.open(os.devnull, os.O_RDWR)
+    err_fd = os.dup(2)
+    os.dup2(null_fd, 2)       
     try:
-        book.buy_market(1) # check nothing above
+        book.buy_market(1) # check nothing above        
     except:
         return
+    finally:
+        os.dup2(err_fd, 2)
+        os.close(null_fd)
     
     raise Exception("*** ERROR sell orders were still active ***")
     
@@ -374,6 +381,10 @@ def test_all():
 
 
 if __name__ == '__main__':
+    print("simpleorderbook: ")
+    print("  path: ", sob.__file__)
+    print("  build datetime: ", sob._BUILD_DATETIME)
+    print("  build is debug: ", sob._BUILD_IS_DEBUG)    
     test_all()
 
     
