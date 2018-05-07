@@ -29,22 +29,16 @@ SimpleOrderbook is a C++(11) financial market orderbook and matching engine with
 
 #### Design
 
-The 'spine' of the orderbook is a vector which allows:
-- random access and simple pointer/index math internally
-- operations on cached internal pointers/indices of important levels
+The 'spine' of the orderbook is a vector which allows random access using simple pointer/index math internally.
 
-The vector is initialized to user-requested size when the book is created but can be grown manually. We simply let the STL implementation do its thing, get the new base address, and adjust the internal pointers by the offset
+The vector is initialized to user-requested size when the book is created but can be grown manually. We simply let the STL implementation do its thing, get the new base address, and adjust the internal pointers by the offset.
 
-The vector contains pairs of doubly-linked lists ('chains') which allows:
-- one list for limits and another for stops
-- the potential to add new chains for advanced orders (e.g AON orders)
-- quick push/pop so order insert/execution is O(C) for limit/market orders (see below)
-- quick removal from inside the list
+The vector contains pairs of doubly-linked lists (stop and limit 'chains') so order insert/execution is O(1) for limit/market orders (see below).
 
 Orders are referenced by ID #s that are generated sequentially and cached - with their respective price level and chain type - in an unordered_map (hash table) allowing for:
-- collision-free O(C) lookup from the cache and O(N) lookup from the chain, so
+- collision-free O(1) lookup from the cache and O(N) lookup from the chain, so
 - worst case pull/remove (every order is at 1 price level) O(N) 
-- best case pull/remove (no more than 1 order at each price level) O(C) 
+- best case pull/remove (no more than 1 order at each price level) O(1) 
 
 See 'Performance Tests' section below for run times. 
 
