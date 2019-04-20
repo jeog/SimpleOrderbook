@@ -19,6 +19,11 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <iterator>
 #include <climits>
 
+/*
+ * INCLUDED at the bottom of simpleorderbook.hpp to define the methods
+ * of templace class SimpleOrderbook::SimpleOrderbookImpl
+ */
+
 #define SOB_TEMPLATE template<typename TickRatio>
 #define SOB_CLASS SimpleOrderbook::SimpleOrderbookImpl<TickRatio>
 

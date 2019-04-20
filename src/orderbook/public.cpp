@@ -18,6 +18,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <iomanip>
 
 #include "../../include/simpleorderbook.hpp"
+#include "specials.tpp"
 
 #define SOB_CLASS SimpleOrderbook::SimpleOrderbookBase
 
@@ -169,7 +170,7 @@ SOB_CLASS::get_order_info(id_type id) const
 {
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
-    return _order::as_order_info(this, id);
+    return detail::order::as_order_info(this, id);
     /* --- CRITICAL SECTION --- */
 }
 
@@ -276,11 +277,11 @@ SOB_CLASS::dump_internal_pointers(std::ostream& out) const
 
 size_t
 SOB_CLASS::bid_size() const
-{ return (_bid >= _beg) ? _chain<limit_chain_type>::size(&_bid->first) : 0; }
+{ return (_bid >= _beg) ? detail::chain<limit_chain_type>::size(&_bid->first) : 0; }
 
 size_t
 SOB_CLASS::ask_size() const
-{ return (_ask < _end) ? _chain<limit_chain_type>::size(&_ask->first) : 0; }
+{ return (_ask < _end) ? detail::chain<limit_chain_type>::size(&_ask->first) : 0; }
 
 }; /* sob */
 

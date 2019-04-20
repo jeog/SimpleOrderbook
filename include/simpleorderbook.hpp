@@ -65,6 +65,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #define SOB_RESOURCE_MANAGER ResourceManager_Debug
 #endif
 
+
 namespace sob {
 
 /*
@@ -129,6 +130,24 @@ namespace sob {
  *      AND CERTAIN ADVANCED ORDERS NEED TO KEEP TRACK OF THE TWO 'id_type'
  *      ARGS FOR CHANGES IN ORDER ID# WHEN CERTAIN CONDITIONS ARE TRIGGERED.
  */
+
+namespace detail {
+    /*
+     * struct specializations used internally by orderbook (specials.tpp)
+     *
+     * declared as friends inside SimpleOrderbookBase (documented below)
+     */
+    struct sob_types;
+    struct order;
+    template<sob::side_of_market Side> struct range;
+    template<sob::side_of_market Side> struct depth;
+    template<typename ChainTy, bool BaseOnly> struct chain;
+    namespace exec{
+        template<bool Bidside, bool Redirect> struct core;
+        template<bool BuyLimit> struct limit;
+        template<bool BuyStop, bool Redirect> struct stop;
+    };
+};
 
 class SimpleOrderbook {
     class ImplDeleter;
@@ -227,7 +246,14 @@ public:
     IsManaged(FullInterface *interface)
     { return master_rmanager.is_managed(interface); }
 
+    friend struct detail::sob_types;
+
+
 private:
+    /*
+     * define as much as we can in the Base so as to limit the amount of
+     * header definitions we need to include for derived template class.
+     */
     class SimpleOrderbookBase
         : public ManagementInterface{
     protected:
@@ -331,14 +357,19 @@ private:
         };
 
         /* info held for each exec callback in the deferred callback vector*/
-        typedef struct{
+        struct dfrd_cb_elem{
             callback_msg msg;
             order_exec_cb_type exec_cb;
             id_type id1;
             id_type id2;
             double price;
             size_t sz;
-        } dfrd_cb_elem;
+            dfrd_cb_elem(callback_msg msg, const order_exec_cb_type& exec_cb,
+                         id_type id1, id_type id2, double price, size_t sz)
+                : msg(msg), exec_cb(exec_cb), id1(id1), id2(id2),
+                  price(price), sz(sz)
+                {}
+        };
 
         /* holds all limit orders at a price */
         typedef std::list<limit_bndl> limit_chain_type;
@@ -376,7 +407,6 @@ private:
         plevel _low_sell_stop;
         plevel _high_sell_stop;
 
-
         struct chain_iter_wrap {
             union{
                 limit_chain_type::iterator l_iter;
@@ -385,9 +415,11 @@ private:
             bool is_limit;
             plevel p;
             chain_iter_wrap(limit_chain_type::iterator iter, bool lim, plevel p)
-                : l_iter(iter), is_limit(lim), p(p) {}
+                : l_iter(iter), is_limit(lim), p(p)
+                {}
             chain_iter_wrap(stop_chain_type::iterator iter, bool lim, plevel p)
-                            : s_iter(iter), is_limit(lim), p(p) {}
+                : s_iter(iter), is_limit(lim), p(p)
+                {}
         };
 
         class OrderNotInCache : public std::logic_error{
@@ -437,20 +469,19 @@ private:
         itop_ty _itop;
         ptoi_ty _ptoi;
 
+
+        friend struct detail::sob_types;
+
         /*
          * internal pointer utilities:
          *   ::get : get current (high/low, stop/limit) order pointers for
          *           various chain/order types and sides of market. Optional
          *           'depth' arg adjusts by some scalar index around bid/ask.
          */
-        template<side_of_market Side = side_of_market::both>
-        struct _high_low;
+        template<side_of_market Side> friend struct detail::range;
 
         /*
          * order utilities
-         *   ::find : get reference to order bndl for a particular
-         *            chain/id, plevel/id, or id
-         *   ::find_pos : like 'find' but returns an iterator
          *   ::is_... : myriad (boolean) order type info from elem/bndl
          *   ::limit_price : convert order bndl to limit price
          *   ::stop_price : covert order bndl to stop price
@@ -459,23 +490,23 @@ private:
          *   ::as_order_type: convert bndl to order type
          *   ::dump : dump appropriate order bndl info to ostream
          */
-        struct _order;
+        friend struct detail::order;
 
         /*
          * chain utilities:
+         *   ::push : push (move) order bndl onto chain
+         *   ::pop : pop (and return) order bundle from chain
          *   ::get : get appropriate chain from plevel
          *   ::size : get size of chain
-         *   ::as_order_type: convert chain type to order type (stop or limit)
+         *   ::as_order_type : get order_type (e.g order_type::limit) of chain
          */
-        template<typename ChainTy, bool BaseOnly=false>
-        struct _chain;
+        template<typename ChainTy, bool BaseOnly> friend struct detail::chain;
 
         /*
          * market depth utilites
          *   ::build_value : create element values for depth-of-market maps
          */
-        template<side_of_market Side>
-        struct _depth;
+        template<side_of_market Side> friend struct detail::depth;
 
         /*
          * generic execution helpers
@@ -484,8 +515,7 @@ private:
          *   ::find_new_best_inside : adjust the internal pointers to the new
          *                            best bids/asks after trade activity
          */
-        template<bool BidSide, bool Redirect = BidSide>
-        struct _core_exec;
+        template<bool Bidside, bool Redirect> friend struct detail::exec::core;
 
         /*
          * limit order execution helpers
@@ -495,8 +525,7 @@ private:
          *                               order pull
          *   ::fillable : check if an order can immediate fill against this level
          */
-        template<bool BuyLimit>
-        struct _limit_exec;
+        template<bool BuyLimit> friend struct detail::exec::limit;
 
         /*
          * stop order execution helpers
@@ -508,16 +537,8 @@ private:
          *                                  stop is triggered
          *   ::stop_chain_is_empty : no active stop orders in this chain
          */
-        template<bool BuyStop, bool Redirect = BuyStop>
-        struct _stop_exec;
+        template<bool BuyStop, bool Redirect> friend struct detail::exec::stop;
 
-        /*
-         * chain operation utilities:
-         *   ::push : push (move) order bndl onto chain
-         *   ::pop : pop (and return) order bundle from chain
-         */
-        template<typename ChainTy, bool IsBase=false>
-        struct _chain_op;
 
         /* handles the async/consumer side of the order queue */
         void
@@ -540,10 +561,8 @@ private:
         bool
         _inject_order(const order_queue_elem& e, bool partial_ok);
 
-        inline bool
-        _limit_is_fillable(plevel p, size_t sz, bool is_buy)
-        { return is_buy ? (_ask < _end) && _is_fillable(_ask, p, sz)
-                        : (_bid >= _beg) && _is_fillable(p, _bid, sz); }
+        bool
+        _limit_is_fillable(plevel p, size_t sz, bool is_buy);
 
         template<typename ChainTy=limit_chain_type>
         bool
@@ -681,20 +700,16 @@ private:
         _adjust_trailing_stop(id_type id, bool buy_stop);
 
         void
-        _trailing_stop_insert(id_type id, bool is_buy)
-        { (is_buy ? _trailing_buy_stops : _trailing_sell_stops).insert(id); }
+        _trailing_stop_insert(id_type id, bool is_buy);
 
         void
-        _trailing_stop_erase(id_type id, bool is_buy)
-        { (is_buy ? _trailing_buy_stops : _trailing_sell_stops).erase(id); }
+        _trailing_stop_erase(id_type id, bool is_buy);
 
-        inline plevel
-        _generate_trailing_stop(bool buy_stop, size_t nticks)
-        { return nticks ? (_last + (buy_stop ? nticks : (nticks*-1))) : 0; }
+        plevel
+        _generate_trailing_stop(bool buy_stop, size_t nticks);
 
-        inline plevel
-        _generate_trailing_limit(bool buy_limit, size_t nticks)
-        { return nticks ? (_last + (buy_limit ? (nticks*-1) : nticks)) : 0; }
+        plevel
+        _generate_trailing_limit(bool buy_limit, size_t nticks);
 
         /* push order onto the order queue and block until execution */
         id_type
@@ -762,15 +777,6 @@ private:
         const chain_iter_wrap&
         _from_cache(id_type id) const;
 
-        inline void
-        _push_callback( callback_msg msg,
-                        const order_exec_cb_type& cb,
-                        id_type id1,
-                        id_type id2,
-                        double price,
-                        size_t sz )
-        { _deferred_callbacks.push_back({msg, cb, id1, id2, price, sz}); }
-
         bool
         _is_buy_order(plevel p, const limit_bndl& o) const;
 
@@ -789,11 +795,9 @@ private:
         * note: need to use trailing return to make MSCV happy
         */
         template<side_of_market Side, typename ChainTy = limit_chain_type>
-        auto
-        _market_depth(size_t depth) const
-         -> std::map<double, typename std::conditional<Side == side_of_market::both,
-                                                       std::pair<size_t, side_of_market>,
-                                                       size_t>::type >;
+        std::map<double, typename std::conditional<Side == side_of_market::both,
+                         std::pair<size_t, side_of_market>, size_t>::type >
+        _market_depth(size_t depth) const;
 
         /* total size of bid or ask limits */
         template<side_of_market Side, typename ChainTy = limit_chain_type>
@@ -1202,9 +1206,6 @@ struct order_info {
 };
 
 }; /* sob */
-
-/* the structs in SimpleOrderbookBase we use use for member specializations */
-#include "../src/orderbook/util.tpp"
 
 /* method definitions for SimpleOrderbookImpl */
 #include "../src/orderbook/impl.tpp"

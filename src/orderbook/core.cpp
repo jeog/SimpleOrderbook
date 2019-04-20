@@ -20,12 +20,14 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <climits>
 
 #include "../../include/simpleorderbook.hpp"
+#include "specials.tpp"
 
 #define SOB_CLASS SimpleOrderbook::SimpleOrderbookBase
 
 // NOTE - only explicitly instantiate members needed for link and not
 //        done implicitly. If (later) called from outside core.cpp
 //        need to add them.
+
 
 namespace sob{
 
@@ -155,11 +157,11 @@ SOB_CLASS::_threaded_order_dispatcher()
 bool
 SOB_CLASS::_insert_order(const order_queue_elem& e)
 {
-    if( _order::is_advanced(e) ){
+    if( detail::order::is_advanced(e) ){
         _route_advanced_order(e);
         return true;
     }
-    if( _order::is_null(e) ){
+    if( detail::order::is_null(e) ){
         /* not the cleanest but most effective/thread-safe
            success/fail is returned in the in e.id*/
         return _pull_order(e.id, true);
@@ -213,7 +215,7 @@ SOB_CLASS::_is_fillable(plevel l, plevel h, size_t sz)
 {
     size_t tot = 0;
     for( ; l <= h; ++l){
-        for( const auto& e : *_chain<ChainTy>::get(l) ){
+        for( const auto& e : *detail::chain<ChainTy>::get(l) ){
             tot += e.sz;
             if( tot >= sz ){
                 return true;
@@ -223,6 +225,15 @@ SOB_CLASS::_is_fillable(plevel l, plevel h, size_t sz)
     return false;
 }
 template bool SOB_CLASS::_is_fillable<SOB_CLASS::limit_chain_type>(plevel, plevel, size_t);
+
+
+bool
+SOB_CLASS::_limit_is_fillable(plevel p, size_t sz, bool is_buy)
+{
+    return is_buy
+        ? (_ask < _end) && _is_fillable(_ask, p, sz)
+        : (_bid >= _beg) && _is_fillable(p, _bid, sz);
+}
 
 
 /*
@@ -243,16 +254,16 @@ SOB_CLASS::_trade( plevel plev,
     plevel old_last = _last;
     while(size){
         /* can we trade at this price level? */
-        if( !_core_exec<BidSide>::is_executable_chain(this, plev) ){
+        if( !detail::exec::core<BidSide>::is_executable_chain(this, plev) ){
             break;
         }
 
         /* trade at this price level */
-        size = _hit_chain( _core_exec<BidSide>::get_inside(this),
+        size = _hit_chain( detail::exec::core<BidSide>::get_inside(this),
                             id, size, exec_cb );
 
         /* reset the inside price level (if we can) OR stop */
-        if( !_core_exec<BidSide>::find_new_best_inside(this) ){
+        if( !detail::exec::core<BidSide>::find_new_best_inside(this) ){
             break;
         }
     }
@@ -298,9 +309,9 @@ SOB_CLASS::_hit_chain( plevel plev,
         rmndr = elem.sz - amount;
 
         /* deal with advanced order conditions */
-        if( _order::is_advanced(elem) ){
+        if( detail::order::is_advanced(elem) ){
             assert(elem.trigger != condition_trigger::none);
-            if( !_order::needs_full_fill(elem) || !rmndr ){
+            if( !detail::order::needs_full_fill(elem) || !rmndr ){
                 _handle_advanced_order_cancel(elem, elem.id)
                 || _handle_advanced_order_trigger(elem, elem.id);
             }
@@ -338,8 +349,12 @@ SOB_CLASS::_trade_has_occured( plevel plev,
     double p = _itop(plev);
 
     /* buy and sell sides */
-    _push_callback(callback_msg::fill, cbbuy, idbuy, idbuy, p, size);
-    _push_callback(callback_msg::fill, cbsell, idsell, idsell, p, size);
+    _deferred_callbacks.emplace_back(
+        callback_msg::fill, cbbuy, idbuy, idbuy, p, size
+        );
+    _deferred_callbacks.emplace_back(
+        callback_msg::fill, cbsell, idsell, idsell, p, size
+        );
 
     _timesales.push_back( std::make_tuple(clock_type::now(), p, size) );
     _last = plev;
@@ -353,7 +368,7 @@ template<bool BuyLimit>
 sob::fill_type
 SOB_CLASS::_insert_limit_order(const order_queue_elem& e)
 {
-    assert( _order::is_limit(e) );
+    assert( detail::order::is_limit(e) );
     fill_type fill = fill_type::none;
     plevel p = _ptoi(e.limit);
     size_t rmndr = e.sz;
@@ -367,7 +382,7 @@ SOB_CLASS::_insert_limit_order(const order_queue_elem& e)
 
     if( rmndr > 0) {
         /* insert what remains as limit order */
-        _chain_op<limit_chain_type>::template
+        detail::chain<limit_chain_type>::template
             push<BuyLimit>(this, p, limit_bndl(e.id, rmndr, e.exec_cb) );
         if( rmndr < e.sz ){
             fill = fill_type::immediate_partial;
@@ -384,7 +399,7 @@ template<bool BuyMarket>
 void
 SOB_CLASS::_insert_market_order(const order_queue_elem& e)
 {
-    assert( _order::is_market(e) );
+    assert( detail::order::is_market(e) );
     size_t rmndr = _trade<!BuyMarket>(nullptr, e.id, e.sz, e.exec_cb);
     if( rmndr > 0 ){
         throw liquidity_exception( e.sz, rmndr, e.id);
@@ -396,13 +411,13 @@ template<bool BuyStop>
 void
 SOB_CLASS::_insert_stop_order(const order_queue_elem& e)
 {
-    assert( _order::is_stop(e) );
+    assert( detail::order::is_stop(e) );
    /*
     * we need an actual trade @/through the stop, i.e can't assume
     * it's already been triggered by where last/bid/ask is...
     * simply pass the order to the appropriate stop chain
     */
-    _chain_op<stop_chain_type>::push(
+    detail::chain<stop_chain_type>::push(
         this,
         _ptoi(e.stop),
         stop_bndl(BuyStop, e.limit, e.id, e.sz, e.exec_cb)
@@ -487,7 +502,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     stop_chain_type cchain = std::move(plev->second);
     plev->second.clear();
 
-    _stop_exec<BuyStops>::adjust_state_after_trigger(this, plev);
+    detail::exec::stop<BuyStops>::adjust_state_after_trigger(this, plev);
 
     for( auto & e : cchain ){
         id = e.id;
@@ -499,7 +514,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         _trailing_stop_erase(id, BuyStops);
 
         /* first we handle any (cancel) advanced conditions */
-        if( _order::is_advanced(e) ){
+        if( detail::order::is_advanced(e) ){
             assert(e.trigger != condition_trigger::none);
             _handle_advanced_order_cancel(e, id);
         }
@@ -510,7 +525,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         if( cb ){
             callback_msg msg = limit ? callback_msg::stop_to_limit
                                      : callback_msg::stop_to_market;
-            _push_callback(msg, cb, id, id_new, limit, sz);
+            _deferred_callbacks.emplace_back(msg, cb, id, id_new, limit, sz);
         }
 
         order_type ot = limit ? order_type::limit : order_type::market;
@@ -524,12 +539,12 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         condition_trigger ct = e.trigger;
         std::unique_ptr<OrderParamaters> op = nullptr;
         std::unique_ptr<OrderParamaters> op2 = nullptr;
-        if( _order::is_trailing_stop(e) ){
+        if( detail::order::is_trailing_stop(e) ){
             assert( e.contingent_order->is_by_nticks() );
             op = std::unique_ptr<OrderParamaters>(
                     e.contingent_order->copy_new()
                     );
-        }else if( _order::is_trailing_bracket(e) ){
+        }else if( detail::order::is_trailing_bracket(e) ){
             assert( e.nticks_bracket_orders->first.is_by_nticks() );
             assert( e.nticks_bracket_orders->second.is_by_nticks() );
             op = std::unique_ptr<OrderParamaters>(
@@ -552,9 +567,9 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
                              std::move(op), std::move(op2), id_new );
 
         /* we need to trigger new orders AFTER we push the market/limit */
-        if( _order::is_advanced(e)
-            && !_order::is_trailing_stop(e)
-            && !_order::is_trailing_bracket(e) )
+        if( detail::order::is_advanced(e)
+            && !detail::order::is_trailing_stop(e)
+            && !detail::order::is_trailing_bracket(e) )
         {
             assert(e.trigger != condition_trigger::none);
             _handle_advanced_order_trigger(e, id);
@@ -565,6 +580,29 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     }
 }
 
+void
+SOB_CLASS::_trailing_stop_insert(id_type id, bool is_buy)
+{
+    (is_buy ? _trailing_buy_stops : _trailing_sell_stops).insert(id);
+}
+
+void
+SOB_CLASS::_trailing_stop_erase(id_type id, bool is_buy)
+{
+    (is_buy ? _trailing_buy_stops : _trailing_sell_stops).erase(id);
+}
+
+SOB_CLASS::plevel
+SOB_CLASS::_generate_trailing_stop(bool buy_stop, size_t nticks)
+{
+    return nticks ? (_last + (buy_stop ? nticks : (nticks*-1))) : 0;
+}
+
+SOB_CLASS::plevel
+SOB_CLASS::_generate_trailing_limit(bool buy_limit, size_t nticks)
+{
+    return nticks ? (_last + (buy_limit ? (nticks*-1) : nticks)) : 0;
+}
 
 id_type
 SOB_CLASS::_push_order_and_wait( order_type oty,
@@ -697,9 +735,9 @@ SOB_CLASS::_pull_order(id_type id, bool pull_linked)
 {
     /* caller needs to hold lock on _master_mtx or race w/ callback queue */
 
-    typename _chain<ChainTy>::bndl_type bndl;
+    typename detail::chain<ChainTy>::bndl_type bndl;
     try{
-        bndl = _chain_op<ChainTy>::pop(this, id);
+        bndl = detail::chain<ChainTy>::pop(this, id);
     }catch( OrderNotInCache& e ){}
 
     if( !bndl ){
@@ -708,14 +746,16 @@ SOB_CLASS::_pull_order(id_type id, bool pull_linked)
         return false;
     }
 
-    _push_callback(callback_msg::cancel, bndl.exec_cb, id, id, 0, 0);
+    _deferred_callbacks.emplace_back(
+        callback_msg::cancel, bndl.exec_cb, id, id, 0, 0
+        );
 
     if( pull_linked )
         _pull_linked_order<ChainTy>(bndl);
 
     /* remove trailing stops (no need to check if is trailing stop) */
-    if( _chain<ChainTy>::is_stop )
-        _trailing_stop_erase(id, _order::is_buy_stop(bndl));
+    if( detail::chain<ChainTy>::is_stop )
+        _trailing_stop_erase(id, detail::order::is_buy_stop(bndl));
 
     return true;
 }
@@ -728,7 +768,7 @@ void
 SOB_CLASS::_pull_linked_order(typename ChainTy::value_type& bndl)
 {
     order_location *loc = bndl.linked_order;
-    if( loc && _order::is_OCO(bndl) ){
+    if( loc && detail::order::is_OCO(bndl) ){
         /* false to pull_linked; this side in process of being pulled */
         if( loc->is_limit_chain )
             _pull_order<limit_chain_type>(loc->id, false);
@@ -746,16 +786,10 @@ SOB_CLASS::_find(id_type id) const
                           : dynamic_cast<_order_bndl&>(*iwrap.s_iter);
 }
 
-/*
-template typename SOB_CLASS::limit_chain_type::value_type&
-SOB_CLASS::_find<SOB_CLASS::limit_chain_type>(id_type) const;
-template typename SOB_CLASS::stop_chain_type::value_type&
-SOB_CLASS::_find<SOB_CLASS::stop_chain_type>(id_type) const;
-*/
 
 bool
 SOB_CLASS::_is_buy_order(plevel p, const stop_bndl& o) const
-{ return _order::is_buy_stop(o); }
+{ return detail::order::is_buy_stop(o); }
 
 bool
 SOB_CLASS::_is_buy_order(plevel p, const limit_bndl& o) const
@@ -763,26 +797,24 @@ SOB_CLASS::_is_buy_order(plevel p, const limit_bndl& o) const
 
 
 template<side_of_market Side, typename ChainTy>
-auto
+std::map<double, typename std::conditional<Side == side_of_market::both,
+                 std::pair<size_t, side_of_market>, size_t>::type >
 SOB_CLASS::_market_depth(size_t depth) const
--> std::map<double, typename std::conditional<Side == side_of_market::both,
-                                             std::pair<size_t, side_of_market>,
-                                             size_t>::type >
 {
     plevel h;
     plevel l;
     size_t d;
-    std::map<double, typename _depth<Side>::mapped_type> md;
+    std::map<double, typename detail::depth<Side>::mapped_type> md;
 
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
-    _high_low<Side>::template get<ChainTy>(this,&h,&l,depth);
+    detail::range<Side>::template get<ChainTy>(this,&h,&l,depth);
     for( ; h >= l; --h){
         if( h->first.empty() ){
              continue;
         }
-        d = _chain<limit_chain_type>::size(&h->first);
-        auto v = _depth<Side>::build_value(this,h,d);
+        d = detail::chain<limit_chain_type>::size(&h->first);
+        auto v = detail::depth<Side>::build_value(this,h,d);
         md.insert( std::make_pair(_itop(h), v) );
     }
     return md;
@@ -808,9 +840,9 @@ SOB_CLASS::_total_depth() const
 
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
-    _high_low<Side>::template get<ChainTy>(this,&h,&l);
+    detail::range<Side>::template get<ChainTy>(this,&h,&l);
     for( ; h >= l; --h){
-        tot += _chain<ChainTy>::size( _chain<ChainTy>::get(h) );
+        tot += detail::chain<ChainTy>::size( detail::chain<ChainTy>::get(h) );
     }
     return tot;
   /* --- CRITICAL SECTION --- */
@@ -831,15 +863,15 @@ SOB_CLASS::_dump_orders(std::ostream& out,
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
 
-    out << "*** (" << sot << ") " << _chain<ChainTy>::as_order_type()
+    out << "*** (" << sot << ") " << detail::chain<ChainTy>::as_order_type()
         << "s ***" << std::endl;
 
     for( ; h >= l; --h){
-        auto c = _chain<ChainTy>::get(h);
+        auto c = detail::chain<ChainTy>::get(h);
         if( !c->empty() ){
             out << _itop(h);
             for( const auto& e : *c ){
-               _order::dump(out, e, _is_buy_order(h, e));
+               detail::order::dump(out, e, _is_buy_order(h, e));
             }
             out << std::endl;
         }
