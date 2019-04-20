@@ -402,9 +402,11 @@ SOB_CLASS::_insert_stop_order(const order_queue_elem& e)
     * it's already been triggered by where last/bid/ask is...
     * simply pass the order to the appropriate stop chain
     */
-    plevel p = _ptoi(e.stop);
-    stop_bndl bndl = stop_bndl(BuyStop, e.limit, e.id, e.sz, e.exec_cb);
-    _chain_op<stop_chain_type>::push(this, p, std::move(bndl));
+    _chain_op<stop_chain_type>::push(
+        this,
+        _ptoi(e.stop),
+        stop_bndl(BuyStop, e.limit, e.id, e.sz, e.exec_cb)
+        );
 }
 
 
@@ -664,47 +666,61 @@ SOB_CLASS::_block_on_outstanding_orders()
 }
 
 
+
+const SOB_CLASS::chain_iter_wrap&
+SOB_CLASS::_from_cache(id_type id) const
+{
+    auto elem = _id_cache.find(id);
+    if( elem == _id_cache.end() )
+        throw OrderNotInCache(id);
+    return elem->second;
+}
+
+
 bool
 SOB_CLASS::_pull_order(id_type id, bool pull_linked)
 {
     /* caller needs to hold lock on _master_mtx or race w/ callback queue */
     try{
-        auto& cinfo = _id_cache.at(id);
-        if( cinfo.first ){
-            return _pull_order(id, cinfo.first, pull_linked, cinfo.second);
-        }
-    }catch(std::out_of_range&){
-    }
+        const auto& iwrap = _from_cache(id);
+        return iwrap.is_limit ? _pull_order<limit_chain_type>(id, pull_linked)
+                              : _pull_order<stop_chain_type>(id, pull_linked);
+    }catch( OrderNotInCache& e )
+    {}
     return false;
 }
 
 
 template<typename ChainTy>
 bool
-SOB_CLASS::_pull_order(id_type id, plevel p, bool pull_linked)
+SOB_CLASS::_pull_order(id_type id, bool pull_linked)
 {
     /* caller needs to hold lock on _master_mtx or race w/ callback queue */
 
-    auto bndl = _chain_op<ChainTy>::pop(this, p, id);
+    typename _chain<ChainTy>::bndl_type bndl;
+    try{
+        bndl = _chain_op<ChainTy>::pop(this, id);
+    }catch( OrderNotInCache& e ){}
+
     if( !bndl ){
         assert( _trailing_sell_stops.find(id) == _trailing_sell_stops.cend() );
         assert( _trailing_buy_stops.find(id) == _trailing_buy_stops.cend() );
         return false;
     }
+
     _push_callback(callback_msg::cancel, bndl.exec_cb, id, id, 0, 0);
 
-    if( pull_linked ){
+    if( pull_linked )
         _pull_linked_order<ChainTy>(bndl);
-    }
 
     /* remove trailing stops (no need to check if is trailing stop) */
-    if( _chain<ChainTy>::is_stop ){
+    if( _chain<ChainTy>::is_stop )
         _trailing_stop_erase(id, _order::is_buy_stop(bndl));
-    }
+
     return true;
 }
-template bool SOB_CLASS::_pull_order<SOB_CLASS::limit_chain_type>(id_type, plevel, bool);
-template bool SOB_CLASS::_pull_order<SOB_CLASS::stop_chain_type>(id_type, plevel, bool);
+template bool SOB_CLASS::_pull_order<SOB_CLASS::limit_chain_type>(id_type,  bool);
+template bool SOB_CLASS::_pull_order<SOB_CLASS::stop_chain_type>(id_type, bool);
 
 
 template<typename ChainTy>
@@ -714,29 +730,28 @@ SOB_CLASS::_pull_linked_order(typename ChainTy::value_type& bndl)
     order_location *loc = bndl.linked_order;
     if( loc && _order::is_OCO(bndl) ){
         /* false to pull_linked; this side in process of being pulled */
-        _pull_order(loc->id, loc->price, false, loc->is_limit_chain);
+        if( loc->is_limit_chain )
+            _pull_order<limit_chain_type>(loc->id, false);
+        else
+            _pull_order<stop_chain_type>(loc->id, false);
     }
 }
 
 
-template<typename ChainTy>
-typename ChainTy::value_type&
+SOB_CLASS::_order_bndl&
 SOB_CLASS::_find(id_type id) const
 {
-    try{
-        plevel p = _ptoi( _id_cache.at(id).first );
-        if( p ){
-            return _order::template find<ChainTy>(p, id);
-        }
-    }catch(std::out_of_range&){
-    }
-    return ChainTy::value_type::null;
+    const auto& iwrap = _from_cache(id);
+    return iwrap.is_limit ? dynamic_cast<_order_bndl&>(*iwrap.l_iter)
+                          : dynamic_cast<_order_bndl&>(*iwrap.s_iter);
 }
+
+/*
 template typename SOB_CLASS::limit_chain_type::value_type&
 SOB_CLASS::_find<SOB_CLASS::limit_chain_type>(id_type) const;
 template typename SOB_CLASS::stop_chain_type::value_type&
 SOB_CLASS::_find<SOB_CLASS::stop_chain_type>(id_type) const;
-
+*/
 
 bool
 SOB_CLASS::_is_buy_order(plevel p, const stop_bndl& o) const

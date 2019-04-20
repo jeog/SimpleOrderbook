@@ -35,10 +35,7 @@ The vector is initialized to user-requested size when the book is created but ca
 
 The vector contains pairs of doubly-linked lists (stop and limit 'chains') so order insert/execution is O(1) for limit/market orders (see below).
 
-Orders are referenced by ID #s that are generated sequentially and cached - with their respective price level and chain type - in an unordered_map (hash table) allowing for:
-- collision-free O(1) lookup from the cache and O(N) lookup from the chain, so
-- worst case pull/remove (every order is at 1 price level) O(N) 
-- best case pull/remove (no more than 1 order at each price level) O(1) 
+Orders are referenced by ID #s that are generated sequentially and cached - with their respective price level and chain iterator - in a hash table, allowing for collision-free O(1) lookup from the cache to pull and replace orders.
 
 See 'Performance Tests' section below for run times. 
 
@@ -150,7 +147,7 @@ Run the setup script.
 #### Performance Tests
 
 - use orderbooks of 1/100 TickRatio of varying sizes
-- average 15 seperate runs of each test using 3 threads on quad-core 3GHz
+- average 9 seperate runs of each test using 3 threads on quad-core 3GHz
 - output is TOTAL run time, NOT per order
 - some of the tests take a while (edit test/performance.cpp to change)
 ```    
@@ -168,15 +165,15 @@ Run the setup script.
 ```
                               total run-time (seconds)
 
-                                 number of orders
+                                 number of orders                            
 
-                   | 100       1000      10000     100000    1000000   
-          ---------|---------------------------------------------------
-          100      | 0.004405  0.037736  0.407753  2.678031  23.890100 
- book     1000     | 0.055565  0.035489  0.367174  2.855679  24.148191 
- size     10000    | 0.100778  0.031463  0.284640  2.574857  23.947135 
-(ticks)   100000   | 0.107541  0.046319  0.241876  2.780733  26.784672 
-          1000000  | 0.111391  0.123336  0.749582  6.548299  54.941044 
+                    | 100       1000      10000     100000    1000000   
+          ----------|---------------------------------------------------
+          100       | 0.006913  0.027381  0.368452  2.866413  17.015052 
+ book     1000      | 0.065958  0.031777  0.261234  3.001340  24.048329 
+ size     10000     | 0.107235  0.026063  0.329561  2.688659  25.413985 
+(nticks)  100000    | 0.111268  0.034059  0.260969  3.237918  27.741769 
+          1000000   | 0.114748  0.095805  0.577123  5.971385  56.818881 
 ```
 
 ##### limit-market-stop insert/execute tests 
@@ -191,13 +188,14 @@ Run the setup script.
 
                                   number of orders
 
-                     | 100       1000      10000     100000    1000000   
-           ----------|---------------------------------------------------
-           100       | 0.080961  0.024926  0.105564  0.628655  6.689639  
- book      1000      | 0.005010  0.012864  0.102578  0.731523  7.943568  
- size      10000     | 0.009163  0.025979  0.189808  2.969369  40.821409 
-(nticks)   100000    | 0.028511  0.154295  1.395979  13.595632 134.985267
-           1000000   | 0.124991  0.932704  9.051801  87.083653 803.292552
+                    | 100       1000      10000     100000    1000000   
+          ----------|---------------------------------------------------
+          100       | 0.063876  0.039004  0.301652  2.845101  25.693478 
+ book     1000      | 0.004430  0.037917  0.321758  3.002893  27.845651 
+ size     10000     | 0.010542  0.049688  0.433197  4.613320  38.163940 
+(nticks)  100000    | 0.023174  0.131040  1.307583  12.590101 124.877635
+          1000000   | 0.117138  0.859344  8.315565  83.168691 816.534053
+
 
 ```
 
@@ -217,13 +215,13 @@ Run the setup script.
 
                                  number of orders
 
-                   | 100       1000      10000     100000    1000000   
-          ---------|----------------------------------------------------
-          100      | 0.002782  0.034298  0.368496  18.314278 843.814040
- book     1000     | 0.003305  0.036822  0.283831  3.564208  209.716251
- size     10000    | 0.003661  0.036820  0.256872  2.328352  37.820628 
-(ticks)   100000   | 0.005768  0.032059  0.286232  2.277516  22.304643 
-          1000000  | 0.017245  0.051085  0.223735  2.500732  21.855382 
+                    | 100       1000      10000     100000    1000000   
+          ----------|---------------------------------------------------
+          100       | 0.003200  0.032378  0.297389  2.647570  17.286690 
+ book     1000      | 0.004339  0.031766  0.282973  2.528401  23.007428 
+ size     10000     | 0.004184  0.041748  0.363391  2.651132  23.423872 
+(nticks)  100000    | 0.005754  0.041139  0.249042  2.354714  23.529908 
+          1000000   | 0.017877  0.046675  0.261873  2.328023  23.328123 
 ```
 
 ##### replace tests
@@ -245,11 +243,12 @@ Run the setup script.
 
                     | 100       1000      10000     100000    1000000   
           ----------|---------------------------------------------------
-          100       | 0.006674  0.061500  0.967072  58.781692 2734.051533
- book     1000      | 0.004304  0.073134  0.732614  9.427554  739.328514
- size     10000     | 0.004156  0.084600  0.489680  5.946597  101.958501
-(nticks)  100000    | 0.003232  0.051590  0.615821  4.959309  48.252919 
-          1000000   | 0.003170  0.073187  0.592255  5.396056  43.466088 
+          100       | 0.008600  0.089888  0.564172  4.414567  44.567509 
+ book     1000      | 0.005080  0.036741  0.496607  4.483972  31.378130 
+ size     10000     | 0.001951  0.021553  0.134890  1.358875  20.422404 
+(nticks)  100000    | 0.003632  0.073838  0.528087  4.618071  42.510331 
+          1000000   | 0.004048  0.086068  0.450704  4.770908  26.163439 
+ 
 ```
 
 

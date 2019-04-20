@@ -330,7 +330,7 @@ SOB_CLASS::_exec_OCO_order(const T& t,
     if( id_pull ){
         assert( price_pull );
         /* remove primary order, BE SURE pull_linked=false */
-        _pull_order(id_pull, price_pull, false, is_limit);
+        _pull_order(id_pull, false);
     }
 }
 
@@ -368,9 +368,9 @@ SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
     }
 
     /* find the relevant orders that were previously injected */
-    _order_bndl& o1 = _find(e.id, _order::is_limit(e));
+    _order_bndl& o1 = _find(e.id);
     assert(o1);
-    _order_bndl& o2 = _find(id2, _order::is_limit(e2));
+    _order_bndl& o2 = _find(id2);
     assert(o2);
 
     /* link each order with the other */
@@ -397,7 +397,7 @@ SOB_CLASS::_insert_OTO_order(const order_queue_elem& e)
         return;
     }
 
-    _order_bndl& o = _find(e.id, _order::is_limit(e));
+    _order_bndl& o = _find(e.id);
     assert(o);
     o.contingent_order = op->copy_new();
     o.cond = e.cond;
@@ -422,7 +422,7 @@ SOB_CLASS::_insert_BRACKET_order(const order_queue_elem& e)
         return;
     }
 
-    _order_bndl& o = _find(e.id, _order::is_limit(e));
+    _order_bndl& o = _find(e.id);
     assert(o);
     o.price_bracket_orders = new price_bracket_type(
             reinterpret_cast<const OrderParamatersByPrice&>(*op1),
@@ -448,7 +448,7 @@ SOB_CLASS::_insert_TRAILING_BRACKET_order(const order_queue_elem& e)
         return;
     }
 
-    _order_bndl& o = _find(e.id, _order::is_limit(e));
+    _order_bndl& o = _find(e.id);
     assert(o);
     o.nticks_bracket_orders = new nticks_bracket_type(
             reinterpret_cast<const OrderParamatersByNTicks&>(*op1),
@@ -471,7 +471,7 @@ SOB_CLASS::_insert_TRAILING_STOP_order(const order_queue_elem& e)
         return;
     }
 
-    _order_bndl& o = _find(e.id, _order::is_limit(e));
+    _order_bndl& o = _find(e.id);
     assert(o);
     o.contingent_order = op->copy_new();
     o.cond = e.cond;
@@ -498,16 +498,15 @@ SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e)
      }
 
      /* find the relevant order previously injected */
-     _order_bndl& o1 = _find(e.id, _order::is_limit(e));
+     _order_bndl& o1 = _find(e.id);
      assert(o1);
 
      id_type id2 = _generate_id();
      size_t nticks = op->stop_nticks();
      plevel p = _generate_trailing_stop(op->is_buy(), nticks);
 
-     stop_bndl o2 = stop_bndl(op->is_buy(), 0, id2, op->size(), e.exec_cb,
-                                order_condition::_trailing_bracket_active,
-                                e.cond_trigger);
+     stop_bndl o2(op->is_buy(), 0, id2, op->size(), e.exec_cb,
+                  order_condition::_trailing_bracket_active,  e.cond_trigger);
 
      /* link each order with the other */
      o1.linked_trailer = new linked_trailer_type(
@@ -534,8 +533,7 @@ SOB_CLASS::_insert_TRAILING_STOP_ACTIVE_order(const order_queue_elem& e)
 {
     assert( _order::is_active_trailing_stop(e) );
 
-    stop_bndl bndl = stop_bndl(e.is_buy, 0, e.id, e.sz, e.exec_cb, e.cond,
-                               e.cond_trigger);
+    stop_bndl bndl(e.is_buy, 0, e.id, e.sz, e.exec_cb, e.cond, e.cond_trigger);
 
     const OrderParamaters *op = e.cparams1.get();
     assert(op);
@@ -580,11 +578,7 @@ SOB_CLASS::_adjust_trailing_stops(bool buy_stops)
 void
 SOB_CLASS::_adjust_trailing_stop(id_type id, bool buy_stop)
 {
-    auto& cinfo = _id_cache.at(id);
-    assert( !cinfo.second );
-    plevel p = _ptoi( cinfo.first );
-
-    stop_bndl bndl = _chain_op<stop_chain_type>::pop(this, p, id);
+    stop_bndl bndl = _chain_op<stop_chain_type>::pop(this, id);
     assert( bndl );
     assert( bndl.nticks );
     assert( bndl.is_buy == buy_stop );
@@ -594,7 +588,7 @@ SOB_CLASS::_adjust_trailing_stop(id_type id, bool buy_stop)
     size_t nticks = _order::is_active_trailing_stop(bndl)
                   ? bndl.nticks
                   : bndl.linked_trailer->first;
-    p = _generate_trailing_stop(buy_stop, nticks);
+    plevel p = _generate_trailing_stop(buy_stop, nticks);
     double price = _itop(p);
 
     _push_callback(callback_msg::adjust_trailing_stop, bndl.exec_cb,
@@ -604,7 +598,7 @@ SOB_CLASS::_adjust_trailing_stop(id_type id, bool buy_stop)
     if( _order::is_active_trailing_bracket(bndl) ){
         assert( bndl.linked_trailer );
         const order_location& loc = bndl.linked_trailer->second;
-        auto& linked = _find(loc.id, loc.is_limit_chain);
+        auto& linked = _find(loc.id);
         assert( _order::is_active_trailing_bracket(linked) );
         linked.linked_trailer->second.price = price;
     }

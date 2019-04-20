@@ -376,8 +376,31 @@ private:
         plevel _low_sell_stop;
         plevel _high_sell_stop;
 
+
+        struct chain_iter_wrap {
+            union{
+                limit_chain_type::iterator l_iter;
+                stop_chain_type::iterator s_iter;
+            };
+            bool is_limit;
+            plevel p;
+            chain_iter_wrap(limit_chain_type::iterator iter, bool lim, plevel p)
+                : l_iter(iter), is_limit(lim), p(p) {}
+            chain_iter_wrap(stop_chain_type::iterator iter, bool lim, plevel p)
+                            : s_iter(iter), is_limit(lim), p(p) {}
+        };
+
+        class OrderNotInCache : public std::logic_error{
+        public:
+            OrderNotInCache(id_type id)
+                : std::logic_error("order #" + std::to_string(id)
+                                    + " not in cache")
+            {}
+        };
+
         // TODO test cache is in-line after advanced execution
-        std::unordered_map<id_type, std::pair<double,bool>> _id_cache;
+        // UPDATE APR 18 2019 - POINT AT ACTUAL ORDER
+        std::unordered_map<id_type, chain_iter_wrap> _id_cache;
 
         std::set<id_type> _trailing_sell_stops;
         std::set<id_type> _trailing_buy_stops;
@@ -493,7 +516,7 @@ private:
          *   ::push : push (move) order bndl onto chain
          *   ::pop : pop (and return) order bundle from chain
          */
-        template<typename ChainTy, bool BaseOnly=false>
+        template<typename ChainTy, bool IsBase=false>
         struct _chain_op;
 
         /* handles the async/consumer side of the order queue */
@@ -724,35 +747,20 @@ private:
         bool
         _pull_order(id_type id, bool pull_linked);
 
-        /* ...(optimized) if we already have plevel and order/chain type...*/
         template<typename ChainTy>
         bool
-        _pull_order(id_type id, plevel p, bool pull_linked);
-
-        inline bool
-        _pull_order(id_type id, double price, bool pull_linked, bool is_limit)
-        { return is_limit
-                ? _pull_order<limit_chain_type>(id, _ptoi(price), pull_linked)
-                : _pull_order<stop_chain_type>(id, _ptoi(price), pull_linked);
-        }
+        _pull_order(id_type id, bool pull_linked);
 
         /* pull OCO (linked) order */
         template<typename ChainTy>
         void
         _pull_linked_order(typename ChainTy::value_type& bndl);
 
-        /* access the _id_cache hash table to find the plevel/chain */
-        std::pair<plevel, bool>
-        _id_cache_info(id_type id) const;
-
-        template<typename ChainTy>
-        typename ChainTy::value_type&
-        _find(id_type id) const;
-
         _order_bndl&
-        _find(id_type id, bool is_limit)
-        { return is_limit ? dynamic_cast<_order_bndl&>(_find<limit_chain_type>(id))
-                          : dynamic_cast<_order_bndl&>(_find<stop_chain_type>(id)); }
+        _find(id_type id) const; // TODO
+
+        const chain_iter_wrap&
+        _from_cache(id_type id) const;
 
         inline void
         _push_callback( callback_msg msg,
@@ -1196,9 +1204,9 @@ struct order_info {
 }; /* sob */
 
 /* the structs in SimpleOrderbookBase we use use for member specializations */
-#include "../tpp/orderbook/base_util.tpp"
+#include "../src/orderbook/util.tpp"
 
 /* method definitions for SimpleOrderbookImpl */
-#include "../tpp/orderbook/impl.tpp"
+#include "../src/orderbook/impl.tpp"
 
 #endif /* JO_SOB_SIMPLEORDERBOOK */

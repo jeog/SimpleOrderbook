@@ -133,33 +133,6 @@ private:
 
 
 struct SOB_CLASS::_order {
-    template<typename ChainTy>
-    static typename ChainTy::value_type&
-    find(ChainTy *c, id_type id)
-    {
-        if( c ){
-            auto i = find_pos(c, id);
-            if( i != c->cend() ){
-                return *i;
-            }
-        }
-        return ChainTy::value_type::null;
-    }
-
-    template<typename ChainTy>
-    static inline typename ChainTy::value_type&
-    find(plevel p, id_type id)
-    { return find(_chain<ChainTy>::get(p), id); }
-
-    template<typename ChainTy>
-    static typename ChainTy::iterator
-    find_pos(ChainTy *c, id_type id)
-    {
-        return std::find_if(c->begin(), c->end(),
-                [&](const typename ChainTy::value_type& v){
-                    return v.id == id;
-                });
-    }
 
     static constexpr bool
     is_null(const order_queue_elem& e)
@@ -180,7 +153,7 @@ struct SOB_CLASS::_order {
     static constexpr bool
     is_limit(const stop_bndl& e)
     { return false; }
-
+  
     static constexpr bool
     is_stop(const order_queue_elem& e)
     { return e.type == order_type::stop || e.type == order_type::stop_limit; }
@@ -327,12 +300,14 @@ struct SOB_CLASS::_order {
     static OrderParamatersByPrice
     as_price_params(const SOB_CLASS *sob, id_type id)
     {
-        plevel p = nullptr;
         try{
-            p = sob->_ptoi( sob->_id_cache.at(id).first );
-        }catch(std::out_of_range&){
-        }
-        return as_price_params(sob, p, find<ChainTy>(p, id));
+            auto& iwrap = sob->_from_cache(id);    
+            return iwrap.is_limit 
+                ? as_price_params( sob, iwrap.p, *(iwrap.l_iter) )
+                    : as_price_params( sob, iwrap.p, *(iwrap.s_iter) );
+        }catch( OrderNotInCache& e ){}
+        
+        return OrderParamatersByPrice();
     }
 
     static inline order_info
@@ -358,9 +333,12 @@ struct SOB_CLASS::_order {
     /* return an order_info struct for that order id */
     template<typename ChainTy>
     static order_info
-    as_order_info(const SOB_CLASS *sob, id_type id, plevel p)
-    {
-        const auto& bndl = _order::find<ChainTy>(p, id);
+    as_order_info( const SOB_CLASS *sob, 
+                   id_type id, 
+                   plevel p, 
+                   typename ChainTy::iterator iter )
+    {                                 
+        const auto& bndl = *iter;
         AdvancedOrderTicket aot = sob->_bndl_to_aot(bndl);
         bool is_buy = sob->_is_buy_order(p, bndl);
         return as_order_info(is_buy, sob->_itop(p), bndl, aot);
@@ -370,17 +348,13 @@ struct SOB_CLASS::_order {
     as_order_info(const SOB_CLASS *sob, id_type id)
     {
         try{
-            auto& cinfo = sob->_id_cache.at(id);
-            plevel p = sob->_ptoi(cinfo.first);
-            if( p ){
-                return cinfo.second
-                    ? as_order_info<limit_chain_type>(sob, id, p)
-                    : as_order_info<stop_chain_type>(sob, id, p);
-            }
-        }catch(std::out_of_range&){
-        }
-        return order_info(order_type::null, false, 0, 0, 0,
-                          AdvancedOrderTicket::null);
+            auto& iwrap = sob->_from_cache(id);                          
+            return iwrap.is_limit
+                ? as_order_info<limit_chain_type>(sob, id, iwrap.p, iwrap.l_iter )
+                : as_order_info<stop_chain_type>(sob, id, iwrap.p, iwrap.s_iter );
+        }catch( OrderNotInCache& e ){}
+        
+        return order_info();       
     }
 
     static order_type
@@ -741,45 +715,51 @@ struct SOB_CLASS::_stop_exec<false, Redirect>
 };
 
 
-template<typename ChainTy, bool BaseOnly>
-struct SOB_CLASS::_chain_op {
-    typedef ChainTy chain_type;
-
-    static typename ChainTy::value_type
-    pop(SOB_CLASS *sob, ChainTy *c, id_type id)
-    {
-        auto i = _order::template find_pos(c, id);
-        if( i == c->cend() ){
-            return ChainTy::value_type::null;
-        }
-        auto bndl = std::move(*i); /* move before erase */
-        c->erase(i);
-        sob->_id_cache.erase(id);
-        return bndl;
+// base clase
+template<typename ChainTy, bool IsBase>
+struct SOB_CLASS::_chain_op{
+protected:
+    template<typename BndlTy>
+    static void
+    push(SOB_CLASS *sob, plevel p, ChainTy* c, BndlTy&& bndl, bool is_limit){     
+        auto id = bndl.id;        
+        c->emplace_back(bndl); /* moving bndl */                
+        sob->_id_cache.emplace(
+             std::piecewise_construct,
+             std::forward_as_tuple(id),
+             std::forward_as_tuple(--(c->end()), is_limit, p)
+         );       
     }
 };
 
+// limit chain special
 template<>
 struct SOB_CLASS::_chain_op<typename SOB_CLASS::limit_chain_type, false>
-        : public _chain_op<typename SOB_CLASS::limit_chain_type, true> {
+        : protected SOB_CLASS::_chain_op<typename SOB_CLASS::limit_chain_type, true>{
+    typedef _chain_op<limit_chain_type, true> base_type;
     typedef limit_bndl bndl_type;
-    using _chain_op<limit_chain_type,true>::pop;
-
+    
     template<bool IsBuy>
     static void
-    push(SOB_CLASS *sob, plevel p, limit_bndl&& bndl)
-    {
-        sob->_id_cache[bndl.id] = std::make_pair(sob->_itop(p), true);
+    push(SOB_CLASS *sob, plevel p, limit_bndl&& bndl){        
         limit_chain_type *c = &p->first;
-        c->emplace_back(bndl); /* moving bndl */
+        base_type::push(sob, p, c, bndl, true);     
         _limit_exec<IsBuy>::adjust_state_after_insert(sob, p, c);
     }
 
     static limit_bndl
-    pop(SOB_CLASS *sob, plevel p, id_type id)
-    {
-        limit_chain_type *c = &p->first;
-        limit_bndl bndl = pop(sob,c,id);
+    pop(SOB_CLASS *sob, id_type id)
+    {        
+        const chain_iter_wrap& iwrap = sob->_from_cache(id);
+        assert( iwrap.is_limit );
+                
+        limit_bndl bndl = *(iwrap.l_iter);
+        plevel p = iwrap.p;
+        limit_chain_type *c = &(p->first);
+                
+        c->erase(iwrap.l_iter); // first
+        sob->_id_cache.erase(id);  // second
+        
         if( bndl && c->empty() ){
             /*
              * we can compare vs bid because if we get here and the order
@@ -794,30 +774,40 @@ struct SOB_CLASS::_chain_op<typename SOB_CLASS::limit_chain_type, false>
     }
 };
 
+// stop chain special
 template<>
-struct SOB_CLASS::_chain_op<typename SOB_CLASS::stop_chain_type, false>
-        : public _chain_op<typename SOB_CLASS::stop_chain_type, true> {
+struct SOB_CLASS::_chain_op<typename SOB_CLASS::stop_chain_type, false> 
+        : protected SOB_CLASS::_chain_op<typename SOB_CLASS::stop_chain_type, true>{
+    typedef _chain_op<stop_chain_type, true> base_type;
     typedef stop_bndl bndl_type;
-    using _chain_op<stop_chain_type,true>::pop;
-
+ 
     static void
-    push(SOB_CLASS *sob, plevel p, stop_bndl&& bndl)
-    {
-        sob->_id_cache[bndl.id] = std::make_pair(sob->_itop(p),false);
-        p->second.emplace_back(bndl); /* moving bndl */
-        bndl.is_buy
-            ? _stop_exec<true>::adjust_state_after_insert(sob, p)
-            : _stop_exec<false>::adjust_state_after_insert(sob, p);
+    push(SOB_CLASS *sob, plevel p, stop_bndl&& bndl){
+        stop_chain_type *c = &p->second;
+        bool is_buy = bndl.is_buy;
+        
+        base_type::push(sob, p, c, bndl, false);
+        
+        is_buy ? _stop_exec<true>::adjust_state_after_insert(sob, p)
+               : _stop_exec<false>::adjust_state_after_insert(sob, p);
     }
 
     static stop_bndl
-    pop(SOB_CLASS *sob, plevel p, id_type id)
-    {
-        stop_chain_type *c = &p->second;
-        stop_bndl bndl = pop(sob, c, id);
-        if( !bndl ){
+    pop(SOB_CLASS *sob, id_type id)
+    {  
+        const chain_iter_wrap& iwrap = sob->_from_cache(id);
+        assert( !iwrap.is_limit );
+        
+        stop_bndl bndl = *(iwrap.s_iter);
+        plevel p = iwrap.p;
+        stop_chain_type *c = &(p->second);       
+        
+        c->erase(iwrap.s_iter); // first
+        sob->_id_cache.erase(id); // second 
+        
+        if( !bndl )
             return bndl;
-        }
+        
         if( _order::is_buy_stop(bndl) ){
             if( _stop_exec<true>::stop_chain_is_empty(sob, c) ){
                 _stop_exec<true>::adjust_state_after_pull(sob, p);

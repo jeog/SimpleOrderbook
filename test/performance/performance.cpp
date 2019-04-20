@@ -38,7 +38,7 @@ typedef map<int, map< int, double>> exec_results_ty;
 typedef map<string, map<int, exec_results_ty> > total_results_ty;
 
 const vector<int> NORDERS = {100, 1000, 10000, 100000, 1000000};
-const int NRUNS = 15;
+const int NRUNS = 9;
 const int NTHREADS = 3;
 
 const vector<proxy_info_ty>
@@ -86,11 +86,18 @@ run_performance_tests()
 
     total_results_ty results;
 
+    cout<< "    NRUNS: " << NRUNS << endl
+        << "    NTHREADS: " << NTHREADS << endl
+        << "    NORDERS: ";
+
+    for(int n : NORDERS)
+        cout<< n << " ";
+    cout<< endl;
+
     for( auto& test : tests ){
         string test_name = test.first;
         auto test_func = test.second;
-        cout<< endl << "** BEGIN PERFORMANCE TEST - " << test_name << " **"
-            << endl;
+        cout<< endl << "BEGIN TEST - " << test_name << endl << endl;
 
         for( auto& proxy_info : proxies ){
             int proxy_denom = get<0>(proxy_info);
@@ -102,7 +109,7 @@ run_performance_tests()
                 return 1;
             }
         }
-        cout<< "** END PERFORMANCE TEST - " << test.first << " **" << endl;
+        cout<< "END TEST - " << test.first << endl << endl;
     }
 
     streamsize old_precision = cout.precision();
@@ -132,8 +139,8 @@ exec_perf_tests(const test_ty& func, const proxy_info_ty& proxy_info)
         size_t nticks = proxy.ticks_in_range(min_price,max_price);
 
         for( int n : NORDERS ){
-            cout<< "* PROXY 1/" << proxy_denom << " - NTICKS "
-                << nticks << " - NORDERS " << n << " *" << endl;
+            cout<< "  PROXY 1/" << proxy_denom << " - NTICKS "
+                << nticks << " - NORDERS " << n << "::: ";
 
             for( int i = 0; i < NRUNS; ++i ){
                 orderbooks.push_back( proxy.create(min_price, max_price) );
@@ -145,6 +152,7 @@ exec_perf_tests(const test_ty& func, const proxy_info_ty& proxy_info)
                 proxy.destroy(orderbooks[i]);
             }
             orderbooks.clear();
+            cout<< endl;
         }
     }
     return results;
