@@ -16,6 +16,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 */
 
 #include "../../include/simpleorderbook.hpp"
+#include "../../include/order_util.hpp"
 #include "specials.tpp"
 
 
@@ -32,6 +33,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 // TODO allow for '_active' conditions to return initial advanced information
 //      as order_info; i.e. trailing_stop should give you the 'nticks' value
+
 
 namespace sob{
 
@@ -192,13 +194,15 @@ SOB_CLASS::_handle_TRAILING_STOP(_order_bndl& bndl, id_type id)
 void
 SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id)
 {
-    assert( detail::order::is_OCO(bndl)
-            || detail::order::is_active_bracket(bndl)
-            || detail::order::is_active_trailing_bracket(bndl) );
+    using namespace detail;
 
-    order_location *loc = detail::order::is_active_trailing_bracket(bndl)
-                        ? &(bndl.linked_trailer->second)
-                        : bndl.linked_order;
+    assert( order::is_OCO(bndl)
+            || order::is_active_bracket(bndl)
+            || order::is_active_trailing_bracket(bndl) );
+
+    order_location *loc = order::is_active_trailing_bracket(bndl)
+                            ? &(bndl.linked_trailer->second)
+                            : bndl.linked_order;
     assert(loc);
 
     id_type id_old = loc->is_primary ? loc->id : id;
@@ -206,7 +210,7 @@ SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id)
     _exec_OCO_order(bndl, id_old, id, loc->id, loc->price, loc->is_limit_chain);
 
     /* remove linked order from union */
-    if( detail::order::is_active_trailing_bracket(bndl) ){
+    if( order::is_active_trailing_bracket(bndl) ){
         delete bndl.linked_trailer;
         bndl.linked_trailer = nullptr;
     }else{
@@ -348,8 +352,10 @@ SOB_CLASS::_exec_OCO_order(const T& t,
 void
 SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
 {
-    assert( detail::order::is_OCO(e) || detail::order::is_active_bracket(e) );
-    assert( detail::order::is_limit(e) || detail::order::is_stop(e) );
+    using namespace detail;
+
+    assert( order::is_OCO(e) || order::is_active_bracket(e) );
+    assert( order::is_limit(e) || order::is_stop(e) );
 
     const OrderParamaters *op = e.cparams1.get();
     assert(op);
@@ -357,8 +363,8 @@ SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
     assert(op->get_order_type() != order_type::null);
 
     /* if we fill immediately, no need to enter 2nd order */
-    if( _inject_order(e, detail::order::needs_partial_fill(e)) ){
-        _exec_OCO_order(e, e.id, e.id, 0, 0, detail::order::is_limit(e));
+    if( _inject_order(e, order::needs_partial_fill(e)) ){
+        _exec_OCO_order(e, e.id, e.id, 0, 0, order::is_limit(e));
         return;
     }
 
@@ -371,9 +377,9 @@ SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
     };
 
     /* if we fill second order immediately, remove first */
-    if( _inject_order(e2, detail::order::needs_partial_fill(e)) ){
-        _exec_OCO_order(e, e.id, id2, e.id, detail::order::index_price(e),
-                        detail::order::is_limit(e));
+    if( _inject_order(e2, order::needs_partial_fill(e)) ){
+        _exec_OCO_order(e, e.id, id2, e.id, order::index_price(e),
+                        order::is_limit(e));
         return;
     }
 
@@ -492,50 +498,50 @@ SOB_CLASS::_insert_TRAILING_STOP_order(const order_queue_elem& e)
 void
 SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e)
 {
-     assert(  detail::order::is_active_trailing_bracket(e) );
-     assert( detail::order::is_limit(e) || detail::order::is_stop(e) );
+    using namespace detail;
 
-     const OrderParamaters *op = e.cparams1.get();
-     assert(op);
-     assert(op->get_order_type() != order_type::market);
-     assert(op->get_order_type() != order_type::null);
+    assert( order::is_active_trailing_bracket(e) );
+    assert( order::is_limit(e) || order::is_stop(e) );
 
-     /* if we fill immediately, no need to enter 2nd order */
-     if( _inject_order(e, detail::order::needs_partial_fill(e)) ){
-         _deferred_callbacks.emplace_back(
-             callback_msg::trigger_BRACKET_close, e.exec_cb, e.id, e.id, 0, 0
-             );
-         return;
-     }
+    const OrderParamaters *op = e.cparams1.get();
+    assert(op);
+    assert(op->get_order_type() != order_type::market);
+    assert(op->get_order_type() != order_type::null);
 
-     /* find the relevant order previously injected */
-     _order_bndl& o1 = _find(e.id);
-     assert(o1);
+    /* if we fill immediately, no need to enter 2nd order */
+    if( _inject_order(e, order::needs_partial_fill(e)) ){
+       _deferred_callbacks.emplace_back(
+            callback_msg::trigger_BRACKET_close, e.exec_cb, e.id, e.id, 0, 0
+            );
+        return;
+    }
 
-     id_type id2 = _generate_id();
-     size_t nticks = op->stop_nticks();
-     plevel p = _generate_trailing_stop(op->is_buy(), nticks);
+    /* find the relevant order previously injected */
+    _order_bndl& o1 = _find(e.id);
+    assert(o1);
 
-     stop_bndl o2(op->is_buy(), 0, id2, op->size(), e.exec_cb,
-                  order_condition::_trailing_bracket_active,  e.cond_trigger);
+    id_type id2 = _generate_id();
+    size_t nticks = op->stop_nticks();
+    plevel p = _generate_trailing_stop(op->is_buy(), nticks);
 
-     /* link each order with the other */
-     o1.linked_trailer = new linked_trailer_type(
-             0,
-             order_location(false, _itop(p), id2, false)
-             );
+    stop_bndl o2(op->is_buy(), 0, id2, op->size(), e.exec_cb,
+                 order_condition::_trailing_bracket_active,  e.cond_trigger);
 
-     o2.linked_trailer = new linked_trailer_type(
-             nticks,
-             order_location(e, true)
+    /* link each order with the other */
+    o1.linked_trailer = new linked_trailer_type(
+             0, order_location(false, _itop(p), id2, false)
              );
 
-     /* transfer condition/trigger info */
-     o1.cond = o2.cond = e.cond;
-     o1.trigger = o2.trigger = e.cond_trigger;
+    o2.linked_trailer = new linked_trailer_type(
+            nticks, order_location(e, true)
+            );
 
-     detail::chain<stop_chain_type>::push(this, p, std::move(o2));
-     _trailing_stop_insert(id2, op->is_buy());
+    /* transfer condition/trigger info */
+    o1.cond = o2.cond = e.cond;
+    o1.trigger = o2.trigger = e.cond_trigger;
+
+    chain<stop_chain_type>::push(this, p, std::move(o2));
+    _trailing_stop_insert(id2, op->is_buy());
 }
 
 
@@ -591,14 +597,16 @@ SOB_CLASS::_adjust_trailing_stops(bool buy_stops)
 void
 SOB_CLASS::_adjust_trailing_stop(id_type id, bool buy_stop)
 {
-    stop_bndl bndl = detail::chain<stop_chain_type>::pop(this, id);
+    using namespace detail;
+
+    stop_bndl bndl = chain<stop_chain_type>::pop(this, id);
     assert( bndl );
     assert( bndl.nticks );
     assert( bndl.is_buy == buy_stop );
-    assert( detail::order::is_active_trailing_stop(bndl)
-            || detail::order::is_active_trailing_bracket(bndl) );
+    assert( order::is_active_trailing_stop(bndl)
+            || order::is_active_trailing_bracket(bndl) );
 
-    size_t nticks = detail::order::is_active_trailing_stop(bndl)
+    size_t nticks = order::is_active_trailing_stop(bndl)
                   ? bndl.nticks
                   : bndl.linked_trailer->first;
     plevel p = _generate_trailing_stop(buy_stop, nticks);
@@ -609,15 +617,15 @@ SOB_CLASS::_adjust_trailing_stop(id_type id, bool buy_stop)
         );
 
     /* if bracket, need to let linked order know new location */
-    if( detail::order::is_active_trailing_bracket(bndl) ){
+    if( order::is_active_trailing_bracket(bndl) ){
         assert( bndl.linked_trailer );
         const order_location& loc = bndl.linked_trailer->second;
         auto& linked = _find(loc.id);
-        assert( detail::order::is_active_trailing_bracket(linked) );
+        assert( order::is_active_trailing_bracket(linked) );
         linked.linked_trailer->second.price = price;
     }
 
-    detail::chain<stop_chain_type>::push(this, p, std::move(bndl));
+    chain<stop_chain_type>::push(this, p, std::move(bndl));
 }
 
 
@@ -665,8 +673,10 @@ SOB_CLASS::_bndl_to_aot(const _order_bndl& bndl) const
         /* reconstruct OrderParamaters from order_location */
         aot.change_order1(
             loc->is_limit_chain
-               ? detail::order::template as_price_params<limit_chain_type>(this, loc->id)
-               : detail::order::template as_price_params<stop_chain_type>(this, loc->id)
+               ? detail::order::template
+                   as_price_params<limit_chain_type>(this, loc->id)
+               : detail::order::template
+                 as_price_params<stop_chain_type>(this, loc->id)
         );
     }
 

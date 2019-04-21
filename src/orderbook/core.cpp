@@ -20,6 +20,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <climits>
 
 #include "../../include/simpleorderbook.hpp"
+#include "../../include/order_util.hpp"
 #include "specials.tpp"
 
 #define SOB_CLASS SimpleOrderbook::SimpleOrderbookBase
@@ -31,19 +32,19 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 namespace sob{
 
+/***************************************************************
+              *** our ersatz iterator approach ****
+                        i = [ 0, incr )
+
+ vector iter    [begin()]                               [ end() ]
+ internal pntr  [ _base ][ _beg ]           [ _end - 1 ][ _end  ]
+ internal index [ NULL  ][   i  ][ i+1 ]...   [ incr-1 ][  NULL ]
+ external price [ THROW ][ min  ]              [  max  ][ THROW ]
+*****************************************************************/
 SOB_CLASS::SimpleOrderbookBase(size_t incr, itop_ty itop, ptoi_ty ptoi)
     :
         /* actual orderbook object */
         _book(incr + 1), /*pad the beg side */
-        /***************************************************************
-                      *** our ersatz iterator approach ****
-                                i = [ 0, incr )
-
-         vector iter    [begin()]                               [ end() ]
-         internal pntr  [ _base ][ _beg ]           [ _end - 1 ][ _end  ]
-         internal index [ NULL  ][   i  ][ i+1 ]...   [ incr-1 ][  NULL ]
-         external price [ THROW ][ min  ]              [  max  ][ THROW ]
-        *****************************************************************/
         _beg( &(*_book.begin()) + 1 ),
         _end( &(*_book.end())),
         /* internal pointers for faster lookups */
@@ -86,6 +87,7 @@ SOB_CLASS::SimpleOrderbookBase(size_t incr, itop_ty itop, ptoi_ty ptoi)
             std::thread(std::bind(&SOB_CLASS::_threaded_order_dispatcher,this));
     }
 
+
 SOB_CLASS::~SimpleOrderbookBase()
     {
         _master_run_flag = false;
@@ -104,6 +106,7 @@ SOB_CLASS::~SimpleOrderbookBase()
             std::cerr<< "exception in sob destructor" << std::endl;
         }
     }
+
 
 void
 SOB_CLASS::_threaded_order_dispatcher()
@@ -251,34 +254,31 @@ SOB_CLASS::_trade( plevel plev,
                    size_t size,
                    const order_exec_cb_type& exec_cb )
 {
+    using namespace detail::exec;
+
     plevel old_last = _last;
     while(size){
         /* can we trade at this price level? */
-        if( !detail::exec::core<BidSide>::is_executable_chain(this, plev) ){
+        if( !core<BidSide>::is_executable_chain(this, plev) )
             break;
-        }
 
         /* trade at this price level */
-        size = _hit_chain( detail::exec::core<BidSide>::get_inside(this),
-                            id, size, exec_cb );
+        size = _hit_chain( core<BidSide>::get_inside(this), id, size, exec_cb );
 
         /* reset the inside price level (if we can) OR stop */
-        if( !detail::exec::core<BidSide>::find_new_best_inside(this) ){
+        if( !core<BidSide>::find_new_best_inside(this) )
             break;
-        }
     }
 
     /*
      * dont need to check that old != 0; in order to have an active
      * trailing_stop we must have had an initial trade
      */
-    if( old_last != _last ){
+    if( old_last != _last )
         _adjust_trailing_stops(_last < old_last);
-    }
 
-    if( _need_check_for_stops ){
+    if( _need_check_for_stops )
         _look_for_triggered_stops();
-    }
 
     return size; /* what we couldn't fill */
 }
@@ -293,6 +293,8 @@ SOB_CLASS::_hit_chain( plevel plev,
                        size_t size,
                        const order_exec_cb_type& exec_cb )
 {
+    using namespace detail;
+
     size_t amount;
     long long rmndr;
     auto del_iter = plev->first.begin();
@@ -309,9 +311,11 @@ SOB_CLASS::_hit_chain( plevel plev,
         rmndr = elem.sz - amount;
 
         /* deal with advanced order conditions */
-        if( detail::order::is_advanced(elem) ){
+        if( order::is_advanced(elem) )
+        {
             assert(elem.trigger != condition_trigger::none);
-            if( !detail::order::needs_full_fill(elem) || !rmndr ){
+            if( !order::needs_full_fill(elem) || !rmndr )
+            {
                 _handle_advanced_order_cancel(elem, elem.id)
                 || _handle_advanced_order_trigger(elem, elem.id);
             }
@@ -326,9 +330,8 @@ SOB_CLASS::_hit_chain( plevel plev,
         }
 
         /* if nothing left to trade*/
-        if( size <= 0 ){
+        if( size <= 0 )
             break;
-        }
     }
 
     plev->first.erase(plev->first.begin(),del_iter);
@@ -449,9 +452,8 @@ SOB_CLASS::_clear_callback_queue()
     }
 
     for( const auto & e : cb_elems ){
-        if( e.exec_cb ){
+        if( e.exec_cb )
             e.exec_cb( e.msg, e.id1, e.id2, e.price, e.sz );
-        }
     }
     _busy_with_callbacks.store(false);
 }
@@ -473,12 +475,14 @@ SOB_CLASS::_look_for_triggered_stops()
     * we don't check against max/min, because of the cached high/lows
     */
     assert(_last);
-    for( plevel l = _low_buy_stop; l <= _last; ++l ){
-        _handle_triggered_stop_chain<true>(l);
-    }
-    for( plevel h = _high_sell_stop; h>= _last; --h ){
-        _handle_triggered_stop_chain<false>(h);
-    }
+    plevel p;
+
+    for( p = _low_buy_stop; p <= _last; ++p )
+        _handle_triggered_stop_chain<true>(p);
+
+    for( p = _high_sell_stop; p >= _last; --p )
+        _handle_triggered_stop_chain<false>(p);
+
     _need_check_for_stops = false;
 }
 
@@ -491,6 +495,8 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
 {  /*
     * PART OF THE ENCLOSING CRITICAL SECTION
     */
+    using namespace detail;
+
     order_exec_cb_type cb;
     double limit;
     size_t sz;
@@ -502,7 +508,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     stop_chain_type cchain = std::move(plev->second);
     plev->second.clear();
 
-    detail::exec::stop<BuyStops>::adjust_state_after_trigger(this, plev);
+    exec::stop<BuyStops>::adjust_state_after_trigger(this, plev);
 
     for( auto & e : cchain ){
         id = e.id;
@@ -514,7 +520,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         _trailing_stop_erase(id, BuyStops);
 
         /* first we handle any (cancel) advanced conditions */
-        if( detail::order::is_advanced(e) ){
+        if( order::is_advanced(e) ){
             assert(e.trigger != condition_trigger::none);
             _handle_advanced_order_cancel(e, id);
         }
@@ -567,9 +573,9 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
                              std::move(op), std::move(op2), id_new );
 
         /* we need to trigger new orders AFTER we push the market/limit */
-        if( detail::order::is_advanced(e)
-            && !detail::order::is_trailing_stop(e)
-            && !detail::order::is_trailing_bracket(e) )
+        if( order::is_advanced(e)
+            && !order::is_trailing_stop(e)
+            && !order::is_trailing_bracket(e) )
         {
             assert(e.trigger != condition_trigger::none);
             _handle_advanced_order_trigger(e, id);
@@ -735,9 +741,11 @@ SOB_CLASS::_pull_order(id_type id, bool pull_linked)
 {
     /* caller needs to hold lock on _master_mtx or race w/ callback queue */
 
-    typename detail::chain<ChainTy>::bndl_type bndl;
+    using namespace detail;
+
+    typename chain<ChainTy>::bndl_type bndl;
     try{
-        bndl = detail::chain<ChainTy>::pop(this, id);
+        bndl = chain<ChainTy>::pop(this, id);
     }catch( OrderNotInCache& e ){}
 
     if( !bndl ){
@@ -754,8 +762,8 @@ SOB_CLASS::_pull_order(id_type id, bool pull_linked)
         _pull_linked_order<ChainTy>(bndl);
 
     /* remove trailing stops (no need to check if is trailing stop) */
-    if( detail::chain<ChainTy>::is_stop )
-        _trailing_stop_erase(id, detail::order::is_buy_stop(bndl));
+    if( chain<ChainTy>::is_stop )
+        _trailing_stop_erase(id, order::is_buy_stop(bndl));
 
     return true;
 }
@@ -834,15 +842,18 @@ template<side_of_market Side, typename ChainTy>
 size_t
 SOB_CLASS::_total_depth() const
 {
+    using namespace detail;
+
     plevel h;
     plevel l;
     size_t tot = 0;
 
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
-    detail::range<Side>::template get<ChainTy>(this,&h,&l);
+    range<Side>::template get<ChainTy>(this,&h,&l);
     for( ; h >= l; --h){
-        tot += detail::chain<ChainTy>::size( detail::chain<ChainTy>::get(h) );
+        auto c = chain<ChainTy>::get(h);
+        tot += chain<ChainTy>::size( c );
     }
     return tot;
   /* --- CRITICAL SECTION --- */
@@ -860,18 +871,20 @@ SOB_CLASS::_dump_orders(std::ostream& out,
                         plevel h,
                         side_of_trade sot) const
 {
+    using namespace detail;
+
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
 
-    out << "*** (" << sot << ") " << detail::chain<ChainTy>::as_order_type()
+    out << "*** (" << sot << ") " << chain<ChainTy>::as_order_type()
         << "s ***" << std::endl;
 
     for( ; h >= l; --h){
-        auto c = detail::chain<ChainTy>::get(h);
+        auto c = chain<ChainTy>::get(h);
         if( !c->empty() ){
             out << _itop(h);
             for( const auto& e : *c ){
-               detail::order::dump(out, e, _is_buy_order(h, e));
+               order::dump(out, e, _is_buy_order(h, e));
             }
             out << std::endl;
         }

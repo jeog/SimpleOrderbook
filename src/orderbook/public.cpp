@@ -18,6 +18,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <iomanip>
 
 #include "../../include/simpleorderbook.hpp"
+#include "../../include/order_util.hpp"
 #include "specials.tpp"
 
 #define SOB_CLASS SimpleOrderbook::SimpleOrderbookBase

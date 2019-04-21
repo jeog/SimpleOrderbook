@@ -195,12 +195,12 @@ public:
     /*virtual*/ order_type
     get_order_type() const
     {
-        if( !(*this) ){
+        if( !(*this) )
             return order_type::null;
-        }
-        if( _stop ){
+
+        if( _stop )
             return _limit ? order_type::stop_limit : order_type::stop;
-        }
+
         return _limit ? order_type::limit : order_type::market;
     }
 };

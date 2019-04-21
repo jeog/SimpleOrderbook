@@ -1205,6 +1205,23 @@ struct order_info {
     order_info(const order_info& oi);
 };
 
+namespace detail{
+
+struct sob_types {
+    using sob_class = SimpleOrderbook::SimpleOrderbookBase;
+    using plevel = sob_class::plevel;
+    using limit_chain_type = sob_class::limit_chain_type;
+    using stop_chain_type = sob_class::stop_chain_type;
+    using stop_bndl = sob_class::stop_bndl;
+    using limit_bndl = sob_class::limit_bndl;
+    using order_queue_elem = sob_class::order_queue_elem;
+    using _order_bndl = sob_class::_order_bndl;
+    using OrderNotInCache = sob_class::OrderNotInCache;
+    using chain_iter_wrap = sob_class::chain_iter_wrap;
+};
+
+} /* detail */
+
 }; /* sob */
 
 /* method definitions for SimpleOrderbookImpl */
