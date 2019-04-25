@@ -915,9 +915,8 @@ SOB_CLASS::_reset_internal_pointers( plevel old_beg,
                                      long long offset )
 {
     /*** PROTECTED BY _master_mtx ***/
-    if( _last ){
-        _last = bytes_add(_last, offset);
-    }
+    if( _last )
+        _last = bytes_add(_last, offset);    
 
     /* if plevel is below _beg, it's empty and needs to follow new_beg */
     auto reset_low = [=](plevel *ptr){
@@ -936,6 +935,10 @@ SOB_CLASS::_reset_internal_pointers( plevel old_beg,
     reset_high(&_low_buy_limit);
     reset_high(&_low_buy_stop);
     reset_high(&_low_sell_stop);
+
+    /* adjust the cache elems (BUG FIX Apr 25 2019) */
+    for( auto& elem : _id_cache )
+        elem.second.p = bytes_add(elem.second.p, offset);
 }
 
 

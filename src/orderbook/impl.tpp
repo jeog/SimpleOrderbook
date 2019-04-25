@@ -140,11 +140,9 @@ SOB_CLASS::_grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg)
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
 
-    /* after this point no guarantee about cached pointers */
-    _book.insert( at_beg ? _book.begin() : _book.end(),
-                  incr,
-                  chain_pair_type() );
-    /* the book is in an INVALID state until _reset_internal_pointers returns */
+    _book.insert( at_beg ? _book.begin() : _book.end(), incr, {} );
+
+    /* book is now in an INVALID state */
 
     _base = min;
     _beg = &(*_book.begin()) + 1;
@@ -161,7 +159,11 @@ SOB_CLASS::_grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg)
         static_cast<long long>((_book.size() - 1) * sizeof(*_beg))
     ) );
 
+    // even 0 offset needs to be handled 
     _reset_internal_pointers(old_beg, _beg, old_end, _end, offset);
+
+    /* book is now in a VALID state */
+
     _assert_internal_pointers();
     /* --- CRITICAL SECTION --- */
 }
