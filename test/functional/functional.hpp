@@ -42,6 +42,7 @@ int TEST_##name(sob::FullInterface *orderbook)
 /* orderbook.cpp */
 DECL_TICK_TEST_FUNC(tick_price_1);
 DECL_SOB_TEST_FUNC(grow_1);
+DECL_SOB_TEST_FUNC(grow_2);
 /* basic_orders.cpp */
 DECL_SOB_TEST_FUNC(basic_orders_1);
 DECL_SOB_TEST_FUNC(basic_orders_2);

@@ -243,17 +243,30 @@ SOB_CLASS::replace_with_stop_order( id_type id,
 void
 SOB_CLASS::dump_internal_pointers(std::ostream& out) const
 {
+    // hack to get tick size - guaranteed >= 3 ticks
+    auto tick = _itop(_beg+1) - _itop(_beg);
+
     auto println = [&](std::string n, plevel p){
-        std::string price;
+        std::string price("N/A");
         try{
-            price = std::to_string(_itop(p));
-        }catch(std::range_error&){
-            price = "N/A";
-        }
+            if( p ){
+                _assert_plevel(p);
+                double d;
+                if( p == &(*_book.end()) )
+                    d = _itop(p-1) + tick;
+                else if( p == &(*_book.begin()) )
+                    d = _itop(p+1) - tick;
+                else
+                    d = _itop(p);
+                price = std::to_string(d);
+            }
+        }catch(std::range_error&){}
+
         out<< std::setw(18) << n << " : "
            << std::setw(14) << price << " : "
            << std::hex << p << std::dec << std::endl;
     };
+
 
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */

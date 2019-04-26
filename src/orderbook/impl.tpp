@@ -137,11 +137,13 @@ SOB_CLASS::_grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg)
     size_t old_sz = _book.size();
 #endif
 
-    std::lock_guard<std::mutex> lock(_master_mtx);
+    std::lock_guard<std::mutex> lock(_master_mtx); 
     /* --- CRITICAL SECTION --- */
-
-    _book.insert( at_beg ? _book.begin() : _book.end(), incr, {} );
-
+    
+    std::vector<chain_pair_type> tmp( _book.size() + incr );    
+    std::move( _book.begin(), _book.end(), tmp.begin() + (at_beg ? incr : 0) );
+    _book = std::move(tmp);
+    
     /* book is now in an INVALID state */
 
     _base = min;
@@ -181,8 +183,7 @@ SOB_CLASS::_ptoi(TickPrice<TickRatio> price) const
     */
     long long offset = (price - _base).as_ticks();
     plevel p = _beg + offset;
-    assert(p >= _beg);
-    assert(p <= (_end-1));
+    _assert_plevel(p);
     return p;
 }
 

@@ -371,11 +371,46 @@ private:
                 {}
         };
 
+
+        template<typename T>
+        class OrderChain : public std::list<T> {
+        /*
+         * NOTE - we force our lists/chains to use move semantics to avoid
+         *        invalidation of the underlying order iterators (stored
+         *        in the id cache) when the book vector is expanded and
+         *        a new allocation/initialization is required.
+         *
+         *    1. THE STANDARD DOESN'T GUARANTEE THIS BEHAVIOR but it
+         *       would be strange for an implementation not to support it
+         *
+         *    2. list<T> has no virtual destructor SO THIS SHOULD NEVER
+         *       BE CAST TO A POINTER OF THE BASE CLASS !!!
+         */
+            using allocator_traits = std::allocator_traits<
+                typename std::list<T>::allocator_type>;
+            static_assert(
+                allocator_traits::propagate_on_container_move_assignment::value,
+                "allocator does not propagate on move assignment"
+                );
+        public:
+            OrderChain() = default;
+            OrderChain( const OrderChain& ) = delete;
+            OrderChain& operator=( const OrderChain& ) = delete;
+
+            OrderChain( OrderChain&& l )
+                : std::list<T>( std::move(l) ){}
+
+            OrderChain&
+            operator=( OrderChain&& l )
+            { std::list<T>::operator=( std::move(l) ); return *this; }
+
+        };
+
         /* holds all limit orders at a price */
-        typedef std::list<limit_bndl> limit_chain_type;
+        typedef OrderChain<limit_bndl> limit_chain_type;
 
         /* holds all stop orders at a price (limit or market) */
-        typedef std::list<stop_bndl> stop_chain_type;
+        typedef OrderChain<stop_bndl> stop_chain_type;
 
         /*
          * a chain pair is the limit and stop chain at a particular price

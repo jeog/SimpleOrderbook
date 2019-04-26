@@ -184,6 +184,45 @@ TEST_grow_1(FullInterface *full_orderbook)
     return 0;
 }
 
+int
+TEST_grow_2(FullInterface *full_orderbook)
+{
+    //auto conv = [&](double d){ return full_orderbook->price_to_tick(d); };
+
+    ManagementInterface *orderbook =
+            dynamic_cast<ManagementInterface*>(full_orderbook);
+
+    double beg = orderbook->min_price();
+    double end = orderbook->max_price();
+    double incr = orderbook->tick_size();
+    size_t ticks = static_cast<size_t>((end - beg)/incr);
+
+    id_type id1 = orderbook->insert_limit_order(true, beg, sz);
+    id_type id2 = orderbook->insert_limit_order(false, end, sz);
+
+    orderbook->dump_internal_pointers();
+    orderbook->grow_book_below( 0 );
+    orderbook->grow_book_above( end + (incr * ticks * 10) );
+    orderbook->dump_internal_pointers();
+
+    if( !orderbook->pull_order(id1) )
+        return 1;
+
+    order_info oi = orderbook->get_order_info(id2);
+    if( oi.type != order_type::limit )
+        return 2;
+    if( oi.is_buy )
+        return 3;
+    if( oi.limit != end )
+        return 4;
+    if( oi.stop )
+        return 5;
+    if( oi.size != sz )
+        return 6;
+
+    return 0;  
+}
+
 
 // TODO expand these
 int

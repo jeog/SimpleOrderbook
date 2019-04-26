@@ -945,10 +945,15 @@ SOB_CLASS::_reset_internal_pointers( plevel old_beg,
 void
 SOB_CLASS::_assert_plevel(plevel p) const
 {
-    assert( (labs(bytes_offset(p, _beg)) % sizeof(chain_pair_type)) == 0 );
-    assert( (labs(bytes_offset(p, _end)) % sizeof(chain_pair_type)) == 0 );
-    assert( p >= (_beg - 1) );
-    assert( p <= _end );
+#ifndef NDEBUG
+    // TODO fix
+    plevel b = &(const_cast<chain_pair_type&>(*_book.cbegin()));
+    plevel e = &(const_cast<chain_pair_type&>(*_book.cend()));
+    assert( (labs(bytes_offset(p, b)) % sizeof(chain_pair_type)) == 0 );
+    assert( (labs(bytes_offset(p, e)) % sizeof(chain_pair_type)) == 0 );
+    assert( p >= b );
+    assert( p <= e );
+#endif
 }
 
 
@@ -959,6 +964,8 @@ SOB_CLASS::_assert_internal_pointers() const
     if( _last ){
         _assert_plevel(_last);
     }
+    assert( _beg == &(*_book.begin()) + 1 );
+    assert( _end == &(*_book.end()) );
     _assert_plevel(_bid);
     _assert_plevel(_ask);
     _assert_plevel(_low_buy_limit);

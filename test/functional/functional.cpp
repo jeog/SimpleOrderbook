@@ -49,6 +49,7 @@ orderbook_tests = {
       {"TEST_orders_info_pull_1", TEST_orders_info_pull_1},
       {"TEST_replace_order_1", TEST_replace_order_1},
       {"TEST_grow_1", TEST_grow_1},
+      {"TEST_grow_2", TEST_grow_2},
       {"TEST_advanced_OCO_1", TEST_advanced_OCO_1},
       {"TEST_advanced_OCO_2", TEST_advanced_OCO_2},
       {"TEST_advanced_OCO_3", TEST_advanced_OCO_3},
