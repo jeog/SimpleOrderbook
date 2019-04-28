@@ -297,10 +297,12 @@ SOB_CLASS::_hit_chain( plevel plev,
 
     size_t amount;
     long long rmndr;
-    auto del_iter = plev->first.begin();
+
+    limit_chain_type *pchain = plev->get_limit_chain();
+    auto del_iter = pchain->begin();
 
     /* check each order, FIFO, for this plevel */
-    for( auto& elem : plev->first ){
+    for( auto& elem : *pchain ){
         amount = std::min(size, elem.sz);
         /* push callbacks onto queue; update state */
         _trade_has_occured( plev, amount, id, elem.id, exec_cb,
@@ -334,7 +336,7 @@ SOB_CLASS::_hit_chain( plevel plev,
             break;
     }
 
-    plev->first.erase(plev->first.begin(),del_iter);
+    pchain->erase( pchain->begin(), del_iter );
     return size;
 }
 
@@ -505,8 +507,9 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
      * need to copy the relevant chain, delete original, THEN insert
      * if not we can hit the same order more than once / go into infinite loop
      */
-    stop_chain_type cchain = std::move(plev->second);
-    plev->second.clear();
+    stop_chain_type *pchain = plev->get_stop_chain();
+    stop_chain_type cchain = std::move( *pchain );
+    pchain->clear();
 
     exec::stop<BuyStops>::adjust_state_after_trigger(this, plev);
 
@@ -742,28 +745,25 @@ SOB_CLASS::_pull_order(id_type id, bool pull_linked)
     /* caller needs to hold lock on _master_mtx or race w/ callback queue */
 
     using namespace detail;
-
-    typename chain<ChainTy>::bndl_type bndl;
     try{
-        bndl = chain<ChainTy>::pop(this, id);
-    }catch( OrderNotInCache& e ){}
+        auto bndl = chain<ChainTy>::pop(this, id);
+        if( !bndl )
+            return false;
 
-    if( !bndl ){
-        assert( _trailing_sell_stops.find(id) == _trailing_sell_stops.cend() );
-        assert( _trailing_buy_stops.find(id) == _trailing_buy_stops.cend() );
+        _deferred_callbacks.emplace_back(
+            callback_msg::cancel, bndl.exec_cb, id, id, 0, 0
+            );
+
+        if( pull_linked )
+            _pull_linked_order<ChainTy>(bndl);
+
+        /* remove trailing stops (no need to check if is trailing stop) */
+        if( chain<ChainTy>::is_stop )
+            _trailing_stop_erase(id, order::is_buy_stop(bndl));
+
+    }catch( OrderNotInCache& e ){
         return false;
     }
-
-    _deferred_callbacks.emplace_back(
-        callback_msg::cancel, bndl.exec_cb, id, id, 0, 0
-        );
-
-    if( pull_linked )
-        _pull_linked_order<ChainTy>(bndl);
-
-    /* remove trailing stops (no need to check if is trailing stop) */
-    if( chain<ChainTy>::is_stop )
-        _trailing_stop_erase(id, order::is_buy_stop(bndl));
 
     return true;
 }
@@ -804,6 +804,7 @@ SOB_CLASS::_is_buy_order(plevel p, const limit_bndl& o) const
 { return (p < _ask); }
 
 
+
 template<side_of_market Side, typename ChainTy>
 std::map<double, typename std::conditional<Side == side_of_market::both,
                  std::pair<size_t, side_of_market>, size_t>::type >
@@ -814,14 +815,17 @@ SOB_CLASS::_market_depth(size_t depth) const
     size_t d;
     std::map<double, typename detail::depth<Side>::mapped_type> md;
 
+    constexpr bool IsLimit = detail::chain<ChainTy>::is_limit;
+
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
     detail::range<Side>::template get<ChainTy>(this,&h,&l,depth);
     for( ; h >= l; --h){
-        if( h->first.empty() ){
+        if( IsLimit && h->limit_chain_is_empty() )
              continue;
-        }
-        d = detail::chain<limit_chain_type>::size(&h->first);
+        if( !IsLimit && h->stop_chain_is_empty() )
+            continue;
+        d = detail::chain<ChainTy>::size( h );
         auto v = detail::depth<Side>::build_value(this,h,d);
         md.insert( std::make_pair(_itop(h), v) );
     }
@@ -852,8 +856,7 @@ SOB_CLASS::_total_depth() const
     /* --- CRITICAL SECTION --- */
     range<Side>::template get<ChainTy>(this,&h,&l);
     for( ; h >= l; --h){
-        auto c = chain<ChainTy>::get(h);
-        tot += chain<ChainTy>::size( c );
+        tot += chain<ChainTy>::size( h );
     }
     return tot;
   /* --- CRITICAL SECTION --- */
@@ -946,11 +949,10 @@ void
 SOB_CLASS::_assert_plevel(plevel p) const
 {
 #ifndef NDEBUG
-    // TODO fix
-    plevel b = &(const_cast<chain_pair_type&>(*_book.cbegin()));
-    plevel e = &(const_cast<chain_pair_type&>(*_book.cend()));
-    assert( (labs(bytes_offset(p, b)) % sizeof(chain_pair_type)) == 0 );
-    assert( (labs(bytes_offset(p, e)) % sizeof(chain_pair_type)) == 0 );
+    const level *b = &(*_book.cbegin());
+    const level *e = &(*_book.cend());
+    assert( (labs(bytes_offset(p, b)) % sizeof(level)) == 0 );
+    assert( (labs(bytes_offset(p, e)) % sizeof(level)) == 0 );
     assert( p >= b );
     assert( p <= e );
 #endif

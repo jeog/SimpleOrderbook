@@ -61,8 +61,8 @@ private:
     _jump_to_nonempty_chain(sob_class* sob)
     {
         for( ;
-             sob->_bid->first.empty() && (sob->_bid >= sob->_beg);
-             --sob->_bid )
+             (sob->_bid >= sob->_beg) && sob->_bid->limit_chain_is_empty();
+             --sob->_bid ) // BUG FIX Apr 27 2019 - reverse order of conditions
            {
            }
     }
@@ -80,9 +80,8 @@ private:
     static inline void
     _adjust_limit_pointer(sob_class* sob)
     {
-        if( sob->_bid < sob->_low_buy_limit ){
-            sob->_low_buy_limit = sob->_bid;
-        }
+        if( sob->_bid < sob->_low_buy_limit )
+            sob->_low_buy_limit = sob->_bid;        
     }
 };
 
@@ -109,8 +108,8 @@ private:
     _jump_to_nonempty_chain(sob_class *sob)
     {
         for( ;
-             sob->_ask->first.empty() && (sob->_ask < sob->_end);
-             ++sob->_ask )
+             (sob->_ask < sob->_end) && sob->_ask->limit_chain_is_empty();
+             ++sob->_ask ) // BUG FIX Apr 27 2019 - reverse order of conditions
             {
             }
     }
@@ -128,9 +127,8 @@ private:
     static inline void
     _adjust_limit_pointer(sob_class *sob)
     {
-        if( sob->_ask > sob->_high_sell_limit ){
-            sob->_high_sell_limit = sob->_ask;
-        }
+        if( sob->_ask > sob->_high_sell_limit )
+            sob->_high_sell_limit = sob->_ask;        
     }
 };
 
@@ -152,7 +150,7 @@ struct limit
     }
 
     static void
-    adjust_state_after_insert(sob_class *sob, plevel limit, limit_chain_type* orders)
+    adjust_state_after_insert(sob_class *sob, plevel limit)
     {
         assert( limit >= sob->_beg );
         assert( limit < sob->_end );
@@ -182,7 +180,7 @@ struct limit<false>
     }
 
     static void
-    adjust_state_after_insert(sob_class *sob, plevel limit, limit_chain_type* orders)
+    adjust_state_after_insert(sob_class *sob, plevel limit)
     {
         assert( limit >= sob->_beg );
         assert( limit < sob->_end );
@@ -314,15 +312,16 @@ struct chain
     }
 
 protected:
-    template<typename BndlTy>
+    template<bool IsLimit, typename BndlTy>
     static void
-    push(sob_class *sob, plevel p, ChainTy* c, BndlTy&& bndl, bool is_limit){
-        auto id = bndl.id;        
-        c->emplace_back(bndl); /* moving bndl */                
+    push(sob_class *sob, plevel p, BndlTy&& bndl){
+        auto id = bndl.id;     
+        ChainTy *c = chain<ChainTy, false>::get(p);
+        c->emplace_back( std::move(bndl) ); /* moving bndl */                
         sob->_id_cache.emplace(
              std::piecewise_construct,
              std::forward_as_tuple(id),
-             std::forward_as_tuple(--(c->end()), is_limit, p)
+             std::forward_as_tuple(--(c->end()), IsLimit, p)
          );       
     }
 };
@@ -337,10 +336,10 @@ struct chain<typename sob_types::limit_chain_type, false>
 
     template<bool IsBuy>
     static void
-    push(sob_class *sob, plevel p, limit_bndl&& bndl){
-        limit_chain_type *c = &p->first;
-        base_type::push(sob, p, c, bndl, true);     
-        exec::limit<IsBuy>::adjust_state_after_insert(sob, p, c);
+    push(sob_class *sob, plevel p, limit_bndl&& bndl)
+    {       
+        base_type::push<true>(sob, p, std::move(bndl) );     
+        exec::limit<IsBuy>::adjust_state_after_insert(sob, p);
     }
 
     static limit_bndl
@@ -349,10 +348,10 @@ struct chain<typename sob_types::limit_chain_type, false>
         const chain_iter_wrap& iwrap = sob->_from_cache(id);
         assert( iwrap.is_limit );
                 
-        limit_bndl bndl = *(iwrap.l_iter);
+        limit_bndl bndl = *(iwrap.l_iter); // copy
         plevel p = iwrap.p;
-        limit_chain_type *c = &(p->first);
-                
+        limit_chain_type *c = p->get_limit_chain();
+           
         c->erase(iwrap.l_iter); // first
         sob->_id_cache.erase(id);  // second
         
@@ -369,13 +368,17 @@ struct chain<typename sob_types::limit_chain_type, false>
         return bndl;
     }
 
-    static constexpr limit_chain_type*
+    static limit_chain_type*
     get(plevel p)
-    { return &(p->first); }
+    { return p->get_limit_chain(); }
 
     static constexpr sob::order_type
     as_order_type()
     { return sob::order_type::limit; }
+    
+    static size_t
+    size(plevel p)
+    { return base_type::size( get(p) ); }
 };
 
 
@@ -387,12 +390,10 @@ struct chain<typename sob_types::stop_chain_type, false>
     typedef stop_bndl bndl_type;
 
     static void
-    push(sob_class *sob, plevel p, stop_bndl&& bndl){
-        stop_chain_type *c = &p->second;
-        bool is_buy = bndl.is_buy;
-        
-        base_type::push(sob, p, c, bndl, false);
-        
+    push(sob_class *sob, plevel p, stop_bndl&& bndl)
+    {        
+        bool is_buy = bndl.is_buy;        
+        base_type::push<false>(sob, p, std::move(bndl) );        
         is_buy ? exec::stop<true>::adjust_state_after_insert(sob, p)
                : exec::stop<false>::adjust_state_after_insert(sob, p);
     }
@@ -403,9 +404,9 @@ struct chain<typename sob_types::stop_chain_type, false>
         const chain_iter_wrap& iwrap = sob->_from_cache(id);
         assert( !iwrap.is_limit );
         
-        stop_bndl bndl = *(iwrap.s_iter);
+        stop_bndl bndl = *(iwrap.s_iter); // copy
         plevel p = iwrap.p;
-        stop_chain_type *c = &(p->second);       
+        stop_chain_type *c = p->get_stop_chain();       
         
         c->erase(iwrap.s_iter); // first
         sob->_id_cache.erase(id); // second 
@@ -425,14 +426,18 @@ struct chain<typename sob_types::stop_chain_type, false>
         return bndl;
     }
 
-    static constexpr stop_chain_type*
+    static stop_chain_type*
     get(plevel p)
-    { return &(p->second); }
+    { return p->get_stop_chain(); }
 
     /* doesn't differentiate between stop & stop/limit */
     static constexpr sob::order_type
     as_order_type()
     { return sob::order_type::stop; }
+    
+    static size_t
+    size(plevel p)
+    { return base_type::size( get(p) ); }
 };
 
 

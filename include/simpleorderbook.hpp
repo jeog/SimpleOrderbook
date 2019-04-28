@@ -313,8 +313,8 @@ private:
                         condition_trigger trigger = condition_trigger::none);
             _order_bndl(const _order_bndl& bndl);
             _order_bndl(_order_bndl&& bndl);
-            _order_bndl& operator=(const _order_bndl& bndl);
-            _order_bndl& operator=(_order_bndl&& bndl);
+            _order_bndl& operator=(const _order_bndl& bndl) = delete;
+            _order_bndl& operator=(_order_bndl&& bndl) = delete;
             ~_order_bndl();
 
         private:
@@ -341,10 +341,11 @@ private:
                       condition_trigger trigger = condition_trigger::none);
             stop_bndl(const stop_bndl& bndl);
             stop_bndl(stop_bndl&& bndl);
-            stop_bndl& operator=(const stop_bndl& bndl);
-            stop_bndl& operator=(stop_bndl&& bndl);
+            stop_bndl& operator=(const stop_bndl& bndl) = delete;
+            stop_bndl& operator=(stop_bndl&& bndl) = delete;
             static stop_bndl null;
         };
+
 
         /* one order to (quickly) find another */
         struct order_location{ // WHY NOT JUST POINT AT THE OBJECT ?
@@ -372,62 +373,67 @@ private:
         };
 
 
-        template<typename T>
-        class OrderChain : public std::list<T> {
-        /*
-         * NOTE - we force our lists/chains to use move semantics to avoid
-         *        invalidation of the underlying order iterators (stored
-         *        in the id cache) when the book vector is expanded and
-         *        a new allocation/initialization is required.
-         *
-         *    1. THE STANDARD DOESN'T GUARANTEE THIS BEHAVIOR but it
-         *       would be strange for an implementation not to support it
-         *
-         *    2. list<T> has no virtual destructor SO THIS SHOULD NEVER
-         *       BE CAST TO A POINTER OF THE BASE CLASS !!!
-         */
-            using allocator_traits = std::allocator_traits<
-                typename std::list<T>::allocator_type>;
-            static_assert(
-                allocator_traits::propagate_on_container_move_assignment::value,
-                "allocator does not propagate on move assignment"
-                );
-        public:
-            OrderChain() = default;
-            OrderChain( const OrderChain& ) = delete;
-            OrderChain& operator=( const OrderChain& ) = delete;
-
-            OrderChain( OrderChain&& l )
-                : std::list<T>( std::move(l) ){}
-
-            OrderChain&
-            operator=( OrderChain&& l )
-            { std::list<T>::operator=( std::move(l) ); return *this; }
-
-        };
-
         /* holds all limit orders at a price */
-        typedef OrderChain<limit_bndl> limit_chain_type;
+        using limit_chain_type = std::list<limit_bndl>;
 
         /* holds all stop orders at a price (limit or market) */
-        typedef OrderChain<stop_bndl> stop_chain_type;
+        using stop_chain_type = std::list<stop_bndl>;
+
 
         /*
-         * a chain pair is the limit and stop chain at a particular price
-         * use a (less safe) pointer for plevel because iterator
-         * is implemented as a class and creates a number of problems internally
+         * *NEW APPROACH* to managing chains at each price level (APR 2019)
+         *
+         *   * replace 'chain_pair_type' with a 'level' class
+         *
+         *   * store chains on the heap and only allow move(s) so
+         *   iterators (stored in id_cache) aren't invalidated if a book
+         *   resize requires a new allocation/initialization
+         *
+         *   * TODO store chain info to avoid chain traversals
          */
-        typedef std::pair<limit_chain_type,stop_chain_type> chain_pair_type;
-        typedef chain_pair_type *plevel;
+        class level {         
+            std::unique_ptr<limit_chain_type> _l_chain;
+            std::unique_ptr<stop_chain_type> _s_chain;
 
-        typedef std::function<double(plevel)> itop_ty;
-        typedef std::function<plevel(double)> ptoi_ty;
+        public:
+            level() 
+                : 
+                    _l_chain(new limit_chain_type()), 
+                    _s_chain(new stop_chain_type())
+		{}
+
+            level( const level& ) = delete;
+            level& operator=( const level& ) = delete;
+            level( level&& l ) = default;
+            level& operator=( level&& l ) = default ;
+            
+            inline limit_chain_type* 
+            get_limit_chain() const 
+            { return _l_chain.get(); }
+
+            inline stop_chain_type* 
+            get_stop_chain() const 
+            { return _s_chain.get(); }
+
+            inline bool 
+            limit_chain_is_empty() const 
+            { return _l_chain->empty(); }
+            
+            inline bool 
+            stop_chain_is_empty() const 
+            { return _s_chain->empty(); }
+        };
+        using plevel = level*;
+
+
+        using itop_ty = std::function<double(plevel)>;
+        using ptoi_ty = std::function<plevel(double)>;
 
         SimpleOrderbookBase(size_t incr, itop_ty itop, ptoi_ty ptoi);
         ~SimpleOrderbookBase();
 
          /* THE ORDER BOOK */
-        std::vector<chain_pair_type> _book;
+        std::vector<level> _book;
 
         /* cached internal pointers(iterators) of the orderbook */
         plevel _beg;
@@ -896,14 +902,18 @@ private:
 
         template<typename T>
         static constexpr long long
-        bytes_offset(T *l, T *r)
+        bytes_offset(const T *l, const T *r)
         { return (reinterpret_cast<unsigned long long>(l) -
                reinterpret_cast<unsigned long long>(r)); }
 
         template<typename T>
         static constexpr T*
         bytes_add(T *ptr, long long offset)
-        { return reinterpret_cast<T*>(reinterpret_cast<char*>(ptr) + offset); }
+        {
+            using C = typename std::conditional<
+                std::is_const<T>::value, const char*, char*>::type;
+            return reinterpret_cast<T*>( reinterpret_cast<C>(ptr) + offset );
+        }
 
         /* only an issue if size of book is > (MAX_LONG * sizeof(*plevel)) bytes */
         static constexpr long
@@ -1191,7 +1201,7 @@ private:
         static constexpr unsigned long long
         tick_memory_required_(double lower, double upper)
         { return static_cast<unsigned long long>(ticks_in_range_(lower, upper))
-                * sizeof(chain_pair_type); }
+                * sizeof(level); }
 
     }; /* SimpleOrderbookImpl */
 

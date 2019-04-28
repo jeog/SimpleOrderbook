@@ -37,18 +37,17 @@ typedef function<double(FullInterface*,int)> test_ty;
 typedef map<int, map< int, double>> exec_results_ty;
 typedef map<string, map<int, exec_results_ty> > total_results_ty;
 
-const vector<int> NORDERS = {100, 1000, 10000, 100000, 1000000};
+
+const vector<int> NORDERS = {1000, 10000, 100000, 1000000};
 const int NRUNS = 9;
 const int NTHREADS = 3;
 
 const vector<proxy_info_ty>
 proxies = {
-    make_proxy_info<100>( {make_tuple(.0, 1.0),
-                           make_tuple(.0, 10.0),
+    make_proxy_info<100>( {make_tuple(.0, 10.0),
                            make_tuple(.0, 100.0),
                            make_tuple(.0, 1000.0),
-                           make_tuple(.0, 10000.0)}
-    )
+                           make_tuple(.0, 10000.0)} )
 };
 
 const vector< pair<string, const test_ty> >
@@ -69,7 +68,7 @@ exec_perf_test_async( const test_ty& func,
                       int norders );
 
 void
-display_performance_results(const total_results_ty& results);
+display_performance_results(const total_results_ty& results, std::ostream& out);
 
 }; /* namespace */
 
@@ -115,7 +114,17 @@ run_performance_tests()
     streamsize old_precision = cout.precision();
     cout.precision(6);
     cout<< fixed << endl << endl;
-    display_performance_results(results);
+    display_performance_results(results, std::cout);
+    {
+        using namespace std::chrono;
+        auto now_t = system_clock::to_time_t( system_clock::now() );
+        std::string buf(24, '\0');
+        std::strftime( &buf[0], 24, "%Y-%m-%d-%H-%M", localtime(&now_t) );
+        buf.erase( buf.find_first_of('\0') );
+        std::ofstream f("perf-test-" + buf);
+        f << fixed;
+        display_performance_results(results, f);
+    }
     cout<< endl << right;
     cout.precision(old_precision);
     return 0;
@@ -190,7 +199,7 @@ exec_perf_test_async( const test_ty& func,
 
 
 void
-display_performance_results(const total_results_ty& results)
+display_performance_results(const total_results_ty& results, std::ostream& out)
 {
     const size_t CW = 10;
     const size_t WTOTAL = (NORDERS.size() + 1) * 10 + 2;
@@ -206,32 +215,32 @@ display_performance_results(const total_results_ty& results)
         }
     };
 
-    cout<< center("Total Runtime (seconds)", WTOTAL + LPAD_SZ) << endl << endl;
+    out<< center("Total Runtime (seconds)", WTOTAL + LPAD_SZ) << endl << endl;
 
     for(auto& test : results){
         for(auto& proxy : test.second){
-            cout<< test.first << " - 1/" << proxy.first << endl
+            out<< test.first << " - 1/" << proxy.first << endl
                 << LPAD << left << center("(norders)", WTOTAL) << endl << endl
                 << LPAD << setw(CW) << "" << "| ";
             for(int n: NORDERS){
-                cout<< setw(CW) << n;
+                out<< setw(CW) << n;
             }
-            cout<< endl << LPAD << string(CW, '-') << "|"
+            out<< endl << LPAD << string(CW, '-') << "|"
                 << string(WTOTAL-CW-1, '-') << endl;
             size_t y_mid = static_cast<size_t>(proxy.second.size() / 2);
             size_t pos = 0;
             for( auto& ntick : proxy.second){
-                cout<< setw(LPAD_SZ) << (pos == y_mid ? "(nticks)" : "");
-                cout<< setw(CW) << ntick.first << "| ";
+                out<< setw(LPAD_SZ) << (pos == y_mid ? "(nticks)" : "");
+                out<< setw(CW) << ntick.first << "| ";
                 for( auto& norder : ntick.second){
-                    cout<< setw(CW) << norder.second;
+                    out<< setw(CW) << norder.second;
                 }
-                cout<< endl;
+                out<< endl;
                 ++pos;
             }
-            cout<< endl;
+            out<< endl;
         }
-        cout<< endl;
+        out<< endl;
     }
 }
 

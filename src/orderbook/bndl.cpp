@@ -50,6 +50,7 @@ SOB_CLASS::_order_bndl::_order_bndl( id_type id,
     }
 
 
+
 SOB_CLASS::_order_bndl::_order_bndl(const _order_bndl& bndl)
     :
         id(bndl.id),
@@ -58,7 +59,42 @@ SOB_CLASS::_order_bndl::_order_bndl(const _order_bndl& bndl)
         cond(bndl.cond),
         trigger(bndl.trigger)
     {
-        _copy_union(bndl);
+        switch(cond){
+        case order_condition::_bracket_active: /* no break */
+        case order_condition::one_cancels_other:
+            linked_order = bndl.linked_order
+                         ? new order_location(*bndl.linked_order)
+                         : nullptr;
+            break;
+        case order_condition::trailing_stop: /* no break */
+        case order_condition::one_triggers_other:
+            contingent_order = bndl.contingent_order
+                             ? bndl.contingent_order->copy_new()
+                             : nullptr;
+            break;
+        case order_condition::trailing_bracket:
+            nticks_bracket_orders = bndl.nticks_bracket_orders
+                          ? new nticks_bracket_type(*bndl.nticks_bracket_orders)
+                          : nullptr;
+            break;
+        case order_condition::bracket:
+            price_bracket_orders = bndl.price_bracket_orders
+                          ? new price_bracket_type(*bndl.price_bracket_orders)
+                          : nullptr;
+            break;
+        case order_condition::_trailing_stop_active:
+            nticks = bndl.nticks;
+            break;
+        case order_condition::_trailing_bracket_active:
+            linked_trailer = bndl.linked_trailer
+                           ? new linked_trailer_type(*bndl.linked_trailer)
+                           : nullptr;
+            break;
+        case order_condition::none:
+            break;
+        default:
+            throw std::runtime_error("invalid order condition");
+        }
     }
 
 
@@ -71,119 +107,38 @@ SOB_CLASS::_order_bndl::_order_bndl(_order_bndl&& bndl)
         cond(bndl.cond),
         trigger(bndl.trigger)
     {
-        _move_union(bndl);
+        switch(cond){
+        case order_condition::_bracket_active: /* break */
+        case order_condition::one_cancels_other:
+            linked_order = bndl.linked_order;
+            bndl.linked_order = nullptr;
+            break;
+        case order_condition::trailing_stop: /* no break */
+        case order_condition::one_triggers_other:
+            contingent_order = bndl.contingent_order;
+            bndl.contingent_order = nullptr;
+            break;
+        case order_condition::trailing_bracket:
+            nticks_bracket_orders = bndl.nticks_bracket_orders;
+            bndl.nticks_bracket_orders = nullptr;
+            break;
+        case order_condition::bracket:
+            price_bracket_orders = bndl.price_bracket_orders;
+            bndl.price_bracket_orders = nullptr;
+            break;
+        case order_condition::_trailing_stop_active:
+            nticks = bndl.nticks;
+            break;
+        case order_condition::_trailing_bracket_active:
+            linked_trailer = bndl.linked_trailer;
+            bndl.linked_trailer = nullptr;
+            break;
+        case order_condition::none:
+            break;
+        default:
+            throw std::runtime_error("invalid order condition");
+        };
     }
-
-
-
-typename SOB_CLASS::_order_bndl&
-SOB_CLASS::_order_bndl::operator=(const _order_bndl& bndl)
-{
-    if( *this != bndl ){
-        id = bndl.id;
-        sz = bndl.sz;
-        exec_cb = bndl.exec_cb;
-        cond = bndl.cond;
-        trigger =bndl.trigger;
-        _copy_union(bndl);
-    }
-    return *this;
-}
-
-
-
-typename SOB_CLASS::_order_bndl&
-SOB_CLASS::_order_bndl::operator=(_order_bndl&& bndl)
-{
-    if( *this != bndl ){
-        id = bndl.id;
-        sz = bndl.sz;
-        exec_cb = bndl.exec_cb;
-        cond = bndl.cond;
-        trigger = bndl.trigger;
-        _move_union(bndl);
-    }
-    return *this;
-}
-
-
-void
-SOB_CLASS::_order_bndl::_copy_union(const _order_bndl& bndl)
-{
-    switch(cond){
-    case order_condition::_bracket_active: /* no break */
-    case order_condition::one_cancels_other:
-        linked_order = bndl.linked_order
-                     ? new order_location(*bndl.linked_order)
-                     : nullptr;
-        break;
-    case order_condition::trailing_stop: /* no break */
-    case order_condition::one_triggers_other:
-        contingent_order = bndl.contingent_order
-                         ? bndl.contingent_order->copy_new()
-                         : nullptr;
-        break;
-    case order_condition::trailing_bracket:
-        nticks_bracket_orders = bndl.nticks_bracket_orders
-                      ? new nticks_bracket_type(*bndl.nticks_bracket_orders)
-                      : nullptr;
-        break;
-    case order_condition::bracket:
-        price_bracket_orders = bndl.price_bracket_orders
-                      ? new price_bracket_type(*bndl.price_bracket_orders)
-                      : nullptr;
-        break;
-    case order_condition::_trailing_stop_active:
-        nticks = bndl.nticks;
-        break;
-    case order_condition::_trailing_bracket_active:
-        linked_trailer = bndl.linked_trailer
-                       ? new linked_trailer_type(*bndl.linked_trailer)
-                       : nullptr;
-        break;
-    case order_condition::none:
-        break;
-    default:
-        throw new std::runtime_error("invalid order condition");
-    }
-}
-
-
-void
-SOB_CLASS::_order_bndl::_move_union(_order_bndl& bndl)
-{
-    switch(cond){
-    case order_condition::_bracket_active: /* break */
-    case order_condition::one_cancels_other:
-        linked_order = bndl.linked_order;
-        bndl.linked_order = nullptr;
-        break;
-    case order_condition::trailing_stop: /* no break */
-    case order_condition::one_triggers_other:
-        contingent_order = bndl.contingent_order;
-        bndl.contingent_order = nullptr;
-        break;
-    case order_condition::trailing_bracket:
-        nticks_bracket_orders = bndl.nticks_bracket_orders;
-        bndl.nticks_bracket_orders = nullptr;
-        break;
-    case order_condition::bracket:
-        price_bracket_orders = bndl.price_bracket_orders;
-        bndl.price_bracket_orders = nullptr;
-        break;
-    case order_condition::_trailing_stop_active:
-        nticks = bndl.nticks;
-        break;
-    case order_condition::_trailing_bracket_active:
-        linked_trailer = bndl.linked_trailer;
-        bndl.linked_trailer = nullptr;
-        break;
-    case order_condition::none:
-        break;
-    default:
-        throw new std::runtime_error("invalid order condition");
-    };
-}
 
 
 SOB_CLASS::_order_bndl::~_order_bndl()
@@ -191,36 +146,31 @@ SOB_CLASS::_order_bndl::~_order_bndl()
        switch(cond){
        case order_condition::_bracket_active: /* no break */
        case order_condition::one_cancels_other:
-           if( linked_order ){
+           if( linked_order )
                delete linked_order;
-           }
            break;
        case order_condition::trailing_stop: /* no break */
        case order_condition::one_triggers_other:
-           if( contingent_order ){
+           if( contingent_order )
                delete contingent_order;
-           }
            break;
        case order_condition::trailing_bracket:
-           if( nticks_bracket_orders ){
+           if( nticks_bracket_orders )
                delete nticks_bracket_orders;
-           }
            break;
        case order_condition::bracket:
-           if( price_bracket_orders ){
+           if( price_bracket_orders )
                delete price_bracket_orders;
-           }
            break;
        case order_condition::_trailing_bracket_active:
-           if( linked_trailer ){
+           if( linked_trailer )
                delete linked_trailer;
-           }
            break;
        case order_condition::_trailing_stop_active: /* no break */
        case order_condition::none:
            break;
        default:
-           throw new std::runtime_error("invalid order condition");
+           throw std::runtime_error("invalid order condition");
        }
    }
 
@@ -265,30 +215,6 @@ SOB_CLASS::stop_bndl::stop_bndl(stop_bndl&& bndl)
         limit(bndl.limit)
    {
    }
-
-
-typename SOB_CLASS::stop_bndl&
-SOB_CLASS::stop_bndl::operator=(const stop_bndl& bndl)
-{
-    if( *this != bndl ){
-        _order_bndl::operator=(bndl);
-        is_buy = bndl.is_buy;
-        limit = bndl.limit;
-    }
-    return *this;
-}
-
-
-typename SOB_CLASS::stop_bndl&
-SOB_CLASS::stop_bndl::operator=(stop_bndl&& bndl)
-{
-    if( *this != bndl ){
-        _order_bndl::operator=(std::move(bndl));
-        is_buy = bndl.is_buy;
-        limit = bndl.limit;
-    }
-    return *this;
-}
 
 
 SOB_CLASS::order_location::order_location(const order_queue_elem& elem,

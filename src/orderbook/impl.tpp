@@ -140,7 +140,7 @@ SOB_CLASS::_grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg)
     std::lock_guard<std::mutex> lock(_master_mtx); 
     /* --- CRITICAL SECTION --- */
     
-    std::vector<chain_pair_type> tmp( _book.size() + incr );    
+    decltype(_book) tmp( _book.size() + incr );    
     std::move( _book.begin(), _book.end(), tmp.begin() + (at_beg ? incr : 0) );
     _book = std::move(tmp);
     

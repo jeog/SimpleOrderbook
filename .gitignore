@@ -19,3 +19,7 @@ __dummy__.cpp
 *.user
 *.sln.docstates
 *.sdf
+
+perf-test-*
+
+

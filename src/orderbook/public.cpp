@@ -291,11 +291,19 @@ SOB_CLASS::dump_internal_pointers(std::ostream& out) const
 
 size_t
 SOB_CLASS::bid_size() const
-{ return (_bid >= _beg) ? detail::chain<limit_chain_type>::size(&_bid->first) : 0; }
+{
+    return (_bid >= _beg)
+        ? detail::chain<limit_chain_type>::size( _bid )
+        : 0;
+}
 
 size_t
 SOB_CLASS::ask_size() const
-{ return (_ask < _end) ? detail::chain<limit_chain_type>::size(&_ask->first) : 0; }
+{
+    return (_ask < _end)
+        ? detail::chain<limit_chain_type>::size( _ask )
+        : 0;
+}
 
 }; /* sob */
 
