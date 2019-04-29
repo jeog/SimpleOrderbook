@@ -62,7 +62,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #include "../include/simpleorderbook.hpp"
 
-typedef std::vector<std::pair<std::string, std::function<int(void)>>> categories_ty;
+typedef std::vector<std::pair<std::string, std::function<int(int, char*[])>>> categories_ty;
 
 typedef std::tuple<double, double> proxy_args_ty;
 typedef std::tuple<int,

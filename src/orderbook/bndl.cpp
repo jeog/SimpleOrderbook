@@ -69,7 +69,7 @@ SOB_CLASS::_order_bndl::_order_bndl(const _order_bndl& bndl)
         case order_condition::trailing_stop: /* no break */
         case order_condition::one_triggers_other:
             contingent_order = bndl.contingent_order
-                             ? bndl.contingent_order->copy_new()
+                             ? bndl.contingent_order->copy_new().release() // TODO
                              : nullptr;
             break;
         case order_condition::trailing_bracket:

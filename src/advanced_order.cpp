@@ -65,8 +65,8 @@ AdvancedOrderTicket::operator=(const AdvancedOrderTicket& aot)
     if(*this != aot){
         _condition = aot._condition;
         _trigger = aot._trigger;
-        _order1.reset( copy_order(aot._order1) );
-        _order2.reset( copy_order(aot._order2) );
+        _order1 = std::move( copy_order(aot._order1) );
+        _order2 = std::move( copy_order(aot._order2) );
     }
     return *this;
 }

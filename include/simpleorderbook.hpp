@@ -602,12 +602,6 @@ private:
         bool
         _inject_order(const order_queue_elem& e, bool partial_ok);
 
-        bool
-        _limit_is_fillable(plevel p, size_t sz, bool is_buy);
-
-        template<typename ChainTy=limit_chain_type>
-        bool
-        _is_fillable(plevel l, plevel h, size_t sz);
 
         template<bool BidSide>
         size_t
@@ -782,6 +776,7 @@ private:
                             std::unique_ptr<OrderParamaters>&& cparams2=nullptr,
                             id_type id = 0);
 
+
         void
         _push_order(order_type oty,
                     bool buy,
@@ -798,6 +793,14 @@ private:
 
         void
         _block_on_outstanding_orders();
+
+        /* limit @ p can fill sz */
+        bool
+        _limit_is_fillable(plevel p, size_t sz, bool is_buy);
+
+        /* total size between l and h (inclusive) >= sz */
+        bool
+        _is_fillable_between(plevel l, plevel h, size_t sz);
 
         /* remove a particular order by id... */
         bool

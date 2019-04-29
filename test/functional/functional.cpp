@@ -86,7 +86,7 @@ const categories_ty functional_categories = {
 
 
 int
-run_tick_price_tests()
+run_tick_price_tests(int argc, char* argv[])
 {
     using namespace std;
 
@@ -104,7 +104,7 @@ run_tick_price_tests()
 
 
 int
-run_orderbook_tests()
+run_orderbook_tests(int argc, char* argv[])
 {
     using namespace std;
     using namespace sob;

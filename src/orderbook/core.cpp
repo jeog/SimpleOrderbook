@@ -94,7 +94,7 @@ SOB_CLASS::~SimpleOrderbookBase()
         try{
             {
                 std::lock_guard<std::mutex> lock(_order_queue_mtx);
-                _order_queue.push(order_queue_elem());
+                _order_queue.emplace();
                 /* don't incr _noutstanding_orders;
                    we break main loop before we can decr */
             }
@@ -112,7 +112,7 @@ void
 SOB_CLASS::_threaded_order_dispatcher()
 {
     for( ; ; ){
-        order_queue_elem e;
+        order_queue_elem e; // dangling internals?
         {
             std::unique_lock<std::mutex> lock(_order_queue_mtx);
             _order_queue_cond.wait(
@@ -212,33 +212,6 @@ SOB_CLASS::_inject_order(const order_queue_elem& e, bool partial_ok)
 }
 
 
-template<typename ChainTy>
-bool
-SOB_CLASS::_is_fillable(plevel l, plevel h, size_t sz)
-{
-    size_t tot = 0;
-    for( ; l <= h; ++l){
-        for( const auto& e : *detail::chain<ChainTy>::get(l) ){
-            tot += e.sz;
-            if( tot >= sz ){
-                return true;
-            }
-        }
-    }
-    return false;
-}
-template bool SOB_CLASS::_is_fillable<SOB_CLASS::limit_chain_type>(plevel, plevel, size_t);
-
-
-bool
-SOB_CLASS::_limit_is_fillable(plevel p, size_t sz, bool is_buy)
-{
-    return is_buy
-        ? (_ask < _end) && _is_fillable(_ask, p, sz)
-        : (_bid >= _beg) && _is_fillable(p, _bid, sz);
-}
-
-
 /*
  *  _trade<bool> : the guts of order execution:
  *      match orders against the order book,
@@ -295,48 +268,43 @@ SOB_CLASS::_hit_chain( plevel plev,
 {
     using namespace detail;
 
-    size_t amount;
-    long long rmndr;
-
     limit_chain_type *pchain = plev->get_limit_chain();
-    auto del_iter = pchain->begin();
 
-    /* check each order, FIFO, for this plevel */
-    for( auto& elem : *pchain ){
-        amount = std::min(size, elem.sz);
+    auto pos = pchain->begin();
+    for( ; pos != pchain->end() && size > 0; ++pos )
+    {
+        size_t amount = std::min(size, pos->sz);
+
         /* push callbacks onto queue; update state */
-        _trade_has_occured( plev, amount, id, elem.id, exec_cb,
-                            elem.exec_cb );
+        _trade_has_occured( plev, amount, id, pos->id, exec_cb, pos->exec_cb );
 
         /* reduce the amount left to trade */
         size -= amount;
-        rmndr = elem.sz - amount;
 
         /* deal with advanced order conditions */
-        if( order::is_advanced(elem) )
+        if( order::is_advanced(*pos) )
         {
-            assert(elem.trigger != condition_trigger::none);
-            if( !order::needs_full_fill(elem) || !rmndr )
+            assert(pos->trigger != condition_trigger::none);
+            /* check if trigger condition is met */
+            if( !order::needs_full_fill(*pos) || (pos->sz == amount) )
             {
-                _handle_advanced_order_cancel(elem, elem.id)
-                || _handle_advanced_order_trigger(elem, elem.id);
+                // note - pos->sz hasn't been updated yet!
+                _handle_advanced_order_cancel(*pos, pos->id)
+                || _handle_advanced_order_trigger(*pos, pos->id);
             }
         }
 
-        /* adjust outstanding order size or indicate removal if none left */
-        if( rmndr > 0 ){
-            elem.sz = rmndr;
-        }else{
-            _id_cache.erase(elem.id);
-            ++del_iter;
-        }
+        /* remaining (adjust after we handle advanced conditions) */
+        pos->sz -= amount;
 
-        /* if nothing left to trade*/
-        if( size <= 0 )
-            break;
+        /* remove from cache if none left */
+        if( pos->sz == 0 )
+            _id_cache.erase(pos->id);
     }
 
-    pchain->erase( pchain->begin(), del_iter );
+    /* backup to see if last order was completely filled, if so re-incr */
+    --pos;
+    pchain->erase( pchain->begin(), (pos->sz ? pos : ++pos) );
     return size;
 }
 
@@ -490,7 +458,7 @@ SOB_CLASS::_look_for_triggered_stops()
 
 
 // TODO how do we deal with IDs in the cache when stop is triggered???
-
+// TODO optimize this (major bottleneck)
 template<bool BuyStops>
 void
 SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
@@ -503,9 +471,12 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     double limit;
     size_t sz;
     id_type id, id_new;
+
     /*
      * need to copy the relevant chain, delete original, THEN insert
      * if not we can hit the same order more than once / go into infinite loop
+     *
+     * TODO this move is still somewhat expensive, consider other approaches
      */
     stop_chain_type *pchain = plev->get_stop_chain();
     stop_chain_type cchain = std::move( *pchain );
@@ -538,44 +509,42 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         }
 
         order_type ot = limit ? order_type::limit : order_type::market;
+
         /*
-         * we handle an advanced trigger condition after we push the contingent
+         * we can't use the blocking version of _push_order or we'll deadlock
+         * the order_queue; we simply increment _noutstanding_orders instead
+         * and block on that when necessary.
+         */
+        if( detail::order::is_trailing_stop(e) )
+        {
+            assert( e.contingent_order->is_by_nticks() );
+            _push_order_no_wait( ot, e.is_buy, limit, 0, sz, cb, e.cond,
+                                 e.trigger, e.contingent_order->copy_new(),
+                                 nullptr, id_new );
+        }
+        else if( detail::order::is_trailing_bracket(e) )
+        {
+            assert( e.nticks_bracket_orders->first.is_by_nticks() );
+            assert( e.nticks_bracket_orders->second.is_by_nticks() );
+            _push_order_no_wait( ot, e.is_buy, limit, 0, sz, cb, e.cond,
+                                 e.trigger,
+                                 e.nticks_bracket_orders->first.copy_new(),
+                                 e.nticks_bracket_orders->second.copy_new(),
+                                 id_new );
+        }
+        else
+        {
+            _push_order_no_wait( ot, e.is_buy, limit, 0, sz, cb,
+                                 order_condition::none, condition_trigger::none,
+                                 nullptr, nullptr, id_new );
+        }
+
+        /*
+         * we handle an advanced trigger condition AFTER we push the contingent
          * market/limit, dropping the condition and trigger; except for
          * trailing stop and trailing bracket, which are transferred to the
          * new order so it be can constructed on execution, using that price
          */
-        order_condition oc = e.cond;
-        condition_trigger ct = e.trigger;
-        std::unique_ptr<OrderParamaters> op = nullptr;
-        std::unique_ptr<OrderParamaters> op2 = nullptr;
-        if( detail::order::is_trailing_stop(e) ){
-            assert( e.contingent_order->is_by_nticks() );
-            op = std::unique_ptr<OrderParamaters>(
-                    e.contingent_order->copy_new()
-                    );
-        }else if( detail::order::is_trailing_bracket(e) ){
-            assert( e.nticks_bracket_orders->first.is_by_nticks() );
-            assert( e.nticks_bracket_orders->second.is_by_nticks() );
-            op = std::unique_ptr<OrderParamaters>(
-                    e.nticks_bracket_orders->first.copy_new()
-                    );
-            op2 = std::unique_ptr<OrderParamaters>(
-                    e.nticks_bracket_orders->second.copy_new()
-                    );
-        }else{
-            oc = order_condition::none;
-            ct = condition_trigger::none;
-        }
-
-        /*
-        * we can't use the blocking version of _push_order or we'll deadlock
-        * the order_queue; we simply increment _noutstanding_orders instead
-        * and block on that when necessary.
-        */
-        _push_order_no_wait( ot, e.is_buy, limit, 0, sz, cb, oc, ct,
-                             std::move(op), std::move(op2), id_new );
-
-        /* we need to trigger new orders AFTER we push the market/limit */
         if( order::is_advanced(e)
             && !order::is_trailing_stop(e)
             && !order::is_trailing_bracket(e) )
@@ -661,8 +630,8 @@ SOB_CLASS::_push_order_no_wait( order_type oty,
                                 id_type id )
 {
     _push_order( oty, buy, limit, stop, size, cb, cond, cond_trigger,
-                std::move(cparams1), std::move(cparams2), id,
-                /* dummy */ std::move( std::promise<id_type>() ) );
+                 std::move(cparams1), std::move(cparams2), id,
+                 /*dummy*/ std::promise<id_type>() );
 }
 
 
@@ -683,9 +652,9 @@ SOB_CLASS::_push_order( order_type oty,
     {
         std::lock_guard<std::mutex> lock(_order_queue_mtx);
         /* --- CRITICAL SECTION --- */
-        _order_queue.push(
-            { oty, buy, limit, stop, size, cb, cond, cond_trigger,
-              std::move(cparams1), std::move(cparams2), id, std::move(p) }
+        _order_queue.push( // faster than emplace + cnstr
+             { oty, buy, limit, stop, size, cb, cond, cond_trigger,
+               std::move(cparams1), std::move(cparams2), id, std::move(p) }
         );
         ++_noutstanding_orders;
         /* --- CRITICAL SECTION --- */
@@ -712,6 +681,28 @@ SOB_CLASS::_block_on_outstanding_orders()
     }
 }
 
+
+bool
+SOB_CLASS::_is_fillable_between(plevel l, plevel h, size_t sz)
+{
+    size_t tot = 0;
+    for( ; l <= h; ++l){
+        for( const auto& e : *(l->get_limit_chain()) ){
+            tot += e.sz;
+            if( tot >= sz )
+                return true;
+        }
+    }
+    return false;
+}
+
+
+bool
+SOB_CLASS::_limit_is_fillable(plevel p, size_t sz, bool is_buy)
+{
+    return is_buy ? (_ask < _end) && _is_fillable_between(_ask, p, sz)
+                  : (_bid >= _beg) && _is_fillable_between(p, _bid, sz);
+}
 
 
 const SOB_CLASS::chain_iter_wrap&

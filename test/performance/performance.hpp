@@ -25,7 +25,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <vector>
 
 int
-run_performance_tests();
+run_performance_tests(int argc, char* argv[]);
 
 extern const categories_ty performance_categories;
 

@@ -27,6 +27,8 @@ class OrderParamaters{
     size_t _size;
 
 public:
+    using pointer_type = std::unique_ptr<OrderParamaters>;
+
     constexpr OrderParamaters(bool is_buy, size_t size)
         :
             _is_buy(is_buy),
@@ -49,7 +51,7 @@ public:
     ~OrderParamaters()
     {}
 
-    virtual OrderParamaters*
+    virtual pointer_type
     copy_new() const = 0;
 
     inline bool
@@ -143,9 +145,9 @@ public:
         {
         }
 
-    /*virtual*/ OrderParamaters*
+    /*virtual*/ pointer_type
     copy_new() const
-    { return new OrderParamatersGeneric(*this); }
+    { return pointer_type(new OrderParamatersGeneric(*this)); }
 
     inline T
     limit() const
@@ -210,9 +212,9 @@ class OrderParamatersByPrice
 public:
     using OrderParamatersGeneric::OrderParamatersGeneric;
 
-    /*virtual*/ OrderParamaters*
+    /*virtual*/ pointer_type
     copy_new() const
-    { return new OrderParamatersByPrice(*this); }
+    { return pointer_type(new OrderParamatersByPrice(*this)); }
 
     /*virtual*/ double
     limit_price() const
@@ -232,9 +234,9 @@ class OrderParamatersByNTicks
 public:
     using OrderParamatersGeneric::OrderParamatersGeneric;
 
-    /*virtual*/ OrderParamaters*
+    /*virtual*/ pointer_type
     copy_new() const
-    { return new OrderParamatersByNTicks(*this); }
+    { return pointer_type(new OrderParamatersByNTicks(*this)); }
 
     /*virtual*/ size_t
     limit_nticks() const

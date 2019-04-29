@@ -26,10 +26,10 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <iostream>
 
 int
-run_tick_price_tests();
+run_tick_price_tests(int argc, char* argv[]);
 
 int
-run_orderbook_tests();
+run_orderbook_tests(int argc, char* argv[]);
 
 extern const categories_ty functional_categories;
 

@@ -38,9 +38,9 @@ typedef map<int, map< int, double>> exec_results_ty;
 typedef map<string, map<int, exec_results_ty> > total_results_ty;
 
 
-const vector<int> NORDERS = {1000, 10000, 100000, 1000000};
-const int NRUNS = 9;
-const int NTHREADS = 3;
+const vector<int> DEF_NORDERS = {1000, 10000, 100000, 1000000};
+const int DEF_NRUNS = 9;
+const int DEF_NTHREADS = 3;
 
 const vector<proxy_info_ty>
 proxies = {
@@ -60,15 +60,26 @@ tests = {
 
 
 exec_results_ty
-exec_perf_tests(const test_ty& func, const proxy_info_ty& proxy_info);
+exec_perf_tests( const test_ty& func,
+                 const proxy_info_ty& proxy_info,
+                 int nruns,
+                 int nthreads,
+                 const vector<int>& norders);
 
+template<typename ProxyTy>
 double
 exec_perf_test_async( const test_ty& func,
-                      const vector<FullInterface*>& orderbooks,
-                      int norders );
+                      ProxyTy& proxy,
+                      double min_price,
+                      double max_price,
+                      int norder,
+                      int nruns,
+                      int nthreads );
 
 void
-display_performance_results(const total_results_ty& results, std::ostream& out);
+display_performance_results( const total_results_ty& results,
+                             std::ostream& out,
+                             const vector<int>& norders);
 
 }; /* namespace */
 
@@ -78,18 +89,30 @@ const categories_ty performance_categories = {
 };
 
 int
-run_performance_tests()
+run_performance_tests(int argc, char* argv[])
 {
     using namespace std;
     using namespace sob;
 
     total_results_ty results;
 
-    cout<< "    NRUNS: " << NRUNS << endl
-        << "    NTHREADS: " << NTHREADS << endl
+    int nruns_in_use = (argc > 1 ) ? std::stoi(argv[1]) : DEF_NRUNS;
+    int nthreads_in_use = (argc > 2) ? std::stoi(argv[2]) : DEF_NTHREADS;
+
+    vector<int> norders_in_use;;
+    if( argc > 3 ){
+        for( int i = 3; i < argc; ++ i ){
+            norders_in_use.push_back( std::stoi(argv[i]) );
+        }
+    }else{
+        norders_in_use = DEF_NORDERS;
+    }
+
+    cout<< "    NRUNS: " << nruns_in_use << endl
+        << "    NTHREADS: " << nthreads_in_use << endl
         << "    NORDERS: ";
 
-    for(int n : NORDERS)
+    for(int n : norders_in_use)
         cout<< n << " ";
     cout<< endl;
 
@@ -102,7 +125,8 @@ run_performance_tests()
             int proxy_denom = get<0>(proxy_info);
             try{
                 results[test_name][proxy_denom] =
-                        exec_perf_tests(test_func, proxy_info);
+                    exec_perf_tests(test_func, proxy_info, nruns_in_use,
+                                    nthreads_in_use, norders_in_use);
             }catch(std::exception& e){
                 cerr<< e.what() << endl;
                 return 1;
@@ -114,7 +138,7 @@ run_performance_tests()
     streamsize old_precision = cout.precision();
     cout.precision(6);
     cout<< fixed << endl << endl;
-    display_performance_results(results, std::cout);
+    display_performance_results(results, std::cout, norders_in_use);
     {
         using namespace std::chrono;
         auto now_t = system_clock::to_time_t( system_clock::now() );
@@ -123,7 +147,7 @@ run_performance_tests()
         buf.erase( buf.find_first_of('\0') );
         std::ofstream f("perf-test-" + buf);
         f << fixed;
-        display_performance_results(results, f);
+        display_performance_results(results, f, norders_in_use);
     }
     cout<< endl << right;
     cout.precision(old_precision);
@@ -134,9 +158,12 @@ run_performance_tests()
 namespace{
 
 exec_results_ty
-exec_perf_tests(const test_ty& func, const proxy_info_ty& proxy_info)
+exec_perf_tests( const test_ty& func,
+                 const proxy_info_ty& proxy_info,
+                 int nruns,
+                 int nthreads,
+                 const vector<int>& norders )
 {
-    vector<FullInterface*> orderbooks;
     exec_results_ty results;
 
     int proxy_denom = get<0>(proxy_info);
@@ -147,41 +174,39 @@ exec_perf_tests(const test_ty& func, const proxy_info_ty& proxy_info)
         double max_price = get<1>(args);
         size_t nticks = proxy.ticks_in_range(min_price,max_price);
 
-        for( int n : NORDERS ){
+        for( int n : norders ){
             cout<< "  PROXY 1/" << proxy_denom << " - NTICKS "
                 << nticks << " - NORDERS " << n << "::: ";
-
-            for( int i = 0; i < NRUNS; ++i ){
-                orderbooks.push_back( proxy.create(min_price, max_price) );
-            }
-
-            results[nticks][n] = exec_perf_test_async(func, orderbooks, n);
-
-            for( int i = 0; i < NRUNS; ++i){
-                proxy.destroy(orderbooks[i]);
-            }
-            orderbooks.clear();
+            results[nticks][n] = exec_perf_test_async(func, proxy, min_price,
+                                                      max_price, n,
+                                                      nruns, nthreads);
             cout<< endl;
         }
     }
     return results;
 }
 
-
+template<typename ProxyTy>
 double
 exec_perf_test_async( const test_ty& func,
-                      const vector<FullInterface*>& orderbooks,
-                      int norders )
+                      ProxyTy& proxy,
+                      double min_price,
+                      double max_price,
+                      int norder,
+                      int nruns,
+                      int nthreads )
 {
     double time_total = 0;
-    for( int i = 0; i < NRUNS; ){
+    for( int i = 0; i < nruns; ){
+        vector<FullInterface*> orderbooks;
         vector<future<double>> futs;
-        int rmndr = NRUNS -i;
-        for( int ii = 0; ii < min(NTHREADS, rmndr) ; ++ii, ++i ){
-            FullInterface* ob = orderbooks[i];
+        int rmndr = nruns - i;
+        for( int ii = 0; ii < min(nthreads, rmndr) ; ++ii, ++i ){
+            orderbooks.push_back( proxy.create(min_price, max_price) );
+            FullInterface* ob = orderbooks.back();
             future<double> f = async(
                 launch::async,
-                [=](){ return func(ob, norders); }
+                [=](){ return func(ob, norder); }
             );
             futs.push_back(move(f));
         }
@@ -192,17 +217,21 @@ exec_perf_test_async( const test_ty& func,
             cout.flush();
         }
         futs.clear();
+        for(auto& ob : orderbooks )
+            proxy.destroy(ob);
+        orderbooks.clear();
     }
-    cout<< endl;
-    return time_total / NRUNS;
+    return time_total / nruns;
 }
 
 
 void
-display_performance_results(const total_results_ty& results, std::ostream& out)
+display_performance_results( const total_results_ty& results,
+                             std::ostream& out,
+                             const vector<int>& norders)
 {
     const size_t CW = 10;
-    const size_t WTOTAL = (NORDERS.size() + 1) * 10 + 2;
+    const size_t WTOTAL = (norders.size() + 1) * 10 + 2;
     const string LPAD(CW, ' ');
     const size_t LPAD_SZ = LPAD.length();
 
@@ -222,7 +251,7 @@ display_performance_results(const total_results_ty& results, std::ostream& out)
             out<< test.first << " - 1/" << proxy.first << endl
                 << LPAD << left << center("(norders)", WTOTAL) << endl << endl
                 << LPAD << setw(CW) << "" << "| ";
-            for(int n: NORDERS){
+            for(int n: norders){
                 out<< setw(CW) << n;
             }
             out<< endl << LPAD << string(CW, '-') << "|"

@@ -265,12 +265,10 @@ SOB_CLASS::_exec_BRACKET_order(const OrderParamaters *op1,
         callback_msg::trigger_BRACKET_open, cb, id, id_new , 0, 0
         );
 
-    auto new_op = std::unique_ptr<OrderParamaters>( op1->copy_new() );
-
     _push_order_no_wait( op2->get_order_type(), op2->is_buy(),
                          op2->limit_price(), op2->stop_price(), op2->size(),
                          cb, order_condition::_bracket_active,
-                         trigger, std::move(new_op), nullptr, id_new );
+                         trigger, op1->copy_new(), nullptr, id_new );
 }
 
 
@@ -293,12 +291,10 @@ SOB_CLASS::_exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
     plevel l = _generate_trailing_limit(op2->is_buy(), op2->limit_nticks());
     assert(l);
 
-    auto new_op = std::unique_ptr<OrderParamaters>( op1->copy_new() );
-
     _push_order_no_wait( order_type::limit, op2->is_buy(), _itop(l),
                          0, op2->size(), cb,
                          order_condition::_trailing_bracket_active,
-                         trigger, std::move(new_op), nullptr, id_new );
+                         trigger, op1->copy_new() , nullptr, id_new );
 }
 
 
@@ -318,12 +314,10 @@ SOB_CLASS::_exec_TRAILING_STOP_order(const OrderParamaters *op,
     plevel stop = _generate_trailing_stop(op->is_buy(), op->stop_nticks());
     assert(stop);
 
-    auto new_op = std::unique_ptr<OrderParamaters>( op->copy_new() );
-
     _push_order_no_wait( order_type::stop, op->is_buy(), 0, _itop(stop),
                          op->size(), cb,
                          order_condition::_trailing_stop_active,
-                         trigger, std::move(new_op), nullptr, id_new);
+                         trigger, op->copy_new(), nullptr, id_new);
 }
 
 
@@ -370,11 +364,10 @@ SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
 
     /* construct a new queue elem from cparams1, with a new ID. */
     id_type id2 = _generate_id();
-    order_queue_elem e2 = {
-        op->get_order_type(), op->is_buy(), op->limit_price(),
-        op->stop_price(), op->size(), e.exec_cb, e.cond, e.cond_trigger,
-        nullptr, nullptr, id2, std::move(std::promise<id_type>())
-    };
+    order_queue_elem e2{ op->get_order_type(), op->is_buy(), op->limit_price(),
+                         op->stop_price(), op->size(), e.exec_cb, e.cond,
+                         e.cond_trigger, nullptr, nullptr, id2,
+                         std::promise<id_type>() };
 
     /* if we fill second order immediately, remove first */
     if( _inject_order(e2, order::needs_partial_fill(e)) ){
@@ -415,7 +408,7 @@ SOB_CLASS::_insert_OTO_order(const order_queue_elem& e)
 
     _order_bndl& o = _find(e.id);
     assert(o);
-    o.contingent_order = op->copy_new();
+    o.contingent_order = op->copy_new().release(); // TODO
     o.cond = e.cond;
     o.trigger = e.cond_trigger;
 }
@@ -489,7 +482,7 @@ SOB_CLASS::_insert_TRAILING_STOP_order(const order_queue_elem& e)
 
     _order_bndl& o = _find(e.id);
     assert(o);
-    o.contingent_order = op->copy_new();
+    o.contingent_order = op->copy_new().release(); // TODO
     o.cond = e.cond;
     o.trigger = e.cond_trigger;
 }

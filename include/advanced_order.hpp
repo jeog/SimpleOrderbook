@@ -43,9 +43,9 @@ class AdvancedOrderTicket{
     std::unique_ptr<OrderParamaters> _order1;
     std::unique_ptr<OrderParamaters> _order2;
 
-    static inline OrderParamaters*
+    static inline std::unique_ptr<OrderParamaters>
     copy_order(const std::unique_ptr<OrderParamaters>& o)
-    { return o ? o.get()->copy_new() : nullptr; }
+    { return o ? o->copy_new() : nullptr; }
 
     static inline bool
     cmp_orders(const std::unique_ptr<OrderParamaters>& o1,
@@ -96,7 +96,7 @@ public:
 
     inline void
     change_order1(const OrderParamaters& order)
-    { _order1.reset( order.copy_new() ); }
+    { _order1 = std::move(order.copy_new()); }
 
     inline const OrderParamaters*
     order2() const
@@ -104,7 +104,7 @@ public:
 
     inline void
     change_order2(const OrderParamaters& order)
-    { _order2.reset( order.copy_new() ); }
+    { _order2 = std::move(order.copy_new()); }
 
     bool
     operator==(const AdvancedOrderTicket& aot) const;

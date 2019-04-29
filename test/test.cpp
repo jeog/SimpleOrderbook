@@ -24,12 +24,12 @@ namespace{
 
 #ifndef RUN_NO_TESTS
 int
-run(std::string name, const categories_ty& categories)
+run(std::string name, const categories_ty& categories, int argc, char* argv[])
 {
     using namespace std;
     cout<< "*** BEGIN SIMPLEORDERBOOK " << name << " TESTS ***" <<  endl;
     for( auto& tc : categories ){
-        int err = tc.second();
+        int err = tc.second(argc, argv);
         if( err ){
             cout<< endl << endl
                 << "*** " << tc.first << " ERROR (" << err << ") ***" << endl
@@ -52,14 +52,14 @@ int main(int argc, char* argv[])
     int err = 0;
 
 #ifdef RUN_FUNCTIONAL_TESTS
-    err = run("FUNCTIONAL", functional_categories);
+    err = run("FUNCTIONAL", functional_categories, argc, argv);
     if( err ){
         return err;
     }
 #endif /* RUN_FUNCTIONAL_TESTS */
 
 #ifdef RUN_PERFORMANCE_TESTS
-    err = run("PERFORMANCE", performance_categories);
+    err = run("PERFORMANCE", performance_categories, argc, argv);
     if( err ){
         return err;
     }
