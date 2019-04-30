@@ -145,7 +145,7 @@ namespace detail {
     namespace exec{
         template<bool Bidside, bool Redirect> struct core;
         template<bool BuyLimit> struct limit;
-        template<bool BuyStop, bool Redirect> struct stop;
+        template<bool BuyStop> struct stop;
     };
 };
 
@@ -576,9 +576,8 @@ private:
          *                               order pull
          *   ::adjust_state_after_trigger : adjust internal pointers after
          *                                  stop is triggered
-         *   ::stop_chain_is_empty : no active stop orders in this chain
          */
-        template<bool BuyStop, bool Redirect> friend struct detail::exec::stop;
+        template<bool BuyStop> friend struct detail::exec::stop;
 
 
         /* handles the async/consumer side of the order queue */

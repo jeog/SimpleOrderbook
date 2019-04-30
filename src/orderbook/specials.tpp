@@ -195,8 +195,9 @@ struct limit<false>
 
 // TODO mechanism to jump to new stop cache vals ??
 
-template<bool BuyStop, bool Redirect=BuyStop>
-struct stop  : public sob_types {
+template<bool BuyStop>
+struct stop  
+        : public sob_types {
     static void
     adjust_state_after_pull(sob_class *sob, plevel stop)
     {   /* working on guarantee that this is the *last* order at this level*/
@@ -235,25 +236,12 @@ struct stop  : public sob_types {
         }
     }
 
-    /* THIS WILL GET IMPORTED BY THE <false> specialization */
-    static bool
-    stop_chain_is_empty(sob_class *sob, stop_chain_type* c)
-    {
-        static auto ifcond =
-            [](const stop_chain_type::value_type & v){
-                return v.is_buy == Redirect;
-            };
-        auto biter = c->cbegin();
-        auto eiter = c->cend();
-        auto riter = find_if(biter, eiter, ifcond);
-        return (riter == eiter);
-    }
 };
 
 
-template<bool Redirect>
-struct stop<false, Redirect>
-        : public stop<true, false> {
+template<>
+struct stop<false>
+        : public stop<true>{
     static void
     adjust_state_after_pull(sob_class *sob, plevel stop)
     {   /* working on guarantee that this is the *last* order at this level*/
@@ -414,15 +402,11 @@ struct chain<typename sob_types::stop_chain_type, false>
         if( !bndl )
             return bndl;
         
-        if( bndl.is_buy ){
-            if( exec::stop<true>::stop_chain_is_empty(sob, c) ){
-                exec::stop<true>::adjust_state_after_pull(sob, p);
-            }
-        }else{
-            if( exec::stop<false>::stop_chain_is_empty(sob, c) ){
-                exec::stop<false>::adjust_state_after_pull(sob, p);
-            }
-        }
+        if( c->empty() ){
+            bndl.is_buy ? exec::stop<true>::adjust_state_after_pull(sob, p)
+                        : exec::stop<false>::adjust_state_after_pull(sob, p);
+        }          
+        
         return bndl;
     }
 
