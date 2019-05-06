@@ -35,7 +35,7 @@ namespace{
 }
 
 int
-TEST_orders_info_pull_1(FullInterface *orderbook)
+TEST_orders_info_pull_1(FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -55,44 +55,47 @@ TEST_orders_info_pull_1(FullInterface *orderbook)
     id_type stop_id = orderbook->insert_stop_order(true, beg, sz, callback);
 
     random_shuffle(ids.begin(), ids.end() - 1);
-    cout<< boolalpha;
+    out<< boolalpha;
 
     order_info of = orderbook->get_order_info(ids[0].first);
     if( of.limit != ids[0].second || of.size != sz ){
         return 1;
     }
-    cout<< "ORDER INFO: " << ids[0].first << " "<< of << endl;
+    out<< "ORDER INFO: " << ids[0].first << " "<< of << endl;
 
     of = orderbook->get_order_info(ids[0].first);
     if( of.limit != ids[0].second || of.size != sz ){
         return 2;
     }
-    cout<< "ORDER INFO: " << ids[0].first << " " << of << endl;
+    out<< "ORDER INFO: " << ids[0].first << " " << of << endl;
 
     good_pull = orderbook->pull_order(ids[0].first);
     if( !good_pull ){
         return 3;
     }
-    cout<< "PULL: " << ids[0].first << " "<< good_pull << endl;
+    out<< "PULL: " << ids[0].first << " "<< good_pull << endl;
     --count;
 
     of = orderbook->get_order_info(stop_id);
     if( of.stop != beg || of.size != sz ){
         return 4;
     }
-    cout<< "ORDER INFO: " << stop_id << " "<< of << endl;
+    out<< "ORDER INFO: " << stop_id << " "<< of << endl;
 
     of = orderbook->get_order_info(stop_id);
     if( of.stop != beg || of.size != sz ){
         return 5;
     }
-    cout<< "ORDER INFO: " << stop_id << " " << of << endl;
+    out<< "ORDER INFO: " << stop_id << " " << of << endl;
 
     good_pull = orderbook->pull_order(stop_id);
     if( !good_pull ){
         return 6;
     }
-    cout<< "PULL: " << stop_id << " "<< good_pull << endl;
+    out<< "PULL: " << stop_id << " "<< good_pull << endl;
+
+    orderbook->dump_limits(out);
+    orderbook->dump_stops(out);
 
     stop_id = orderbook->insert_stop_order( false, conv(end-2*incr),
                                             conv(end-incr),  sz, callback);
@@ -103,7 +106,7 @@ TEST_orders_info_pull_1(FullInterface *orderbook)
         || of.size != sz ){
         return 7;
     }
-    cout<< "ORDER INFO: " << stop_id << " "<< of << endl;
+    out<< "ORDER INFO: " << stop_id << " "<< of << endl;
 
     of = orderbook->get_order_info(stop_id);
     if( of.stop != conv(end-(2*incr))
@@ -111,13 +114,16 @@ TEST_orders_info_pull_1(FullInterface *orderbook)
         || of.size != sz ){
         return 8;
     }
-    cout<< "ORDER INFO: " << stop_id << " " << of << endl;
+    out<< "ORDER INFO: " << stop_id << " " << of << endl;
 
     good_pull = orderbook->pull_order(stop_id);
     if( !good_pull ){
         return 9;
     }
-    cout<< "PULL: " << stop_id << " "<< good_pull << endl;
+    out<< "PULL: " << stop_id << " "<< good_pull << endl;
+
+    orderbook->dump_limits(out);
+    orderbook->dump_stops(out);
 
     orderbook->insert_market_order(true, count * sz);
 
@@ -143,7 +149,7 @@ TEST_orders_info_pull_1(FullInterface *orderbook)
 
 
 int
-TEST_replace_order_1(FullInterface *orderbook)
+TEST_replace_order_1(FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -165,19 +171,19 @@ TEST_replace_order_1(FullInterface *orderbook)
     // beg + 4  L 100     S 100
     // beg + 2  L 100
     // beg + 0  L 100
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     orderbook->pull_order(ids[id2]);
     // beg + 4  L 100     S 100
     //
     // beg + 0  L 100
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     orderbook->insert_market_order(false, static_cast<int>(sz/2), ecb);
     tvol += sz;
     // beg + 1            L 50
     // beg + 0  L 100
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     if( orderbook->bid_price() != conv(beg)
         && orderbook->ask_price() != conv(beg + incr) ){
@@ -188,7 +194,7 @@ TEST_replace_order_1(FullInterface *orderbook)
     tvol += (int(sz/2) -1);
     // beg + 1            L 1
     // beg + 0  L 100
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     if( orderbook->ask_size() != 1 ){
         return 2;
@@ -201,7 +207,7 @@ TEST_replace_order_1(FullInterface *orderbook)
     // beg + 2            L 100
     // beg + 1
     // beg + 0  L 100
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     if( orderbook->total_ask_size() != sz ){
         return 3;
@@ -209,13 +215,19 @@ TEST_replace_order_1(FullInterface *orderbook)
         return 4;
     }
 
+    // TODO fix the race w/ the callback (temporary fix)
+    std::this_thread::sleep_for( std::chrono::milliseconds(100) );
+
     id_type id7 = orderbook->replace_with_stop_order( ids[id1], false,
                                                       conv(beg+4*incr), sz,
                                                       ecb );
     // beg + 4            S 100
     // beg + 2            L 100
     // beg + 0
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
+
+    // TODO fix the race w/ the callback (temporary fix)
+    std::this_thread::sleep_for( std::chrono::milliseconds(100) );
 
     id_type id8 = orderbook->replace_with_stop_order( id7, false,
                                                       conv(beg+3*incr),
@@ -225,7 +237,7 @@ TEST_replace_order_1(FullInterface *orderbook)
     // beg + 3            S 200
     // beg + 2            L 100
     // beg + 0
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     auto aot = AdvancedOrderTicketOTO::build_limit(true, beg, sz);
     id_type id9 = orderbook->insert_market_order(true, sz, ecb, aot);
@@ -234,7 +246,7 @@ TEST_replace_order_1(FullInterface *orderbook)
     // beg + 3
     // beg + 2            L 200
     // beg + 0  L 100
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     if( orderbook->bid_price() != beg ){
         return 5;
@@ -255,7 +267,7 @@ TEST_replace_order_1(FullInterface *orderbook)
     // beg + 3
     // beg + 2              L 100
     // beg + 0  L 100(new)
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     if( orderbook->bid_price() != beg ){
         return 10;
@@ -280,14 +292,14 @@ TEST_replace_order_1(FullInterface *orderbook)
     // beg + 2  S 100(A)        L 100
     // beg + 1                  S 100(A)
     // beg + 0 L 100
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     orderbook->insert_market_order(true, static_cast<int>(sz/2));
     tvol += sz;
     // beg + 3 L 50
     // beg + 2
     // beg + 0 L 100
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     auto aot3 = AdvancedOrderTicketOCO::build_limit(false, beg, sz);
     orderbook->replace_with_limit_order( ids[id11], false, conv(beg+3*incr),
@@ -296,7 +308,7 @@ TEST_replace_order_1(FullInterface *orderbook)
     // beg + 4
     // beg + 3
     // beg + 2
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     if( orderbook->total_ask_size() != 0 ){
         return 15;

@@ -25,6 +25,7 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include <map>
 #include <iostream>
 
+
 int
 run_tick_price_tests(int argc, char* argv[]);
 
@@ -34,10 +35,10 @@ run_orderbook_tests(int argc, char* argv[]);
 extern const categories_ty functional_categories;
 
 #define DECL_TICK_TEST_FUNC(name) \
-int TEST_##name()
+int TEST_##name(std::ostream& out)
 
 #define DECL_SOB_TEST_FUNC(name) \
-int TEST_##name(sob::FullInterface *orderbook)
+int TEST_##name(sob::FullInterface *orderbook, std::ostream& out)
 
 /* orderbook.cpp */
 DECL_TICK_TEST_FUNC(tick_price_1);
@@ -49,31 +50,45 @@ DECL_SOB_TEST_FUNC(basic_orders_2);
 /* pull_replace.cpp */
 DECL_SOB_TEST_FUNC(orders_info_pull_1);
 DECL_SOB_TEST_FUNC(replace_order_1);
-/* advanced_oco.cpp */
+/* advanced_orders/once_cancels_other.cpp */
 DECL_SOB_TEST_FUNC(advanced_OCO_1);
 DECL_SOB_TEST_FUNC(advanced_OCO_2);
 DECL_SOB_TEST_FUNC(advanced_OCO_3);
 DECL_SOB_TEST_FUNC(advanced_OCO_4);
-/* advanced_bracket.cpp */
+/* advanced_orders/bracket.cpp */
 DECL_SOB_TEST_FUNC(advanced_BRACKET_1);
 DECL_SOB_TEST_FUNC(advanced_BRACKET_2);
 DECL_SOB_TEST_FUNC(advanced_BRACKET_3);
-/* advanced_oto.cpp */
+/* advanced_orders/one_triggers_other.cpp */
 DECL_SOB_TEST_FUNC(advanced_OTO_1);
 DECL_SOB_TEST_FUNC(advanced_OTO_2);
 DECL_SOB_TEST_FUNC(advanced_OTO_3);
-/* advanced_fok.cpp */
+/* advanced_orders/fill_or_kill.cpp */
 DECL_SOB_TEST_FUNC(advanced_FOK_1);
-/* advanced_trailing_stop.cpp */
+/* advanced_orders/trailing_stop.cpp */
 DECL_SOB_TEST_FUNC(advanced_TRAILING_STOP_1);
 DECL_SOB_TEST_FUNC(advanced_TRAILING_STOP_2);
 DECL_SOB_TEST_FUNC(advanced_TRAILING_STOP_3);
-/* advanced_trailing_bracket.cpp */
+/* advanced_orders/trailing_bracket.cpp */
 DECL_SOB_TEST_FUNC(advanced_TRAILING_BRACKET_1);
 DECL_SOB_TEST_FUNC(advanced_TRAILING_BRACKET_2);
 DECL_SOB_TEST_FUNC(advanced_TRAILING_BRACKET_3);
 DECL_SOB_TEST_FUNC(advanced_TRAILING_BRACKET_4);
 DECL_SOB_TEST_FUNC(advanced_TRAILING_BRACKET_5);
+/* advanced_orders/all_or_nothing.cpp */
+DECL_SOB_TEST_FUNC(advanced_AON_1);
+DECL_SOB_TEST_FUNC(advanced_AON_2);
+DECL_SOB_TEST_FUNC(advanced_AON_3);
+DECL_SOB_TEST_FUNC(advanced_AON_4);
+DECL_SOB_TEST_FUNC(advanced_AON_5);
+DECL_SOB_TEST_FUNC(advanced_AON_6);
+DECL_SOB_TEST_FUNC(advanced_AON_7);
+DECL_SOB_TEST_FUNC(advanced_AON_8);
+DECL_SOB_TEST_FUNC(advanced_AON_9);
+DECL_SOB_TEST_FUNC(advanced_AON_10);
+DECL_SOB_TEST_FUNC(advanced_AON_11);
+DECL_SOB_TEST_FUNC(advanced_AON_12);
+DECL_SOB_TEST_FUNC(advanced_AON_13);
 
 void
 callback( sob::callback_msg msg,
@@ -87,6 +102,7 @@ callback_admin( sob::id_type id );
 
 void
 print_orderbook_state( sob::FullInterface *ob,
+                       std::ostream& out = std::cout,
                        size_t max_depth=8,
                        size_t max_timesales=8,
                        bool dump=false );

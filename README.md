@@ -1,4 +1,4 @@
-## SimpleOrderbook v0.5
+## SimpleOrderbook v0.6
 - - -
 
 SimpleOrderbook is a C++(11) financial market orderbook and matching engine with a Python extension module.
@@ -6,15 +6,15 @@ SimpleOrderbook is a C++(11) financial market orderbook and matching engine with
 #### Features 
 
 - market, limit, stop-market, and stop-limit order types
-- advanced orders/conditions: ***(IN DEVELOPMENT)***
+- advanced orders/conditions: 
     - one-cancels-other (OCO) 
     - one-triggers-other (OTO)
     - fill-or-kill (FOK)
     - bracket
     - trailing stop 
     - bracket /w trailing stop
-    - all-or-none (AON) ***(not available yet)***
-- advanced condition triggers: ***(IN DEVELOPMENT)***
+    - all-or-none (AON) ***(in development, C++ interface added in V0.6, not stable)***
+- advanced condition triggers:
     - fill-partial 
     - fill-full 
     - fill-n-percent ***(not available yet)***
@@ -37,9 +37,19 @@ The vector contains pairs of doubly-linked lists (stop and limit 'chains') so or
 
 Orders are referenced by ID #s that are generated sequentially and cached - with their respective price level and chain iterator - in a hash table, allowing for collision-free O(1) lookup from the cache to pull and replace orders.
 
-See 'Performance Tests' section below for run times. 
+See 'Performance Tests' section below for run times of standard orders. 
 
-The effect of advanced orders on all this is currently unknown.
+##### All-Or-None Functionality
+
+Recently added 'all-or-none' orders use a combination of traditional limit chains and seperate buy and sell ('aon') chains that allow for limit buys to be stored at or above the ask and limit sells at or below the bid. This creates a relatively high level of complexity behind the scenes that won't prove stable for some time. 
+
+The implementation currently caches range bounds and iterates naively; it requires a fair amount of 'look-ahead' for both new and old orders; and re-checking of outstaning AON orders on each new entry - all of which will cause performance issues if these order types are used extensively.
+
+*** To avoid the performance and stability issues with AON orders you can revert to v0.5 which can be found on the appropriately named branch. ***
+
+##### Price-Mediation
+
+Options and functionality for determining 'fair' prices on crossed orders, particularly when large AONs are used, will be added in the future.
 
 
 #### Build
@@ -69,26 +79,27 @@ Use the VisualStudio solution in /vsbuild. You only need to build the SimpleOrde
 
 #### Functional Tests(Optional)
 
-Crude tests of various functionalities. If anything (unexpectedly) fails please report: 
-- The header of each test (text between the '\*\*'s)
-- The error code returned
-- The system/architecture used
-- Any custom compiler options or changes to source 
+- pass a valid path to send additional output to a file, '-' to stdout (defaults to neither)
+- if anything fails please report: 
+    1. specific test name 
+    2. error code returned
+    3. system/architecture used
+    4. any custom compiler options or changes to source
 
 ```
     user@host:/usr/local/SimpleOrderbook$ make functional-test
-    user@host:/usr/local/SimpleOrderbook$ bin/debug/FunctionalTest 
+    user@host:/usr/local/SimpleOrderbook$ bin/debug/FunctionalTest ftest.out
 
     *** BEGIN SIMPLEORDERBOOK FUNCTIONAL TESTS ***
+    ** Test_tick_price<1/4> ** SUCCESS
+    ** TEST_basic_orders_1 - 1/4 - 0-10 ** SUCCESS
+    ** TEST_basic_orders_1 - 1/4 - 0.25-1000 ** SUCCESS
+    ** TEST_basic_orders_1 - 1/4 - 1000-1100 ** SUCCESS
     ...
-    ** BEGIN - Test_basic_orders_1 - 1/4 - 0-10 **
-    ** END - Test_basic_orders_1 - 1/4 - 0-10 **
-    SUCCESS
-    ...
+    ** TEST_advanced_TRAILING_BRACKET_5 - 1/10000 - 9.999-10.01 ** SUCCESS
+    ** TEST_advanced_TRAILING_BRACKET_5 - 1/1000000 - 2e-06-0.0001 ** SUCCESS
+    *** END SIMPLEORDERBOOK FUNCTIONAL TESTS *** 
 
-    SUCCESS
-
-    *** END SIMPLEORDERBOOK FUNCTIONAL TESTS ***
 ```
 
 Windows: FunctionalTest.exe in bin/debug/{platform}/ if you followed build recomendations above.

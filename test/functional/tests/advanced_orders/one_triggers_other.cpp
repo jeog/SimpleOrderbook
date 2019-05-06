@@ -43,7 +43,7 @@ namespace{
 }
 
 int
-TEST_advanced_OTO_1(sob::FullInterface *orderbook)
+TEST_advanced_OTO_1(FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -86,7 +86,7 @@ TEST_advanced_OTO_1(sob::FullInterface *orderbook)
         {
             return 3;
         }
-        cout<< "ORDER INFO: " << id << " "<< of << endl;
+        out<< "ORDER INFO: " << id << " "<< of << endl;
     }
 
     /*
@@ -100,12 +100,12 @@ TEST_advanced_OTO_1(sob::FullInterface *orderbook)
      *  beg + 1  100 (sell 100)
      *  beg      200 (sell 100) (sell 100)
      */
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
 
     orderbook->insert_market_order(false, sz);
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
 
     double bp = orderbook->bid_price();
     size_t tbp = orderbook->total_bid_size();
@@ -137,13 +137,13 @@ TEST_advanced_OTO_1(sob::FullInterface *orderbook)
         return 11;
     }
 
-    cout<< "pulls: " << boolalpha <<endl;
+    out<< "pulls: " << boolalpha <<endl;
     for(auto id : ids ){
         if( orderbook->pull_order(id) ){
-            cout<< id << " ";
+            out<< id << " ";
         }
     }
-    cout<< endl;
+    out<< endl;
     ids.clear();
 
     md_book = orderbook->market_depth(nticks + 2);
@@ -160,7 +160,7 @@ TEST_advanced_OTO_1(sob::FullInterface *orderbook)
 
 
 int
-TEST_advanced_OTO_2(sob::FullInterface *orderbook)
+TEST_advanced_OTO_2(FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -178,18 +178,18 @@ TEST_advanced_OTO_2(sob::FullInterface *orderbook)
     ids.insert( orderbook->insert_limit_order(true, beg, sz*10, ecb, aot_s1) );
     ids.insert( orderbook->insert_limit_order(false, end, sz*10, ecb, aot_sl1) );
 
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
-    orderbook->dump_buy_stops();
-    orderbook->dump_sell_stops();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
 
     auto aot_m1 = AdvancedOrderTicketOTO::build_market(false, sz * 2);
     ids.insert( orderbook->insert_market_order(true, sz, ecb, aot_m1)); //1
 
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
-    orderbook->dump_buy_stops();
-    orderbook->dump_sell_stops();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
 
     reinterpret_cast<ManagementInterface*>(orderbook)
             ->grow_book_above(end + incr);
@@ -230,10 +230,10 @@ TEST_advanced_OTO_2(sob::FullInterface *orderbook)
      *  (1,100) (1,200) (1,100) (3, 900) (3,100) (1, 100) (4,100) (3,100) (4,100) = 1800
      */
 
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
-    orderbook->dump_buy_stops();
-    orderbook->dump_sell_stops();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
 
     size_t tbs = orderbook->total_bid_size();
     size_t tas = orderbook->total_ask_size();
@@ -253,13 +253,13 @@ TEST_advanced_OTO_2(sob::FullInterface *orderbook)
         return 5;
     }
 
-    cout<< "pulls: " << boolalpha <<endl;
+    out<< "pulls: " << boolalpha <<endl;
     for(auto id : ids ){
         if( orderbook->pull_order(id) ){
-            cout<< id << " ";
+            out<< id << " ";
         }
     }
-    cout<< endl;
+    out<< endl;
 
     auto md_book = orderbook->market_depth(nticks + 2);
     size_t book_sz = md_book.size();
@@ -274,7 +274,7 @@ TEST_advanced_OTO_2(sob::FullInterface *orderbook)
 
 
 int
-TEST_advanced_OTO_3(sob::FullInterface *orderbook)
+TEST_advanced_OTO_3(FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -287,10 +287,10 @@ TEST_advanced_OTO_3(sob::FullInterface *orderbook)
 
     auto aot = AdvancedOrderTicketOTO::build_market(true, sz);
     orderbook->insert_stop_order(true, conv(end-2*incr), sz, ecb, aot);
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     orderbook->insert_limit_order(true, conv(end-2*incr), sz, ecb);
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     return 0;
 }

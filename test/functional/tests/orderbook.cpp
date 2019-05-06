@@ -36,7 +36,7 @@ namespace {
 }
 
 int
-TEST_grow_1(FullInterface *full_orderbook)
+TEST_grow_1(FullInterface *full_orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return full_orderbook->price_to_tick(d); };
 
@@ -70,7 +70,7 @@ TEST_grow_1(FullInterface *full_orderbook)
             if( !cb_active ){
                 return;
             }
-            cout<< "limit_cb: active" << endl;
+            out<< "limit_cb: active" << endl;
             limit_filled += s;
             try{
                 auto val = md.at(price);
@@ -140,16 +140,16 @@ TEST_grow_1(FullInterface *full_orderbook)
 
         auto md_book = orderbook->market_depth(ticks + 2);
         if( md != md_book ){
-            cout << "*** ERROR (2) ***" << endl;
+            out << "*** ERROR (2) ***" << endl;
             for( auto& pp : md ){
-                cout<< pp.first << " " << pp.second.first
+                out<< pp.first << " " << pp.second.first
                                      << " " << pp.second.second << '\t';
                 try{
                     auto v = md_book.at(pp.first);
-                    cout<< v.first << " " << v.second;
+                    out<< v.first << " " << v.second;
                 }catch(...){
                 }
-                cout<< endl;
+                out<< endl;
             }
             return 2;
         }
@@ -185,7 +185,7 @@ TEST_grow_1(FullInterface *full_orderbook)
 }
 
 int
-TEST_grow_2(FullInterface *full_orderbook)
+TEST_grow_2(FullInterface *full_orderbook, std::ostream& out)
 {
     //auto conv = [&](double d){ return full_orderbook->price_to_tick(d); };
 
@@ -200,10 +200,10 @@ TEST_grow_2(FullInterface *full_orderbook)
     id_type id1 = orderbook->insert_limit_order(true, beg, sz);
     id_type id2 = orderbook->insert_limit_order(false, end, sz);
 
-    orderbook->dump_internal_pointers();
+    orderbook->dump_internal_pointers(out);
     orderbook->grow_book_below( 0 );
     orderbook->grow_book_above( end + (incr * ticks * 10) );
-    orderbook->dump_internal_pointers();
+    orderbook->dump_internal_pointers(out);
 
     if( !orderbook->pull_order(id1) )
         return 1;
@@ -226,7 +226,7 @@ TEST_grow_2(FullInterface *full_orderbook)
 
 // TODO expand these
 int
-TEST_tick_price_1()
+TEST_tick_price_1(std::ostream& out)
 {
     typedef TickPrice<quarter_tick> tp_t;
 

@@ -143,9 +143,10 @@ namespace detail {
     template<sob::side_of_market Side> struct depth;
     template<typename ChainTy, bool BaseOnly> struct chain;
     namespace exec{
-        template<bool Bidside, bool Redirect> struct core;
-        template<bool BuyLimit> struct limit;
-        template<bool BuyStop, bool Redirect> struct stop;
+        template<bool BidSide, bool Redirect> struct core;
+        template<bool BidSide> struct aon;
+        template<bool BidSide> struct limit;
+        template<bool BuyStop> struct stop;
     };
 };
 
@@ -326,6 +327,9 @@ private:
         struct limit_bndl
                 : public _order_bndl {
             using _order_bndl::_order_bndl;
+            limit_bndl() = default;
+            limit_bndl( const _order_bndl& bndl ) : _order_bndl(bndl){}
+            limit_bndl( _order_bndl&& bndl ) : _order_bndl( std::move(bndl) ){}
             static limit_bndl null;
         };
 
@@ -344,6 +348,16 @@ private:
             stop_bndl& operator=(const stop_bndl& bndl) = delete;
             stop_bndl& operator=(stop_bndl&& bndl) = delete;
             static stop_bndl null;
+        };
+
+        /* represents an AON (limit) order internall */
+        struct aon_bndl
+                : public _order_bndl {
+            using _order_bndl::_order_bndl;
+            aon_bndl() = default;
+            aon_bndl( const _order_bndl& bndl ) : _order_bndl(bndl){}
+            aon_bndl( _order_bndl&& bndl ) : _order_bndl( std::move(bndl) ){}
+            static aon_bndl null;
         };
 
 
@@ -379,49 +393,45 @@ private:
         /* holds all stop orders at a price (limit or market) */
         using stop_chain_type = std::list<stop_bndl>;
 
+        /* holds all buy AND sell aon orders at a price */
+        using aon_chain_type = std::list<aon_bndl>;
 
-        /*
-         * *NEW APPROACH* to managing chains at each price level (APR 2019)
-         *
-         *   * replace 'chain_pair_type' with a 'level' class
-         *
-         *   * store chains on the heap and only allow move(s) so
-         *   iterators (stored in id_cache) aren't invalidated if a book
-         *   resize requires a new allocation/initialization
-         *
-         *   * TODO store chain info to avoid chain traversals
-         */
-        class level {         
+
+        class level {
+            /*
+             * *NEW APPROACH* to managing chains at each price level (APR 2019)
+             *
+             *   * replace 'chain_pair_type' with a 'level' class
+             *
+             *   * store chains on the heap and only allow move(s) so
+             *   iterators (stored in id_cache) aren't invalidated if a book
+             *   resize requires a new allocation/initialization
+             *
+             *   * TODO store chain info to limit chain traversals
+             */
             std::unique_ptr<limit_chain_type> _l_chain;
             std::unique_ptr<stop_chain_type> _s_chain;
+            std::unique_ptr<aon_chain_type> _aon_b_chain;
+            std::unique_ptr<aon_chain_type> _aon_s_chain;
 
         public:
-            level() 
-                : 
-                    _l_chain(new limit_chain_type()), 
-                    _s_chain(new stop_chain_type())
-		{}
-
+            level();
             level( const level& ) = delete;
             level& operator=( const level& ) = delete;
             level( level&& l ) = default;
             level& operator=( level&& l ) = default ;
             
-            inline limit_chain_type* 
-            get_limit_chain() const 
-            { return _l_chain.get(); }
+            limit_chain_type* get_limit_chain() const { return _l_chain.get(); }
+            stop_chain_type* get_stop_chain() const { return _s_chain.get(); }
 
-            inline stop_chain_type* 
-            get_stop_chain() const 
-            { return _s_chain.get(); }
+            bool limit_chain_is_empty() const { return _l_chain->empty(); }
+            bool stop_chain_is_empty() const { return _s_chain->empty(); }
 
-            inline bool 
-            limit_chain_is_empty() const 
-            { return _l_chain->empty(); }
-            
-            inline bool 
-            stop_chain_is_empty() const 
-            { return _s_chain->empty(); }
+            template<bool BuyChain> aon_chain_type* get_aon_chain() const;
+            template<bool BuyChain> bool aon_chain_is_empty() const;
+            template<bool BuyChain> void create_aon_chain();
+            template<bool BuyChain> void destroy_aon_chain();
+            template<bool BuyChain> void push_aon_bndl(aon_bndl&& bndl);
         };
         using plevel = level*;
 
@@ -447,28 +457,54 @@ private:
         plevel _high_buy_stop;
         plevel _low_sell_stop;
         plevel _high_sell_stop;
+        plevel _low_buy_aon;
+        plevel _high_buy_aon;
+        plevel _low_sell_aon;
+        plevel _high_sell_aon;
 
         struct chain_iter_wrap {
+        private:
+            _order_bndl& _get_base_bndl() const;
+
+        public:
+            enum class itype {
+                limit, stop, aon_buy, aon_sell
+            };
+
+            template<bool IsBuy>
+            struct aon_itype{
+                static constexpr itype value = IsBuy
+                    ? itype::aon_buy : itype::aon_sell;
+            };
+
             union{
                 limit_chain_type::iterator l_iter;
                 stop_chain_type::iterator s_iter;
+                aon_chain_type::iterator a_iter;
             };
-            bool is_limit;
+            itype type;
             plevel p;
-            chain_iter_wrap(limit_chain_type::iterator iter, bool lim, plevel p)
-                : l_iter(iter), is_limit(lim), p(p)
-                {}
-            chain_iter_wrap(stop_chain_type::iterator iter, bool lim, plevel p)
-                : s_iter(iter), is_limit(lim), p(p)
-                {}
+
+            chain_iter_wrap(limit_chain_type::iterator iter, plevel p);
+            chain_iter_wrap(stop_chain_type::iterator iter, plevel p);
+            chain_iter_wrap(aon_chain_type::iterator iter, plevel p, bool is_buy);
+
+            bool is_limit() const { return type == itype::limit; }
+            bool is_stop() const { return type == itype::stop; }
+            bool is_aon_buy() const { return type == itype::aon_buy; }
+            bool is_aon_sell() const { return type == itype::aon_sell; }
+            bool is_aon() const { return is_aon_buy() || is_aon_sell(); }
+
+            operator bool() const { return _get_base_bndl().operator bool();}
+
+            _order_bndl& operator*() { return _get_base_bndl(); }
+            _order_bndl* operator->() { return &_get_base_bndl(); }
         };
 
-        class OrderNotInCache : public std::logic_error{
+        class OrderNotInCache
+            : public std::logic_error{
         public:
-            OrderNotInCache(id_type id)
-                : std::logic_error("order #" + std::to_string(id)
-                                    + " not in cache")
-            {}
+            OrderNotInCache(id_type id);
         };
 
         // TODO test cache is in-line after advanced execution
@@ -559,6 +595,11 @@ private:
         template<bool Bidside, bool Redirect> friend struct detail::exec::core;
 
         /*
+         * aon order execution helpers
+         */
+        template<bool BidSide> friend struct detail::exec::aon;
+
+        /*
          * limit order execution helpers
          *   ::adjust_state_after_insert : adjust internal pointers after
          *                                 order insert
@@ -576,9 +617,8 @@ private:
          *                               order pull
          *   ::adjust_state_after_trigger : adjust internal pointers after
          *                                  stop is triggered
-         *   ::stop_chain_is_empty : no active stop orders in this chain
          */
-        template<bool BuyStop, bool Redirect> friend struct detail::exec::stop;
+        template<bool BuyStop> friend struct detail::exec::stop;
 
 
         /* handles the async/consumer side of the order queue */
@@ -592,7 +632,8 @@ private:
         /* basic order types */
         template<side_of_trade side = side_of_trade::both>
         fill_type
-        _route_basic_order(const order_queue_elem& e);
+        _route_basic_order(const order_queue_elem& e,
+                           bool pass_conditions = false);
 
         /* advanced order types */
         void
@@ -610,11 +651,18 @@ private:
                size_t size,
                const order_exec_cb_type& exec_cb);
 
-        size_t
+        std::pair<size_t, bool>
         _hit_chain(plevel plev,
                    id_type id,
                    size_t size,
                    const order_exec_cb_type& exec_cb);
+
+        std::pair<size_t, bool>
+        _hit_aon_chain(aon_chain_type *achain,
+                       plevel plev,
+                       id_type id,
+                       size_t size,
+                       const order_exec_cb_type& exec_cb );
 
         /* DONT INSERT NEW TRADES IN HERE! */
         void
@@ -704,10 +752,22 @@ private:
         void
         _insert_FOK_order(const order_queue_elem& e);
 
+        void
+        _insert_ALL_OR_NOTHING_order(const order_queue_elem& e);
+
+        template<bool IsBuy>
+        size_t
+        _match_aon_orders_PRE_trade(const order_queue_elem& e, plevel p);
+
+        template<bool IsBuy>
+        void
+        _match_aon_orders_POST_trade(const order_queue_elem& e, plevel p);
+
         /* internal insert orders once/if we have an id */
         template<bool BuyLimit>
         fill_type
-        _insert_limit_order(const order_queue_elem& e);
+        _insert_limit_order( const order_queue_elem& e,
+                             bool pass_conditions = false );
 
         template<bool BuyMarket>
         void
@@ -715,7 +775,8 @@ private:
 
         template<bool BuyStop>
         void
-        _insert_stop_order(const order_queue_elem& e);
+        _insert_stop_order( const order_queue_elem& e,
+                            bool pass_conditions = false );
 
         /* handle post-trade tasks */
         void
@@ -795,12 +856,9 @@ private:
         _block_on_outstanding_orders();
 
         /* limit @ p can fill sz */
-        bool
-        _limit_is_fillable(plevel p, size_t sz, bool is_buy);
-
-        /* total size between l and h (inclusive) >= sz */
-        bool
-        _is_fillable_between(plevel l, plevel h, size_t sz);
+        template<bool IsBuy>
+        std::pair<bool, size_t>
+        _limit_is_fillable( plevel p, size_t sz, bool allow_partial );
 
         /* remove a particular order by id... */
         bool
@@ -815,11 +873,14 @@ private:
         void
         _pull_linked_order(typename ChainTy::value_type& bndl);
 
-        _order_bndl&
-        _find(id_type id) const; // TODO
-
         const chain_iter_wrap&
         _from_cache(id_type id) const;
+
+        chain_iter_wrap&
+        _from_cache(id_type id);
+
+        bool
+        _in_cache(id_type id) const;
 
         bool
         _is_buy_order(plevel p, const limit_bndl& o) const;
@@ -835,13 +896,12 @@ private:
         /* 
         * calculate chain_size of orders at each price level
         * use depth ticks on each side of last
-        *
-        * note: need to use trailing return to make MSCV happy
         */
         template<side_of_market Side, typename ChainTy = limit_chain_type>
         std::map<double, typename std::conditional<Side == side_of_market::both,
                          std::pair<size_t, side_of_market>, size_t>::type >
         _market_depth(size_t depth) const;
+
 
         /* total size of bid or ask limits */
         template<side_of_market Side, typename ChainTy = limit_chain_type>
@@ -1002,67 +1062,65 @@ private:
         void
         dump_internal_pointers(std::ostream& out = std::cout) const;
 
-        inline void
+        void
         dump_limits(std::ostream& out = std::cout) const
         { _dump_orders<limit_chain_type>(
                out, std::min(_low_buy_limit, _ask),
                std::max(_high_sell_limit, _bid), side_of_trade::both); }
 
-        inline void
+        void
         dump_buy_limits(std::ostream& out = std::cout) const
         { _dump_orders<limit_chain_type>(
                out, _low_buy_limit, _bid, side_of_trade::buy); }
 
-        inline void
+        void
         dump_sell_limits(std::ostream& out = std::cout) const
         { _dump_orders<limit_chain_type>(
                out, _ask, _high_sell_limit, side_of_trade::sell); }
 
-        inline void
+        void
         dump_stops(std::ostream& out = std::cout) const
         { _dump_orders<stop_chain_type>(
                out, std::min(_low_buy_stop, _low_sell_stop),
                std::max(_high_buy_stop, _high_sell_stop), side_of_trade::both); }
 
-        inline void
+        void
         dump_buy_stops(std::ostream& out = std::cout) const
         { _dump_orders<stop_chain_type>(
                out, _low_buy_stop , _high_buy_stop, side_of_trade::buy); }
 
-        inline void
+        void
         dump_sell_stops(std::ostream& out = std::cout) const
         { _dump_orders<stop_chain_type>(
                out, _low_sell_stop, _high_sell_stop, side_of_trade::sell); }
 
-        inline std::map<double, size_t>
+        std::map<double, size_t>
         bid_depth(size_t depth=8) const
         { return _market_depth<side_of_market::bid>(depth); }
 
-        inline std::map<double,size_t>
+        std::map<double,size_t>
         ask_depth(size_t depth=8) const
         { return _market_depth<side_of_market::ask>(depth); }
 
-        inline std::map<double,std::pair<size_t, side_of_market>>
+        std::map<double,std::pair<size_t, side_of_market>>
         market_depth(size_t depth=8) const
         { return _market_depth<side_of_market::both>(depth); }
 
-        inline double
-        bid_price() const
-        { return (_bid >= _beg) ? _itop(_bid) : 0.0; }
+        double
+        bid_price() const;
 
-        inline double
-        ask_price() const
-        { return (_ask < _end) ? _itop(_ask) : 0.0; }
+        double
+        ask_price() const;
 
-        inline double
+        double
         last_price() const
         { return (_last >= _beg && _last < _end) ? _itop(_last) : 0.0; }
 
-        inline double
+        double
         min_price() const
         { return _itop(_beg); }
 
-        inline double
+        double
         max_price() const
         { return _itop(_end - 1); }
 
@@ -1072,34 +1130,55 @@ private:
         size_t
         ask_size() const;
 
-        inline size_t
+        size_t
         total_bid_size() const
         { return _total_depth<side_of_market::bid>(); }
 
-        inline size_t
+        size_t
         total_ask_size() const
         { return _total_depth<side_of_market::ask>(); }
 
-        inline size_t
+        size_t
         total_size() const
         { return _total_depth<side_of_market::both>(); }
 
-        inline size_t
+        size_t
         last_size() const
         { return _last_size; }
 
-        inline unsigned long long
+        unsigned long long
         volume() const
         { return _total_volume; }
 
-        inline id_type
+        id_type
         last_id() const
         { return _last_id; }
 
-        inline const std::vector<timesale_entry_type>&
+        const std::vector<timesale_entry_type>&
         time_and_sales() const
         { return _timesales; }
 
+        /* NEW - AON orders */
+        std::map<double, std::pair<size_t,size_t>>
+        aon_market_depth() const;
+
+        size_t
+        total_aon_bid_size() const;
+
+        size_t
+        total_aon_ask_size() const;
+
+        size_t
+        total_aon_size() const;
+
+        void
+        dump_aon_buy_limits(std::ostream& out = std::cout) const;
+
+        void
+        dump_aon_sell_limits(std::ostream& out = std::cout) const;
+
+        void
+        dump_aon_limits(std::ostream& out = std::cout) const;
     };
 
     /* (non-inline) definitions in tpp/orderbook/impl.tpp */
@@ -1138,53 +1217,53 @@ private:
         void
         grow_book_below(double new_min);
 
-        inline double
+        double
         tick_size() const
         { return tick_size_(); }
 
-        inline double
+        double
         price_to_tick(double price) const
         { return price_to_tick_(price); }
 
-        inline long long
+        long long
         ticks_in_range(double lower, double upper) const
         { return ticks_in_range_(lower, upper); }
 
-        inline long long
+        long long
         ticks_in_range() const
         { return ticks_in_range_(min_price(), max_price()); }
 
-        inline unsigned long long
+        unsigned long long
         tick_memory_required(double lower, double upper) const
         { return tick_memory_required_(lower, upper); }
 
-        inline unsigned long long
+        unsigned long long
         tick_memory_required() const
         { return tick_memory_required_(min_price(), max_price()); }
 
         bool
         is_valid_price(double price) const;
 
-        static inline FullInterface*
+        static FullInterface*
         create(double min, double max)
         { return create( TickPrice<TickRatio>(min), TickPrice<TickRatio>(max) ); }
 
         static FullInterface*
         create( TickPrice<TickRatio> min, TickPrice<TickRatio> max );
 
-        static inline void
+        static void
         destroy(FullInterface *interface)
         { if( interface ) rmanager.remove(interface); }
 
-        static inline void
+        static void
         destroy_all()
         { rmanager.remove_all(); }
 
-        static inline std::vector<FullInterface *>
+        static std::vector<FullInterface *>
         get_all()
         { return rmanager.get_all(); }
 
-        static inline bool
+        static bool
         is_managed(FullInterface *interface)
         { return rmanager.is_managed(interface); }
 
@@ -1260,8 +1339,10 @@ struct sob_types {
     using plevel = sob_class::plevel;
     using limit_chain_type = sob_class::limit_chain_type;
     using stop_chain_type = sob_class::stop_chain_type;
+    using aon_chain_type = sob_class::aon_chain_type;
     using stop_bndl = sob_class::stop_bndl;
     using limit_bndl = sob_class::limit_bndl;
+    using aon_bndl = sob_class::aon_bndl;
     using order_queue_elem = sob_class::order_queue_elem;
     using _order_bndl = sob_class::_order_bndl;
     using OrderNotInCache = sob_class::OrderNotInCache;

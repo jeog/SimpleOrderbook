@@ -90,6 +90,7 @@ SOB_CLASS::_order_bndl::_order_bndl(const _order_bndl& bndl)
                            ? new linked_trailer_type(*bndl.linked_trailer)
                            : nullptr;
             break;
+        case order_condition::all_or_nothing: /* no break */
         case order_condition::none:
             break;
         default:
@@ -133,6 +134,7 @@ SOB_CLASS::_order_bndl::_order_bndl(_order_bndl&& bndl)
             linked_trailer = bndl.linked_trailer;
             bndl.linked_trailer = nullptr;
             break;
+        case order_condition::all_or_nothing: /* no break */
         case order_condition::none:
             break;
         default:
@@ -167,6 +169,7 @@ SOB_CLASS::_order_bndl::~_order_bndl()
                delete linked_trailer;
            break;
        case order_condition::_trailing_stop_active: /* no break */
+       case order_condition::all_or_nothing: /* no break */
        case order_condition::none:
            break;
        default:
@@ -239,6 +242,126 @@ SOB_CLASS::order_location::order_location(bool is_limit,
         is_primary(is_primary)
     {
     }
+
+
+SOB_CLASS::level::level()
+    :
+        _l_chain(new limit_chain_type()),
+        _s_chain(new stop_chain_type()),
+        _aon_b_chain(nullptr),
+        _aon_s_chain(nullptr)
+    {}
+
+
+template<bool BuyChain>
+SOB_CLASS::aon_chain_type*
+SOB_CLASS::level::get_aon_chain() const
+{
+    return BuyChain ? _aon_b_chain.get() : _aon_s_chain.get();
+}
+template SOB_CLASS::aon_chain_type* SOB_CLASS::level::get_aon_chain<true>() const;
+template SOB_CLASS::aon_chain_type* SOB_CLASS::level::get_aon_chain<false>() const;
+
+
+template<bool BuyChain>
+bool
+SOB_CLASS::level::aon_chain_is_empty() const
+{
+    auto& uptr = BuyChain ? _aon_b_chain : _aon_s_chain;
+    if( !uptr )
+        return true;
+
+    assert( !uptr->empty() );  // if empty should be null
+    return false;
+}
+template bool SOB_CLASS::level::aon_chain_is_empty<true>() const;
+template bool SOB_CLASS::level::aon_chain_is_empty<false>() const;
+
+
+template<bool BuyChain>
+void
+SOB_CLASS::level::create_aon_chain()
+{
+    auto& uptr = BuyChain ? _aon_b_chain : _aon_s_chain;
+    assert( !uptr );
+    uptr.reset( new aon_chain_type() );
+}
+template void SOB_CLASS::level::create_aon_chain<true>();
+template void SOB_CLASS::level::create_aon_chain<false>();
+
+
+template<bool BuyChain>
+void
+SOB_CLASS::level::destroy_aon_chain()
+{
+    auto& uptr = BuyChain ? _aon_b_chain : _aon_s_chain;
+    assert( uptr );
+    uptr.reset();
+}
+template void SOB_CLASS::level::destroy_aon_chain<true>();
+template void SOB_CLASS::level::destroy_aon_chain<false>();
+
+
+template<bool BuyChain>
+void
+SOB_CLASS::level::push_aon_bndl(aon_bndl&& bndl)
+{
+    auto& uptr = BuyChain ? _aon_b_chain : _aon_s_chain;
+    if( !uptr )
+        create_aon_chain<BuyChain>();
+    uptr->push_back( std::move(bndl) );
+}
+template void SOB_CLASS::level::push_aon_bndl<true>(aon_bndl&& );
+template void SOB_CLASS::level::push_aon_bndl<false>(aon_bndl&& );
+
+
+SOB_CLASS::chain_iter_wrap::chain_iter_wrap(
+        limit_chain_type::iterator iter,
+        plevel p
+        )
+    :
+        l_iter(iter),
+        type(itype::limit), p(p)
+    {}
+
+SOB_CLASS::chain_iter_wrap::chain_iter_wrap(
+        stop_chain_type::iterator iter,
+        plevel p
+        )
+    :
+        s_iter(iter),
+        type(itype::stop), p(p)
+    {}
+
+SOB_CLASS::chain_iter_wrap::chain_iter_wrap(
+        aon_chain_type::iterator iter,
+        plevel p,
+        bool is_buy
+        )
+    :
+        a_iter(iter),
+        type( is_buy ? itype::aon_buy : itype::aon_sell ),
+        p(p)
+    {}
+
+SOB_CLASS::_order_bndl&
+SOB_CLASS::chain_iter_wrap::_get_base_bndl() const
+{
+    switch( type ){
+    case chain_iter_wrap::itype::limit: return *l_iter;
+    case chain_iter_wrap::itype::stop: return *s_iter;
+    case chain_iter_wrap::itype::aon_buy: /* no break */
+    case chain_iter_wrap::itype::aon_sell: return *a_iter;
+    default:
+        throw std::runtime_error("invalid chain_iter_wrap.itype");
+    }
+}
+
+SOB_CLASS::OrderNotInCache::OrderNotInCache(id_type id)
+    :
+        std::logic_error("order #" + std::to_string(id)
+                         + " not in cache")
+    {}
 
 };
 

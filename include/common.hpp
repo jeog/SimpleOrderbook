@@ -69,8 +69,8 @@ enum class order_condition {
     trailing_stop,
     _trailing_stop_active, // private
     trailing_bracket,
-    _trailing_bracket_active // private
-    // all_or_nothing
+    _trailing_bracket_active, // private
+    all_or_nothing
 };
 
 enum class condition_trigger {
@@ -127,6 +127,7 @@ std::string to_string(const condition_trigger& ct);
 std::string to_string(const order_info& oi);
 std::string to_string(const OrderParamaters& op);
 std::string to_string(const AdvancedOrderTicket& aot);
+std::string to_string(const timesale_entry_type& entry);
 
 std::ostream& operator<<(std::ostream& out, const order_type& ot);
 std::ostream& operator<<(std::ostream& out, const callback_msg& cm);
@@ -138,6 +139,7 @@ std::ostream& operator<<(std::ostream& out, const condition_trigger& ct);
 std::ostream& operator<<(std::ostream& out, const order_info& oi);
 std::ostream& operator<<(std::ostream& out, const OrderParamaters& op);
 std::ostream& operator<<(std::ostream& out, const AdvancedOrderTicket& op);
+std::ostream& operator<<(std::ostream& out, const timesale_entry_type& entry);
 
 #define INLINE_OPERATOR_PLUS_STR(type) \
 inline std::string \
@@ -157,6 +159,7 @@ INLINE_OPERATOR_PLUS_STR(condition_trigger);
 INLINE_OPERATOR_PLUS_STR(order_info);
 INLINE_OPERATOR_PLUS_STR(OrderParamaters);
 INLINE_OPERATOR_PLUS_STR(AdvancedOrderTicket);
+INLINE_OPERATOR_PLUS_STR(timesale_entry_type);
 
 class liquidity_exception
         : public std::logic_error{

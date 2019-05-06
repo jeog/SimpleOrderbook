@@ -41,7 +41,7 @@ namespace {
 }
 
 int
-TEST_advanced_OCO_1(sob::FullInterface *orderbook)
+TEST_advanced_OCO_1(sob::FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -80,10 +80,10 @@ TEST_advanced_OCO_1(sob::FullInterface *orderbook)
         {
             return 3;
         }
-        cout<< "ORDER INFO: " << id << " "<< of << endl;
+        out<< "ORDER INFO: " << id << " "<< of << endl;
     }
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
 
     /*
      *                  ...
@@ -103,8 +103,8 @@ TEST_advanced_OCO_1(sob::FullInterface *orderbook)
     id_insert( orderbook->insert_limit_order(false, beg, sz) );
     id_insert( orderbook->insert_market_order(true, sz) );
 
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
 
     double bp = orderbook->bid_price();
     double ap = orderbook->ask_price();
@@ -130,19 +130,19 @@ TEST_advanced_OCO_1(sob::FullInterface *orderbook)
         return 9;
     }
 
-    cout<< "pulls: " << boolalpha <<endl;
+    out<< "pulls: " << boolalpha <<endl;
     for( auto id : ids ){
         if( orderbook->pull_order(id.second) ){
-            cout<< id.second << " ";
+            out<< id.second << " ";
         }
     }
-    cout<< endl;
+    out<< endl;
     ids.clear();
 
     md_book = orderbook->market_depth(nticks + 2);
-    cout<< "market depth: " << endl;
+    out<< "market depth: " << endl;
     for(auto& p : md_book){
-        cout<< setw(10) << p.first << " " << p.second.first << " "
+        out<< setw(10) << p.first << " " << p.second.first << " "
             << p.second.second << endl;
     }
 
@@ -158,7 +158,7 @@ TEST_advanced_OCO_1(sob::FullInterface *orderbook)
 
 
 int
-TEST_advanced_OCO_2(sob::FullInterface *orderbook)
+TEST_advanced_OCO_2(sob::FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -198,7 +198,7 @@ TEST_advanced_OCO_2(sob::FullInterface *orderbook)
     {
         return 2;
     }
-    cout<< "ORDER INFO: " << id << " "<< of << endl;
+    out<< "ORDER INFO: " << id << " "<< of << endl;
 
     auto aot2 = AdvancedOrderTicketOCO::build_stop_limit( false, conv(beg+incr),
                                                           conv(beg+incr), sz );
@@ -224,12 +224,12 @@ TEST_advanced_OCO_2(sob::FullInterface *orderbook)
     {
         return 4;
     }
-    cout<< "ORDER INFO: " << id << " "<< of << endl;
+    out<< "ORDER INFO: " << id << " "<< of << endl;
 
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
-    orderbook->dump_buy_stops();
-    orderbook->dump_sell_stops();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
     /*
      *                                 end
      *                                 end - 1 (3: cancel stop #2.b) (5: limit buy)
@@ -253,13 +253,13 @@ TEST_advanced_OCO_2(sob::FullInterface *orderbook)
     id_insert( orderbook->insert_limit_order( true, conv(end-incr),
                                               static_cast<size_t>(1.5*sz) ) ); //5
 
-    cout<< "time and sales: " << endl;
+    out<< "time and sales: " << endl;
     for( auto& t : orderbook->time_and_sales() ){
-        cout<< setw(10) << to_string(get<0>(t)) << " " << get<1>(t) << " "
+        out<< setw(10) << to_string(get<0>(t)) << " " << get<1>(t) << " "
             << get<2>(t) << endl;
     }
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
 
     double bp = orderbook->bid_price();
     size_t tbp = orderbook->total_bid_size();
@@ -291,19 +291,19 @@ TEST_advanced_OCO_2(sob::FullInterface *orderbook)
         return 12;
     }
 
-    cout<< "pulls: " << boolalpha <<endl;
+    out<< "pulls: " << boolalpha <<endl;
     for(auto id : ids ){
         if( orderbook->pull_order(id.second) ){
-            cout<< id.second << " ";
+            out<< id.second << " ";
         }
     }
-    cout<< endl;
+    out<< endl;
     ids.clear();
 
     md_book = orderbook->market_depth(nticks + 2);
-    cout<< "market depth: " << endl;
+    out<< "market depth: " << endl;
     for(auto& p : md_book){
-        cout<< setw(10) << p.first << " " << p.second.first << " "
+        out<< setw(10) << p.first << " " << p.second.first << " "
             << p.second.second << endl;
     }
 
@@ -319,7 +319,7 @@ TEST_advanced_OCO_2(sob::FullInterface *orderbook)
 
 
 int
-TEST_advanced_OCO_3(sob::FullInterface *orderbook)
+TEST_advanced_OCO_3(sob::FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -336,9 +336,9 @@ TEST_advanced_OCO_3(sob::FullInterface *orderbook)
         orderbook->insert_market_order(true, sz, ecb, aot);
         return 1;
     }catch(advanced_order_error& e){
-        cout<< "sucessfully caught aot error: " << e.what() << endl;
+        out<< "sucessfully caught aot error: " << e.what() << endl;
     }catch(invalid_argument& e){
-        cout<< "sucessfully caught invalid arg: " << e.what() << endl;
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
     }
 
     // check for limit/market OCO
@@ -348,9 +348,9 @@ TEST_advanced_OCO_3(sob::FullInterface *orderbook)
         orderbook->insert_limit_order(true, mid, sz, ecb, aot);
         return 2;
     }catch(advanced_order_error& e){
-        cout<< "sucessfully caught aot error: " << e.what() << endl;
+        out<< "sucessfully caught aot error: " << e.what() << endl;
     }catch(invalid_argument& e){
-        cout<< "sucessfully caught invalid arg: " << e.what() << endl;
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
     }
 
     // check for limit/limit OCO where buy price >= sell price
@@ -359,9 +359,9 @@ TEST_advanced_OCO_3(sob::FullInterface *orderbook)
         orderbook->insert_limit_order(true, mid, sz, ecb, aot);
         return 3;
     }catch(advanced_order_error& e){
-        cout<< "sucessfully caught aot error: " << e.what() << endl;
+        out<< "sucessfully caught aot error: " << e.what() << endl;
     }catch(invalid_argument& e){
-        cout<< "sucessfully caught invalid arg: " << e.what() << endl;
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
     }
 
     // check for limit/limit OCO where sell price <= buy price
@@ -370,9 +370,9 @@ TEST_advanced_OCO_3(sob::FullInterface *orderbook)
         orderbook->insert_limit_order(false, beg, sz, ecb, aot);
         return 4;
     }catch(advanced_order_error& e){
-        cout<< "sucessfully caught aot error: " << e.what() << endl;
+        out<< "sucessfully caught aot error: " << e.what() << endl;
     }catch(invalid_argument& e){
-        cout<< "sucessfully caught invalid arg: " << e.what() << endl;
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
     }
 
     // check for limit/limit OCO where buy limit == buy limit
@@ -381,9 +381,9 @@ TEST_advanced_OCO_3(sob::FullInterface *orderbook)
         orderbook->insert_limit_order(true, end, sz, ecb, aot);
         return 5;
     }catch(advanced_order_error& e){
-        cout<< "sucessfully caught aot error: " << e.what() << endl;
+        out<< "sucessfully caught aot error: " << e.what() << endl;
     }catch(invalid_argument& e){
-        cout<< "sucessfully caught invalid arg: " << e.what() << endl;
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
     }
 
     // check for malformed order ticket
@@ -393,9 +393,9 @@ TEST_advanced_OCO_3(sob::FullInterface *orderbook)
         orderbook->insert_limit_order(true, end, sz, ecb, aot);
         return 6;
     }catch(advanced_order_error& e){
-        cout<< "sucessfully caught aot error: " << e.what() << endl;
+        out<< "sucessfully caught aot error: " << e.what() << endl;
     }catch(invalid_argument& e){
-        cout<< "sucessfully caught invalid arg: " << e.what() << endl;
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
     }
 
     // check for bad limit ticket prices
@@ -404,9 +404,9 @@ TEST_advanced_OCO_3(sob::FullInterface *orderbook)
         orderbook->insert_stop_order(true, end, sz, ecb, aot);
         return 7;
     }catch(advanced_order_error& e){
-        cout<< "sucessfully caught aot error: " << e.what() << endl;
+        out<< "sucessfully caught aot error: " << e.what() << endl;
     }catch(invalid_argument& e){
-        cout<< "sucessfully caught invalid arg: " << e.what() << endl;
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
     }
 
     // check for bad stop ticket prices
@@ -415,9 +415,9 @@ TEST_advanced_OCO_3(sob::FullInterface *orderbook)
         orderbook->insert_stop_order(true, end, end, sz, ecb, aot);
         return 8;
     }catch(advanced_order_error& e){
-        cout<< "sucessfully caught aot error: " << e.what() << endl;
+        out<< "sucessfully caught aot error: " << e.what() << endl;
     }catch(invalid_argument& e){
-        cout<< "sucessfully caught invalid arg: " << e.what() << endl;
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
     }
 
     // check for bad stop limit ticket prices
@@ -427,9 +427,9 @@ TEST_advanced_OCO_3(sob::FullInterface *orderbook)
         orderbook->insert_limit_order(true, end, sz, ecb, aot);
         return 9;
     }catch(advanced_order_error& e){
-        cout<< "sucessfully caught aot error: " << e.what() << endl;
+        out<< "sucessfully caught aot error: " << e.what() << endl;
     }catch(invalid_argument& e){
-        cout<< "sucessfully caught invalid arg: " << e.what() << endl;
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
     }
 
     // check for bad ticket size
@@ -437,14 +437,14 @@ TEST_advanced_OCO_3(sob::FullInterface *orderbook)
         AdvancedOrderTicketOTO::build_market(false, 0);
         return 10;
     }catch(invalid_argument& e){
-        cout<< "sucessfully caught invalid argument: " << e.what() << endl;
+        out<< "sucessfully caught invalid argument: " << e.what() << endl;
     }
 
     return 0;
 }
 
 int
-TEST_advanced_OCO_4(sob::FullInterface *orderbook)
+TEST_advanced_OCO_4(sob::FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -463,10 +463,10 @@ TEST_advanced_OCO_4(sob::FullInterface *orderbook)
             );
     id_insert( orderbook->insert_limit_order(true, mid, sz*2, ecb, aot) ); //2
 
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
-    orderbook->dump_buy_stops();
-    orderbook->dump_sell_stops();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
 
     auto aot2 = AdvancedOrderTicketOTO::build_limit(
             false, conv(mid+incr), sz, condition_trigger::fill_full
@@ -489,12 +489,12 @@ TEST_advanced_OCO_4(sob::FullInterface *orderbook)
     {
         return 2;
     }
-    cout<< "ORDER INFO: " << id1 << " "<< of << endl;
+    out<< "ORDER INFO: " << id1 << " "<< of << endl;
 
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
-    orderbook->dump_buy_stops();
-    orderbook->dump_sell_stops();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
 
     id_insert( orderbook->insert_limit_order(true, conv(mid+incr), sz*3, ecb) ); //4
     /*
@@ -510,10 +510,10 @@ TEST_advanced_OCO_4(sob::FullInterface *orderbook)
      *
      *   0    100  100  200  400  400   500
      */
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
-    orderbook->dump_buy_stops();
-    orderbook->dump_sell_stops();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
 
     size_t tbs = orderbook->total_bid_size();
     size_t tas = orderbook->total_ask_size();
@@ -549,10 +549,10 @@ TEST_advanced_OCO_4(sob::FullInterface *orderbook)
     id_insert( orderbook->insert_limit_order( true, conv(mid+incr),
                                               sz, ecb, aot) ); //2
 
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
-    orderbook->dump_buy_stops();
-    orderbook->dump_sell_stops();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
 
     if( orderbook->market_depth(nticks+2).size() > 0 ){
         return 10;
@@ -570,10 +570,10 @@ TEST_advanced_OCO_4(sob::FullInterface *orderbook)
     id_insert( orderbook->insert_limit_order( true, conv(beg+incr), sz*2,
                                               ecb, aot) ); //2
 
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
-    orderbook->dump_buy_stops();
-    orderbook->dump_sell_stops();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
 
     if( orderbook->market_depth(nticks+2).size() > 0 ){
         return 12;
@@ -605,10 +605,10 @@ TEST_advanced_OCO_4(sob::FullInterface *orderbook)
      *
      *  100 100 100 100
      */
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
-    orderbook->dump_buy_stops();
-    orderbook->dump_sell_stops();
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
 
     if( orderbook->market_depth(nticks+2).size() > 0 ){
         return 14;

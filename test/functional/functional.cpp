@@ -42,14 +42,27 @@ proxies = {
     make_proxy_info<1000000>( {make_tuple(.000002, .000100)} )
 };
 
-const vector< pair<string, int(*)(FullInterface*)>>
+const vector< pair<string, int(*)(FullInterface*, std::ostream&)>>
 orderbook_tests = {
       {"TEST_basic_orders_1", TEST_basic_orders_1},
       {"TEST_basic_orders_2", TEST_basic_orders_2},
       {"TEST_orders_info_pull_1", TEST_orders_info_pull_1},
       {"TEST_replace_order_1", TEST_replace_order_1},
       {"TEST_grow_1", TEST_grow_1},
-      {"TEST_grow_2", TEST_grow_2},
+      {"TEST_grow_2", TEST_grow_2} ,
+      {"TEST_advanced_AON_1", TEST_advanced_AON_1},
+      {"TEST_advanced_AON_2", TEST_advanced_AON_2},
+      {"TEST_advanced_AON_3", TEST_advanced_AON_3},
+      {"TEST_advanced_AON_4", TEST_advanced_AON_4},
+      {"TEST_advanced_AON_5", TEST_advanced_AON_5},
+      {"TEST_advanced_AON_6", TEST_advanced_AON_6},
+      {"TEST_advanced_AON_7", TEST_advanced_AON_7},
+      {"TEST_advanced_AON_8", TEST_advanced_AON_8},
+      {"TEST_advanced_AON_9", TEST_advanced_AON_9},
+      {"TEST_advanced_AON_10", TEST_advanced_AON_10},
+      {"TEST_advanced_AON_11", TEST_advanced_AON_11},
+      {"TEST_advanced_AON_12", TEST_advanced_AON_12},
+      {"TEST_advanced_AON_13", TEST_advanced_AON_13},
       {"TEST_advanced_OCO_1", TEST_advanced_OCO_1},
       {"TEST_advanced_OCO_2", TEST_advanced_OCO_2},
       {"TEST_advanced_OCO_3", TEST_advanced_OCO_3},
@@ -71,10 +84,42 @@ orderbook_tests = {
       {"TEST_advanced_TRAILING_BRACKET_5", TEST_advanced_TRAILING_BRACKET_5},
 };
 
-const vector< pair<string, function<int(void)>>>
+const vector< pair<string, int(*)(std::ostream&)>>
 tick_price_tests = {
     {"Test_tick_price<1/4>", TEST_tick_price_1}
 };
+
+struct DummyOut : public std::ostream {
+    template<typename T>
+    DummyOut&
+    operator<< (T){ return *this; }
+} dout;
+std::ofstream fout;
+std::reference_wrapper<std::ostream> out = cout;
+bool out_is_cout = true;
+
+void
+set_ostream(int argc, char* argv[] )
+{
+    if( argc == 1 ){
+        out = dout;
+        out_is_cout = false;
+    }else if( argc > 1 ){
+        if( std::string(argv[1]) != "-" ){
+            if( !fout.is_open() ){
+                fout.open(argv[1]);
+                if( !fout )
+                    throw std::invalid_argument(string(argv[1]) + " not a valid file");
+            }
+            out = fout;
+            out_is_cout = false;
+        }else{
+            out = cout;
+            out_is_cout = true;
+        }
+    }
+}
+
 
 }; /* namespace */
 
@@ -85,19 +130,28 @@ const categories_ty functional_categories = {
 };
 
 
+
 int
 run_tick_price_tests(int argc, char* argv[])
 {
     using namespace std;
 
+    set_ostream(argc, argv);
+
     for( auto& tests : tick_price_tests ){
-        cout<< "** BEGIN - " << tests.first << " **" << endl;
-        int err = tests.second();
-        cout<< "** END - " << tests.first << " **" << endl << endl;
-        cout<< (err == 0 ? "SUCCESS" : "FAILURE") << endl << endl;
-        if(err){
+        if( !out_is_cout )
+            cout << "** " << tests.first << " ** ";
+        out.get() << "** BEGIN - " << tests.first << " **" << endl;
+
+        int err = tests.second(out.get());
+
+        if( !out_is_cout )
+            cout << (err == 0 ? "SUCCESS" : "FAILURE") << endl;
+        out.get() << "** END - " << tests.first << " **" << endl << endl;
+                    out.get() << (err == 0 ? "SUCCESS" : "FAILURE") << endl << endl;
+
+        if(err)
             return err;
-        }
     }
     return 0;
 }
@@ -108,6 +162,8 @@ run_orderbook_tests(int argc, char* argv[])
 {
     using namespace std;
     using namespace sob;
+
+    set_ostream(argc, argv);
 
     for( auto& test : orderbook_tests ){
         for( auto& proxy_info : proxies ){
@@ -121,19 +177,26 @@ run_orderbook_tests(int argc, char* argv[])
                 stringstream test_head;
                 test_head << test.first << " - 1/" << get<0>(proxy_info)
                           << " - " << min_price << "-" << max_price;
-                cout<< "** BEGIN - " << test_head.str() << " **" << endl;
+
+                if( !out_is_cout )
+                    cout << "** " << test_head.str() << " ** ";
+                out.get() << "** BEGIN - " << test_head.str() << " **" << endl;
 
                 FullInterface *orderbook = proxy.create(min_price, max_price);
-                int err = test.second(orderbook);
+
+                int err = test.second(orderbook, out.get());
                 if( !err ){
                     proxy.destroy(orderbook);
                 }
 
-                cout<< "** END - " << test_head.str() << " **" << endl << endl;
-                cout<< (err == 0 ? "SUCCESS" : "FAILURE") << endl << endl;
+                if( !out_is_cout )
+                    cout << (err == 0 ? "SUCCESS" : "FAILURE") << endl;
+                out.get()<< "** END - " << test_head.str() << " **" << endl << endl;
+                out.get()<< (err == 0 ? "SUCCESS" : "FAILURE") << endl << endl;
+
 
                 if(err){
-                    print_orderbook_state(orderbook);
+                    print_orderbook_state(orderbook, out.get());
                     proxy.destroy(orderbook);
                     return err;
                 }
@@ -150,25 +213,26 @@ void callback( sob::callback_msg msg,
                double price,
                size_t size)
 {
-    std::cout<< "CALLBACK ::  "
+    out.get() << "CALLBACK ::  "
              << std::setw(22) << std::left << msg << " " << std::right
              << std::setw(5) << id1 << " "
              << std::setw(5) << id2 << " "
              << std::setw(12) << std::fixed << price << " "
              << std::setw(6) << size << std::endl;
-    std::cout.unsetf(std::ios_base::floatfield);
+    out.get().unsetf(std::ios_base::floatfield);
 }
 
 
 void
 print_orderbook_state( sob::FullInterface *ob,
+                       std::ostream& out,
                        size_t max_depth,
                        size_t max_timesales,
                        bool dump )
 {
     using namespace std;
 
-    cout<< "*** ORDERBOOK STATE ***" << endl
+    out<< "*** ORDERBOOK STATE ***" << endl
         << "min: " << ob->min_price() << endl
         << "max: " << ob->max_price() << endl
         << "incr: " << ob->tick_size() << endl
@@ -182,26 +246,35 @@ print_orderbook_state( sob::FullInterface *ob,
         << "total ask size: " << ob->total_ask_size() << endl
         << "total size: " << ob->total_size() <<  endl
         << "volume: " << ob->volume() <<  endl
+        << "total aon bid size: " << ob->total_aon_bid_size() << endl
+        << "total aon ask size: " << ob->total_aon_ask_size() << endl
+        << "total aon size: " << ob->total_aon_size() << endl
         << "last id: " << ob->last_id() <<  endl;
 
-    cout << "market depth:" <<  endl;
+    out << "market depth:" <<  endl;
     for( auto& p : ob->market_depth(max_depth) ){
-        cout<< setw(8) << p.first << " "
+        out<< setw(8) << p.first << " "
             << p.second.first << " " << p.second.second <<  endl;
     }
 
-    cout<< "time & sales:" <<  endl;
+    out << "aon market depth:" << endl;
+    for( auto& p : ob->aon_market_depth() ){
+        out<< setw(8) << p.first << " " << p.second.first << " "
+            << p.second.second << endl;
+    }
+
+    out<< "time & sales:" <<  endl;
     auto ts = ob->time_and_sales();
     auto ts_beg = std::max(ts.cbegin(), ts.cend() - max_timesales);
     for( ; ts_beg < ts.cend() ; ++ts_beg){
-        cout <<  setw(10) << sob::to_string(get<0>(*ts_beg))
+        out <<  setw(10) << sob::to_string(get<0>(*ts_beg))
              << " " << get<1>(*ts_beg) << " " << get<2>(*ts_beg) << endl;
     }
 
     if( dump ){
-        dump_orders(ob);
+        dump_orders(ob, out);
     }
-    cout<< "*** ORDERBOOK STATE ***" << endl;
+    out<< "*** ORDERBOOK STATE ***" << endl;
 }
 
 

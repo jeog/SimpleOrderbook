@@ -32,7 +32,7 @@ namespace {
 }
 
 int
-TEST_advanced_FOK_1(FullInterface *orderbook)
+TEST_advanced_FOK_1(FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -58,11 +58,11 @@ TEST_advanced_FOK_1(FullInterface *orderbook)
         };
 
     auto aot = AdvancedOrderTicketFOK::build();
-    cout<< " FOK (full buy, empty book) - should kill" << endl;
+    out<< " FOK (full buy, empty book) - should kill" << endl;
     fok_ids.insert( orderbook->insert_limit_order(true, end, sz, ecb, aot) );
 
     aot.change_trigger(condition_trigger::fill_partial);
-    cout<< " FOK (partial sell, empty book) - should kill" << endl;
+    out<< " FOK (partial sell, empty book) - should kill" << endl;
     fok_ids.insert( orderbook->insert_limit_order(false, beg, sz, ecb, aot) );
 
     aot.change_trigger(condition_trigger::fill_full);
@@ -72,71 +72,71 @@ TEST_advanced_FOK_1(FullInterface *orderbook)
     ids.insert( orderbook->insert_limit_order(true, conv(mid-3*incr), sz*3, ecb));
     ids.insert( orderbook->insert_limit_order(false, conv(mid+2*incr), sz*2, ecb));
     ids.insert( orderbook->insert_limit_order(false, conv(mid+3*incr), sz*3, ecb));
-    orderbook->dump_limits();
+    orderbook->dump_limits(out);
 
-    cout<< " FOK (full buy) - should kill" << endl;
+    out<< " FOK (full buy) - should kill" << endl;
     fok_ids.insert( orderbook->insert_limit_order(true, mid, sz, ecb, aot) );
 
-    cout<< " FOK (full sell) - should kill" << endl;
+    out<< " FOK (full sell) - should kill" << endl;
     fok_ids.insert( orderbook->insert_limit_order(false, mid, sz, ecb, aot) );
 
     aot.change_trigger(condition_trigger::fill_partial);
-    cout<< " FOK (partial buy) - should kill" << endl;
+    out<< " FOK (partial buy) - should kill" << endl;
     fok_ids.insert( orderbook->insert_limit_order(true, mid, sz, ecb, aot) );
 
-    cout<< " FOK (partial sell) - should kill" << endl;
+    out<< " FOK (partial sell) - should kill" << endl;
     fok_ids.insert( orderbook->insert_limit_order(false, mid, sz, ecb, aot) );
 
     aot.change_trigger(condition_trigger::fill_full);
-    cout<< " FOK (full buy +) - should kill" << endl;
+    out<< " FOK (full buy +) - should kill" << endl;
     fok_ids.insert( orderbook->insert_limit_order( true, conv(mid+incr), sz+1,
                                                    ecb, aot) );
 
-    cout<< " FOK (full sell +) - should kill" << endl;
+    out<< " FOK (full sell +) - should kill" << endl;
     fok_ids.insert( orderbook->insert_limit_order( false, conv(mid-incr), sz+1,
                                                    ecb, aot) );
 
-    orderbook->dump_limits();
+    orderbook->dump_limits(out);
 
     if( kill_ids != fok_ids ){
-        cout<< "ERROR(1) FOK kill IDs don't match: " << endl;
+        out<< "ERROR(1) FOK kill IDs don't match: " << endl;
         for(id_type i : kill_ids){
-            cout<< i << " ";
+            out<< i << " ";
         }
-        cout<< endl;
+        out<< endl;
         for(id_type i : fok_ids){
-            cout<< i << " ";
+            out<< i << " ";
         }
-        cout<< endl;
+        out<< endl;
         return 1;
     }
     fok_ids.clear();
 
-    cout<< " FOK (full buy ++) - should fill" << endl;
+    out<< " FOK (full buy ++) - should fill" << endl;
     fok_ids.insert( orderbook->insert_limit_order( true, conv(mid+2*incr),
                                                    sz*3-1, ecb, aot) );
-    orderbook->dump_sell_limits();
+    orderbook->dump_sell_limits(out);
 
-    cout<< " FOK (full sell ++) - should fill" << endl;
+    out<< " FOK (full sell ++) - should fill" << endl;
     fok_ids.insert( orderbook->insert_limit_order( false, conv(mid-2*incr),
                                                    sz*3-1, ecb, aot) );
-    orderbook->dump_buy_limits();
+    orderbook->dump_buy_limits(out);
 
     ids.insert( orderbook->insert_stop_order( true, conv(mid+2*incr),
                                               conv(mid+3*incr), sz, ecb) );
 
     aot.change_trigger(condition_trigger::fill_partial);
-    cout<< " FOK (partial buy +++) - should fill" << endl;
+    out<< " FOK (partial buy +++) - should fill" << endl;
     fok_ids.insert( orderbook->insert_limit_order( true, conv(mid+4*incr),
                                                    sz*4+1, ecb, aot) );
-    orderbook->dump_limits();
+    orderbook->dump_limits(out);
 
-    cout<< " FOK (partial sell +++) - should fill" << endl;
+    out<< " FOK (partial sell +++) - should fill" << endl;
     id_type fok_id_last =  orderbook->insert_limit_order( false, conv(mid-4*incr),
                                                           sz*6+1, ecb, aot );
 
-    orderbook->dump_limits();
-    orderbook->dump_stops();
+    orderbook->dump_limits(out);
+    orderbook->dump_stops(out);
 
     double bp = orderbook->bid_price();
     double ap = orderbook->ask_price();
@@ -171,13 +171,13 @@ TEST_advanced_FOK_1(FullInterface *orderbook)
 
     for(id_type i : fok_ids){
         if( orderbook->pull_order(i) ){
-            cout<< "order should not have been pulled: " << i << endl;
+            out<< "order should not have been pulled: " << i << endl;
             return 10;
         }
     }
 
     if( !orderbook->pull_order(fok_id_last) ){
-        cout<<"failed to remoke FOK order: " << fok_id_last << endl;
+        out<<"failed to remoke FOK order: " << fok_id_last << endl;
         return 11;
     }
 

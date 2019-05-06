@@ -177,6 +177,7 @@ exec_perf_tests( const test_ty& func,
         for( int n : norders ){
             cout<< "  PROXY 1/" << proxy_denom << " - NTICKS "
                 << nticks << " - NORDERS " << n << "::: ";
+            cout.flush();
             results[nticks][n] = exec_perf_test_async(func, proxy, min_price,
                                                       max_price, n,
                                                       nruns, nthreads);

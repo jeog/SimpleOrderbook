@@ -38,7 +38,7 @@ namespace {
 }
 
 int
-TEST_advanced_TRAILING_BRACKET_1(sob::FullInterface *orderbook)
+TEST_advanced_TRAILING_BRACKET_1(sob::FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -53,18 +53,18 @@ TEST_advanced_TRAILING_BRACKET_1(sob::FullInterface *orderbook)
     orderbook->insert_limit_order(false, end, 10*sz, ecb);
 
     auto aot = AdvancedOrderTicketTrailingBracket::build(10, 10);
-    cout<< "OrderParamaters 1: " << *aot.order1() << endl;
-    cout<< "OrderParamaters 2: " << *aot.order2() << endl;
+    out<< "OrderParamaters 1: " << *aot.order1() << endl;
+    out<< "OrderParamaters 2: " << *aot.order2() << endl;
     id_type id3 = orderbook->insert_limit_order(true, mid, sz, ecb, aot);
 
     order_info oi = orderbook->get_order_info(id3);
-    cout<< "ORDER INFO: " << id3 << " " << oi << endl;
+    out<< "ORDER INFO: " << id3 << " " << oi << endl;
 
     orderbook->insert_market_order(false, sz); // vol 100
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     oi = orderbook->get_order_info(ids[id3]);
-    cout<< "ORDER INFO: " << ids[id3] << " " << oi << endl;
+    out<< "ORDER INFO: " << ids[id3] << " " << oi << endl;
     if( oi.limit != conv(mid+10*incr) ){
         return 1;
     }
@@ -72,11 +72,11 @@ TEST_advanced_TRAILING_BRACKET_1(sob::FullInterface *orderbook)
     orderbook->insert_limit_order(false, conv(mid+incr), sz);
     orderbook->insert_limit_order(true,  conv(mid+2*incr), sz*2); //vol 200
     // trailing stop + 1
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     orderbook->insert_limit_order(false, conv(mid + 2*incr), sz); // vol 300
     // trailing stop + 1
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     if( orderbook->volume() != 3*sz ){
         return 2;
@@ -87,7 +87,7 @@ TEST_advanced_TRAILING_BRACKET_1(sob::FullInterface *orderbook)
     orderbook->insert_limit_order(false, conv(mid-8*incr), sz);
     orderbook->insert_market_order(true, sz); // vol 400 -> 500
     // should hit trailing stop
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     oi = orderbook->get_order_info(ids[id3]);
     if( oi ){
@@ -105,7 +105,7 @@ TEST_advanced_TRAILING_BRACKET_1(sob::FullInterface *orderbook)
 
 
 int
-TEST_advanced_TRAILING_BRACKET_2(sob::FullInterface *orderbook)
+TEST_advanced_TRAILING_BRACKET_2(sob::FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -122,7 +122,7 @@ TEST_advanced_TRAILING_BRACKET_2(sob::FullInterface *orderbook)
     auto aot = AdvancedOrderTicketTrailingBracket::build(10, 10);
     id_type id3 = orderbook->insert_limit_order(false, mid, sz, ecb, aot);
     orderbook->insert_market_order(true, sz); // vol 100
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     order_info oi = orderbook->get_order_info(ids[id3]);
     if( oi.limit != conv(mid-10*incr) ){
@@ -132,11 +132,11 @@ TEST_advanced_TRAILING_BRACKET_2(sob::FullInterface *orderbook)
     orderbook->insert_limit_order(true, conv(mid-incr), sz);
     orderbook->insert_limit_order(false,  conv(mid-9*incr), sz*2); //vol 200
     // trailing stop - 1
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     orderbook->insert_limit_order(true, conv(mid-9*incr), sz); // vol 300
     // trailing stop - 8
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     if( orderbook->volume() != 3*sz ){
         return 2;
@@ -146,7 +146,7 @@ TEST_advanced_TRAILING_BRACKET_2(sob::FullInterface *orderbook)
 
     orderbook->insert_limit_order(false, conv(mid-10*incr), sz); // vol 400
     // should hit limit
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     oi = orderbook->get_order_info(ids[id3]);
     if( oi ){
@@ -163,7 +163,7 @@ TEST_advanced_TRAILING_BRACKET_2(sob::FullInterface *orderbook)
 }
 
 int
-TEST_advanced_TRAILING_BRACKET_3(sob::FullInterface *orderbook)
+TEST_advanced_TRAILING_BRACKET_3(sob::FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -180,7 +180,7 @@ TEST_advanced_TRAILING_BRACKET_3(sob::FullInterface *orderbook)
     id_type id2 = orderbook->insert_stop_order(true, mid, sz, ecb, aot);
     ids[id2] = id2;
     orderbook->insert_stop_order(true, mid, conv(mid+incr), sz , ecb);
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     order_info oi = orderbook->get_order_info(ids[id2]);
     if( oi.advanced.condition() != order_condition::trailing_bracket ){
@@ -192,7 +192,7 @@ TEST_advanced_TRAILING_BRACKET_3(sob::FullInterface *orderbook)
     // should trigger stop and hit target
     // 100 100 100
     orderbook->insert_limit_order(true, mid, sz, ecb);
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     oi = orderbook->get_order_info(ids[id2]);
     if( oi ){
@@ -215,7 +215,7 @@ TEST_advanced_TRAILING_BRACKET_3(sob::FullInterface *orderbook)
 
 
 int
-TEST_advanced_TRAILING_BRACKET_4(sob::FullInterface *orderbook)
+TEST_advanced_TRAILING_BRACKET_4(sob::FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -234,7 +234,7 @@ TEST_advanced_TRAILING_BRACKET_4(sob::FullInterface *orderbook)
     ids[id2] = id2;
 
     // 100 100 100
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     order_info oi = orderbook->get_order_info(ids[id2]);
     if( oi ){
@@ -257,7 +257,7 @@ TEST_advanced_TRAILING_BRACKET_4(sob::FullInterface *orderbook)
 
 
 int
-TEST_advanced_TRAILING_BRACKET_5(sob::FullInterface *orderbook)
+TEST_advanced_TRAILING_BRACKET_5(sob::FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -331,7 +331,7 @@ TEST_advanced_TRAILING_BRACKET_5(sob::FullInterface *orderbook)
     double max_neg_price = mid;
     for(int i : {1,-1,-3, 1, 3, -6}){ // need pos to stat > -10
         orderbook->insert_market_order(bool(i >= 0), sz*abs(i), ecb);
-        orderbook->dump_stops();
+        orderbook->dump_stops(out);
 
         max_neg_price = min(orderbook->last_price(), max_neg_price);
         oi = orderbook->get_order_info(ids[id1]);
@@ -345,7 +345,7 @@ TEST_advanced_TRAILING_BRACKET_5(sob::FullInterface *orderbook)
         }
     }
 
-    orderbook->dump_stops();
+    orderbook->dump_stops(out);
 
     oi = orderbook->get_order_info(ids[id1]);
     if( oi.advanced.order1()->stop_price() != mid ){

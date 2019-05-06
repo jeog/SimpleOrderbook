@@ -19,14 +19,14 @@ along with this program. If not, see http://www.gnu.org/licenses.
 #include "../include/simpleorderbook.hpp"
 
 /* 
- *  The bulk of simpleorderbook is implemented via template code in:
+ *  The bulk of simpleorderbook is implemented in:
  *
  *      include/simpleorderbook.hpp,
- *      tpp/simpleorderbook/bndl.tpp
- *      tpp/simpleorderbook/core.tpp
- *      tpp/simpleorderbook/public.tpp
- *      tpp/simpleorderbook/util.tpp
- *      tpp/simpleorderbook/advanced.tpp
+ *      src/orderbook/core.cpp
+ *      src/orderbook/advanced.cpp
+ *      src/orderbook/public.cpp
+ *      src/orderbook/impl.tpp
+ *      src/orderbook/specials.tpp
  *
  *  Interfaces are declared in: 
  *
@@ -77,6 +77,11 @@ liquidity_exception::liquidity_exception( size_t initial_size,
     {
     }
 
+
+#define THROW_ENUM_TO_STR_EXC(name, val) \
+    throw std::runtime_error("bad " + std::string(name) + ": " \
+                             + std::to_string(static_cast<int>(val)) )
+
 std::string 
 to_string(const order_type& ot)
 { 
@@ -85,9 +90,7 @@ to_string(const order_type& ot)
     case order_type::limit: return "limit";
     case order_type::stop: return "stop";
     case order_type::stop_limit: return "stop-limit";
-    default: 
-        throw std::logic_error( "bad order_type: " +
-                std::to_string(static_cast<int>(ot)) );
+    default: THROW_ENUM_TO_STR_EXC("order_type", ot);
     }
 }
 
@@ -106,9 +109,7 @@ to_string(const callback_msg& cm)
     case callback_msg::trigger_trailing_stop: return "trigger-trailing-stop";
     case callback_msg::adjust_trailing_stop: return "adjust-trailing-stop";
     case callback_msg::kill: return "kill";
-    default:
-        throw std::logic_error( "bad callback_msg: " +
-                std::to_string(static_cast<int>(cm)) );
+    default: THROW_ENUM_TO_STR_EXC("callback_msg", cm);
     }
 }
 
@@ -119,9 +120,7 @@ to_string(const side_of_market& s)
     case side_of_market::bid: return "bid";
     case side_of_market::ask: return "ask";
     case side_of_market::both: return "bid/ask";
-    default:
-        throw std::logic_error( "bad side_of_market: " +
-                std::to_string(static_cast<int>(s)) );
+    default: THROW_ENUM_TO_STR_EXC("side_of_market", s);
     }
 }
 
@@ -132,9 +131,7 @@ to_string(const side_of_trade& s)
     case side_of_trade::buy: return "buy";
     case side_of_trade::sell: return "sell";
     case side_of_trade::both: return "buy/sell";
-    default:
-        throw std::logic_error( "bad side_of_trade: " +
-                std::to_string(static_cast<int>(s)) );
+    default: THROW_ENUM_TO_STR_EXC("side_of_trade", s);
     }
 }
 
@@ -151,10 +148,9 @@ to_string(const order_condition& oc)
     case order_condition::_trailing_stop_active: return "trailing-stop-active";
     case order_condition::trailing_bracket: return "trailing-bracket";
     case order_condition::_trailing_bracket_active: return "trailing-bracket-active";
+    case order_condition::all_or_nothing: return "all-or-noting";
     case order_condition::none: return "none";
-    default:
-        throw std::logic_error( "bad order_condition: " +
-                std::to_string(static_cast<int>(oc)) );
+    default: THROW_ENUM_TO_STR_EXC("order_condition", oc);
     }
 }
 
@@ -165,22 +161,29 @@ to_string(const condition_trigger& ct)
     case condition_trigger::fill_partial: return "fill-partial";
     case condition_trigger::fill_full: return "fill-full";
     case condition_trigger::none: return "none";
-    default:
-        throw std::logic_error( "bad condition_trigger: " +
-                std::to_string(static_cast<int>(ct)) );
+    default: THROW_ENUM_TO_STR_EXC("condition_trigger", ct);
     }
 }
+
+#undef THROW_ENUM_TO_STR_EXC
+
 
 std::string
 to_string(const clock_type::time_point& tp)
 {
-    // TODO what are we doing here?
-    auto sys_tp = std::chrono::system_clock::now() +
-        std::chrono::duration_cast<std::chrono::microseconds>(tp - clock_type::now());
-    std::time_t t = std::chrono::system_clock::to_time_t(sys_tp);
-    std::string ts = std::ctime(&t); 
-    ts.resize(ts.size() -1);
-    return ts;
+    using namespace std::chrono;
+
+    auto sys_tp = system_clock::now() +
+       duration_cast<microseconds>(tp - clock_type::now());
+
+    auto t = system_clock::to_time_t(sys_tp);
+    std::string buf(24, '\0');
+    strftime( &buf[0], 24, "%Y-%m-%d-%H-%M", localtime(&t) );
+    buf.erase( buf.find_first_of('\0') );
+
+    static const long long MSEC_IN_DAY = 24 * 60 * 60 * 1000000LL;
+    long long ms = sys_tp.time_since_epoch().count() % MSEC_IN_DAY;
+    return buf + "-" + std::to_string(ms);
 }
 
 std::string
@@ -230,6 +233,14 @@ to_string(const AdvancedOrderTicket& aot){
     return ss.str();
 }
 
+std::string
+to_string(const timesale_entry_type& entry){
+    std::stringstream ss;
+    ss << '<' << std::get<0>(entry) << ", " << std::get<1>(entry)
+       << ", " << std::get<2>(entry) << '>';
+    return ss.str();
+}
+
 std::ostream&
 operator<<(std::ostream& out, const order_type& ot)
 { return ( out << to_string(ot)); }
@@ -268,6 +279,10 @@ operator<<(std::ostream& out, const OrderParamaters& op)
 std::ostream&
 operator<<(std::ostream& out, const AdvancedOrderTicket& aot)
 { return (out << to_string(aot)); }
+
+std::ostream&
+operator<<(std::ostream& out, const timesale_entry_type& entry)
+{ return (out << to_string(entry)); }
 
 order_info::order_info()
     :

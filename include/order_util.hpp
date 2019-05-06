@@ -124,6 +124,26 @@ is_active_trailing_bracket(const _order_bndl& bndl )
 { return bndl.cond == order_condition::_trailing_bracket_active; }
 
 static constexpr bool
+is_FOK(const order_queue_elem& e)
+{ return e.cond == order_condition::fill_or_kill; }
+
+static constexpr bool
+is_FOK(const _order_bndl& bndl )
+{ return bndl.cond == order_condition::fill_or_kill; }
+
+static constexpr bool
+is_AON(const order_queue_elem& e)
+{ return e.cond == order_condition::all_or_nothing; }
+
+static constexpr bool
+is_AON(const _order_bndl& bndl )
+{ return bndl.cond == order_condition::all_or_nothing; }
+
+static constexpr bool
+is_not_AON(const _order_bndl& bndl )
+{ return bndl.cond != order_condition::all_or_nothing; }
+
+static constexpr bool
 needs_partial_fill(const order_queue_elem& e)
 { return e.cond_trigger == condition_trigger::fill_partial; }
 
@@ -138,6 +158,14 @@ needs_full_fill(const order_queue_elem& e)
 static constexpr bool
 needs_full_fill(const _order_bndl& bndl)
 { return bndl.trigger == condition_trigger::fill_full; }
+
+static constexpr bool
+has_condition_trigger(const order_queue_elem& e)
+{ return e.cond_trigger != condition_trigger::none; }
+
+static constexpr bool
+has_condition_trigger(const _order_bndl& bndl)
+{ return bndl.trigger != condition_trigger::none; }
 
 static constexpr double
 index_price(const order_queue_elem& e )
@@ -179,9 +207,18 @@ as_price_params(const sob_class *sob, id_type id)
 {
     try{
         auto& iwrap = sob->_from_cache(id);
-        return iwrap.is_limit
-            ? as_price_params( sob, iwrap.p, *(iwrap.l_iter) )
-                : as_price_params( sob, iwrap.p, *(iwrap.s_iter) );
+        switch(iwrap.type){
+        case chain_iter_wrap::itype::limit:
+            return as_price_params(sob, iwrap.p, *(iwrap.l_iter) );
+        case chain_iter_wrap::itype::stop:
+            return as_price_params(sob, iwrap.p, *(iwrap.s_iter) );
+        case chain_iter_wrap::itype::aon_buy:
+            return OrderParamatersByPrice(true, iwrap.a_iter->sz,
+                sob->_itop(iwrap.p), 0);
+        case chain_iter_wrap::itype::aon_sell:
+            return OrderParamatersByPrice(false, iwrap.a_iter->sz,
+                sob->_itop(iwrap.p), 0);
+        };
     }catch( OrderNotInCache& e ){}
 
     return OrderParamatersByPrice();
@@ -204,27 +241,47 @@ as_order_info(bool is_buy,
     return {ot, is_buy, (bndl.limit ? bndl.limit : 0), price, bndl.sz, aot};
 }
 
+static order_info
+as_order_info(bool is_buy,
+              double price,
+              const aon_bndl& bndl,
+              const AdvancedOrderTicket& aot)
+{  return order_info(order_type::limit, is_buy, price, 0, bndl.sz, aot); }
+
+template<typename ChainTy>
+static order_info
+as_order_info( const sob_class *sob,
+               id_type id,
+               plevel p,
+               typename ChainTy::iterator iter,
+               bool is_buy )
+{ return as_order_info(is_buy, sob->_itop(p), *iter, sob->_bndl_to_aot(*iter)); }
+
 template<typename ChainTy>
 static order_info
 as_order_info( const sob_class *sob,
                id_type id,
                plevel p,
                typename ChainTy::iterator iter )
-{
-    const auto& bndl = *iter;
-    AdvancedOrderTicket aot = sob->_bndl_to_aot(bndl);
-    bool is_buy = sob->_is_buy_order(p, bndl);
-    return as_order_info(is_buy, sob->_itop(p), bndl, aot);
-}
+{ return as_order_info<ChainTy>(sob, id, p, iter, sob->_is_buy_order(p, *iter)); }
+
 
 static order_info
 as_order_info(const sob_class *sob, id_type id)
 {
     try{
         auto& iwrap = sob->_from_cache(id);
-        return iwrap.is_limit
-            ? as_order_info<limit_chain_type>(sob, id, iwrap.p, iwrap.l_iter )
-            : as_order_info<stop_chain_type>(sob, id, iwrap.p, iwrap.s_iter );
+        plevel p = iwrap.p;
+        switch(iwrap.type){
+        case chain_iter_wrap::itype::limit:
+            return as_order_info<limit_chain_type>(sob, id, p, iwrap.l_iter);
+        case chain_iter_wrap::itype::stop:
+            return as_order_info<stop_chain_type>(sob, id, p, iwrap.s_iter);
+        case chain_iter_wrap::itype::aon_buy:
+            return as_order_info<aon_chain_type>(sob, id, p, iwrap.a_iter, true);
+        case chain_iter_wrap::itype::aon_sell:
+            return as_order_info<aon_chain_type>(sob, id, p, iwrap.a_iter, false);
+        };
     }catch( OrderNotInCache& e ){}
 
     return order_info();
@@ -238,12 +295,13 @@ static order_type
 as_order_type(const limit_bndl& bndl)
 { return order_type::limit; }
 
-static inline void
-dump(std::ostream& out, const limit_bndl& bndl, bool is_buy )
-{ out << " <" << (is_buy ? "B " : "S ")
-              << bndl.sz << " #" << bndl.id << "> "; }
+template<typename BndlTy>
+static void
+dump(std::ostream& out, const BndlTy& bndl, bool is_buy )
+{ out << " <" << (is_buy ? "B " : "S ") << bndl.sz
+      << (is_AON(bndl) ? " AON #" : "#" ) << bndl.id << "> "; }
 
-static inline void
+static void
 dump(std::ostream& out, const stop_bndl& bndl, bool is_buy )
 {
     out << " <" << (is_buy ? "B " : "S ") << bndl.sz << " @ "

@@ -118,6 +118,7 @@ public:
     { return _condition != order_condition::none; }
 };
 
+
 class AdvancedOrderTicketOCO
         : public AdvancedOrderTicket {
 protected:
@@ -129,43 +130,26 @@ protected:
 public:
     static const order_condition condition;
 
-    static inline AdvancedOrderTicketOCO
+    static AdvancedOrderTicketOCO
     build_limit( bool is_buy,
                  double limit,
                  size_t sz,
-                 condition_trigger trigger = default_trigger )
-    {
-        if( !limit ){
-            throw std::invalid_argument("invalid price");
-        }
-        return AdvancedOrderTicketOCO(trigger, is_buy, sz, limit, 0.0);
-    }
+                 condition_trigger trigger = default_trigger );
 
-    static inline AdvancedOrderTicketOCO
+    static AdvancedOrderTicketOCO
     build_stop( bool is_buy,
                 double stop,
                 size_t sz,
-                condition_trigger trigger = default_trigger )
-    {
-        if( !stop ){
-            throw std::invalid_argument("invalid price");
-        }
-        return AdvancedOrderTicketOCO(trigger, is_buy, sz, 0.0, stop);
-    }
+                condition_trigger trigger = default_trigger );
 
-    static inline AdvancedOrderTicketOCO
+    static AdvancedOrderTicketOCO
     build_stop_limit( bool is_buy,
                       double stop,
                       double limit,
                       size_t sz,
-                      condition_trigger trigger = default_trigger )
-    {
-        if( !limit || !stop ){
-            throw std::invalid_argument("invalid price(s)");
-        }
-        return AdvancedOrderTicketOCO(trigger, is_buy, sz, limit, stop);
-    }
+                      condition_trigger trigger = default_trigger );
 };
+
 
 class AdvancedOrderTicketOTO
         : public AdvancedOrderTicket {
@@ -178,50 +162,28 @@ protected:
 public:
     static const order_condition condition;
 
-    static inline AdvancedOrderTicketOTO
+    static AdvancedOrderTicketOTO
     build_market( bool is_buy,
                   size_t sz,
-                  condition_trigger trigger = default_trigger )
-    {
-        return AdvancedOrderTicketOTO(trigger, is_buy, sz, 0.0, 0.0);
-    }
-
-    static inline AdvancedOrderTicketOTO
+                  condition_trigger trigger = default_trigger );
+    static AdvancedOrderTicketOTO
     build_limit( bool is_buy,
                  double limit,
                  size_t sz,
-                 condition_trigger trigger = default_trigger )
-    {
-        if( !limit ){
-            throw std::invalid_argument("invalid price");
-        }
-        return AdvancedOrderTicketOTO(trigger, is_buy, sz, limit, 0.0);
-    }
+                 condition_trigger trigger = default_trigger );
 
-    static inline AdvancedOrderTicketOTO
+    static AdvancedOrderTicketOTO
     build_stop( bool is_buy,
                 double stop,
                 size_t sz,
-                condition_trigger trigger = default_trigger )
-    {
-        if( !stop ){
-            throw std::invalid_argument("invalid price");
-        }
-        return AdvancedOrderTicketOTO(trigger, is_buy, sz, 0.0, stop);
-    }
+                condition_trigger trigger = default_trigger );
 
-    static inline AdvancedOrderTicketOTO
+    static AdvancedOrderTicketOTO
     build_stop_limit( bool is_buy,
                       double stop,
                       double limit,
                       size_t sz,
-                      condition_trigger trigger = default_trigger )
-    {
-        if( !limit || !stop ){
-            throw std::invalid_argument("invalid price(s)");
-        }
-        return AdvancedOrderTicketOTO(trigger, is_buy, sz, limit, stop);
-    }
+                      condition_trigger trigger = default_trigger );
 };
 
 class AdvancedOrderTicketFOK
@@ -236,9 +198,7 @@ public:
 
     static inline AdvancedOrderTicketFOK
     build(condition_trigger trigger = default_trigger)
-    {
-        return AdvancedOrderTicketFOK(trigger);
-    }
+    { return AdvancedOrderTicketFOK(trigger); }
 };
 
 
@@ -250,14 +210,7 @@ protected:
                                 size_t sz,
                                 double loss_limit,
                                 double loss_stop,
-                                double target_limit )
-        :
-            AdvancedOrderTicket( order_condition::bracket, trigger,
-                    new OrderParamatersByPrice(is_buy, sz, loss_limit, loss_stop),
-                    new OrderParamatersByPrice(is_buy, sz, target_limit, 0)
-                    )
-        {
-        }
+                                double target_limit );
 
 public:
     static const order_condition condition;
@@ -293,16 +246,10 @@ public:
 /* only using fill_full trigger for now (no mechanism for size update) */
 class AdvancedOrderTicketTrailingStop
         : public AdvancedOrderTicket {
-
 protected:
     AdvancedOrderTicketTrailingStop(size_t nticks,
                                     order_condition condition,
-                                    condition_trigger trigger)
-        :
-            AdvancedOrderTicket(condition, trigger,
-                    new OrderParamatersByNTicks(0,0,0,nticks))
-        {
-        }
+                                    condition_trigger trigger);
 
 public:
     static const order_condition condition;
@@ -310,21 +257,14 @@ public:
 
     static AdvancedOrderTicketTrailingStop
     build(size_t nticks);
-
 };
+
 
 /* private inheritance from ...TrailingStop is a bit messy, so... */
 class AdvancedOrderTicketTrailingBracket
         : public AdvancedOrderTicket{
-
 protected:
-    AdvancedOrderTicketTrailingBracket(size_t stop_nticks, size_t target_nticks)
-        :
-            AdvancedOrderTicket(condition, default_trigger,
-                    new OrderParamatersByNTicks(0,0,0,stop_nticks),
-                    new OrderParamatersByNTicks(0,0,target_nticks,0))
-        {
-        }
+    AdvancedOrderTicketTrailingBracket(size_t stop_nticks, size_t target_nticks);
 
 public:
     static const order_condition condition;
@@ -332,6 +272,22 @@ public:
 
     static AdvancedOrderTicketTrailingBracket
     build(size_t stop_nticks, size_t target_nticks);
+};
+
+
+class AdvancedOrderTicketAON
+        : public AdvancedOrderTicket {
+protected:
+    AdvancedOrderTicketAON()
+        : AdvancedOrderTicket( condition, default_trigger )
+    {}
+public:
+    static const order_condition condition;
+    static const condition_trigger default_trigger;
+
+    static inline AdvancedOrderTicketAON
+    build()
+    { return AdvancedOrderTicketAON(); }
 };
 
 }; /* sob */

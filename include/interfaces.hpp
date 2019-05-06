@@ -117,6 +117,19 @@ public:
 
     virtual order_info
     get_order_info(id_type id) const = 0;
+
+    /* NEW - AON orders */
+    virtual std::map<double, std::pair<size_t,size_t>>
+    aon_market_depth() const = 0;
+
+    virtual size_t
+    total_aon_bid_size() const = 0;
+
+    virtual size_t
+    total_aon_ask_size() const = 0;
+
+    virtual size_t
+    total_aon_size() const = 0;
 };
 
 
@@ -226,6 +239,16 @@ public:
 
     virtual void 
     dump_sell_stops(std::ostream& out = std::cout) const = 0;
+
+    /* NEW - AON orders */
+    virtual void
+    dump_aon_buy_limits(std::ostream& out = std::cout) const = 0;
+
+    virtual void
+    dump_aon_sell_limits(std::ostream& out = std::cout) const = 0;
+
+    virtual void
+    dump_aon_limits(std::ostream& out = std::cout) const = 0;
 
 };
 

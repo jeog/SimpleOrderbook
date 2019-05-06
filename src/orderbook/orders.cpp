@@ -36,33 +36,36 @@ SOB_CLASS::insert_limit_order( bool buy,
                                order_exec_cb_type exec_cb,
                                const AdvancedOrderTicket& advanced )
 {
-    if(size == 0){
+    if(size == 0)
         throw std::invalid_argument("invalid order size");
-    }
 
-    std::unique_ptr<OrderParamaters> pp1;
-    std::unique_ptr<OrderParamaters> pp2;
+    order_condition cond = advanced.condition();
+    condition_trigger trig = advanced.trigger();
+
+    std::unique_ptr<OrderParamaters> pp1, pp2;
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
         /* --- CRITICAL SECTION --- */
         limit = _tick_price_or_throw(limit, "invalid limit price");
+
         if( advanced ){
             std::tie(pp1, pp2) = _build_advanced_params(buy, size, advanced);
-
-            order_condition cond = advanced.condition();
-            if( cond == order_condition::bracket ){
+            switch( cond ){
+            case order_condition::bracket:
                 _check_limit_order(buy, limit, pp2, cond );
-            }else if( cond == order_condition::one_cancels_other ){
+                break;
+            case order_condition::one_cancels_other:
                 _check_limit_order(buy, limit, pp1, cond );
-            }
+                break;
+            default: break;
+            };
         }
         /* --- CRITICAL SECTION --- */
     }
-    return _push_order_and_wait(order_type::limit, buy, limit, 0, size, exec_cb,
-                                advanced.condition(), advanced.trigger(),
-                                std::move(pp1), std::move(pp2) );
-}
 
+    return _push_order_and_wait(order_type::limit, buy, limit, 0, size, exec_cb,
+                                cond, trig, std::move(pp1), std::move(pp2) );
+}
 
 
 id_type
@@ -71,32 +74,34 @@ SOB_CLASS::insert_market_order( bool buy,
                                 order_exec_cb_type exec_cb,
                                 const AdvancedOrderTicket& advanced )
 {
-    if(size == 0){
+    if(size == 0)
         throw std::invalid_argument("invalid order size");
-    }
 
-    std::unique_ptr<OrderParamaters> pp1;
-    std::unique_ptr<OrderParamaters> pp2;
+    order_condition cond = advanced.condition();
+    condition_trigger trig = advanced.trigger();
+
+    std::unique_ptr<OrderParamaters> pp1, pp2;
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
         /* --- CRITICAL SECTION --- */
         if( advanced ){
-            order_condition cond = advanced.condition();
-            if( cond == order_condition::one_cancels_other ){
+            switch( cond ){
+            case order_condition::one_cancels_other:
                 throw advanced_order_error("OCO invalid for market order");
-            }else if( cond == order_condition::fill_or_kill ){
+            case order_condition::fill_or_kill:
                 throw advanced_order_error("FOK invalid for market order");
-            }
-
+            case order_condition::all_or_nothing:
+                throw advanced_order_error("AON invalid for market order");
+            default: break;
+            };
             std::tie(pp1, pp2) = _build_advanced_params(buy, size, advanced);
         }
         /* --- CRITICAL SECTION --- */
     }
-    return _push_order_and_wait(order_type::market, buy, 0, 0, size, exec_cb,
-                                advanced.condition(), advanced.trigger(),
-                                std::move(pp1), std::move(pp2) );
-}
 
+    return _push_order_and_wait(order_type::market, buy, 0, 0, size, exec_cb,
+                                cond, trig, std::move(pp1), std::move(pp2) );
+}
 
 
 id_type
@@ -119,50 +124,55 @@ SOB_CLASS::insert_stop_order( bool buy,
                               order_exec_cb_type exec_cb,
                               const AdvancedOrderTicket& advanced )
 {
-    if(size == 0){
+    if(size == 0)
         throw std::invalid_argument("invalid order size");
-    }
 
-    std::unique_ptr<OrderParamaters> pp1;
-    std::unique_ptr<OrderParamaters> pp2;
     order_type ot = order_type::stop;
+    order_condition cond = advanced.condition();
+    condition_trigger trig = advanced.trigger();
+
+    std::unique_ptr<OrderParamaters> pp1, pp2;
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
         /* --- CRITICAL SECTION --- */
         stop = _tick_price_or_throw(stop, "invalid stop price");
+
         if( limit ){
             limit = _tick_price_or_throw(limit, "invalid limit price");
             ot = order_type::stop_limit;
         }
 
         if( advanced ){
-            if( advanced.condition() == order_condition::fill_or_kill ){
-                throw advanced_order_error("FOK invalid for market order");
-            }
+            switch( cond) {
+            case order_condition::fill_or_kill:
+                throw advanced_order_error("FOK invalid for stop order");
+            case order_condition::all_or_nothing:
+                throw advanced_order_error("AON invalid for stop order");
+            default: break;
+            };
 
             std::tie(pp1, pp2) = _build_advanced_params(buy, size, advanced);
-
-            if( pp1->stop_price() == stop ){
+            if( pp1->stop_price() == stop )
                 throw advanced_order_error("stop orders of same price");
-            }
+
         }
         /* --- CRITICAL SECTION --- */
     }
-    return _push_order_and_wait(ot, buy, limit, stop, size, exec_cb,
-                                advanced.condition(), advanced.trigger(),
-                                std::move(pp1), std::move(pp2) );
+
+    return _push_order_and_wait(ot, buy, limit, stop, size, exec_cb, cond,
+                                trig, std::move(pp1), std::move(pp2) );
 }
 
 
 bool
 SOB_CLASS::pull_order(id_type id)
 {
-    if(id == 0){
+    if(id == 0)
         throw std::invalid_argument("invalid order id(0)");
-    }
-    return _push_order_and_wait(order_type::null, false,
-                                0, 0, 0, nullptr, order_condition::none,
-                                condition_trigger::none, nullptr, nullptr, id);
+
+    return _push_order_and_wait(order_type::null, false, 0, 0, 0, nullptr,
+                                order_condition::none, condition_trigger::none,
+                                nullptr, nullptr, id);
 }
 
 
@@ -240,70 +250,6 @@ SOB_CLASS::replace_with_stop_order( id_type id,
 }
 
 
-void
-SOB_CLASS::dump_internal_pointers(std::ostream& out) const
-{
-    // hack to get tick size - guaranteed >= 3 ticks
-    auto tick = _itop(_beg+1) - _itop(_beg);
-
-    auto println = [&](std::string n, plevel p){
-        std::string price("N/A");
-        try{
-            if( p ){
-                _assert_plevel(p);
-                double d;
-                if( p == &(*_book.end()) )
-                    d = _itop(p-1) + tick;
-                else if( p == &(*_book.begin()) )
-                    d = _itop(p+1) - tick;
-                else
-                    d = _itop(p);
-                price = std::to_string(d);
-            }
-        }catch(std::range_error&){}
-
-        out<< std::setw(18) << n << " : "
-           << std::setw(14) << price << " : "
-           << std::hex << p << std::dec << std::endl;
-    };
-
-
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-    std::ios sstate(nullptr);
-    sstate.copyfmt(out);
-    out<< "*** CACHED PLEVELS ***" << std::left << std::endl;
-    println("_end", _end);
-    println("_high_sell_limit", _high_sell_limit);
-    println("_high_buy_stop", _high_buy_stop);
-    println("_low_buy_stop", _low_buy_stop);
-    println("_ask", _ask);
-    println("_last", _last);
-    println("_bid", _bid);
-    println("_high_sell_stop", _high_sell_stop);
-    println("_low_sell_stop", _low_sell_stop);
-    println("_low_buy_limit", _low_buy_limit);
-    println("_beg", _beg);
-    out.copyfmt(sstate);
-    /* --- CRITICAL SECTION --- */
-}
-
-
-size_t
-SOB_CLASS::bid_size() const
-{
-    return (_bid >= _beg)
-        ? detail::chain<limit_chain_type>::size( _bid )
-        : 0;
-}
-
-size_t
-SOB_CLASS::ask_size() const
-{
-    return (_ask < _end)
-        ? detail::chain<limit_chain_type>::size( _ask )
-        : 0;
-}
 
 }; /* sob */
 

@@ -34,7 +34,7 @@ namespace {
 }
 
 int
-TEST_advanced_BRACKET_1(FullInterface *orderbook)
+TEST_advanced_BRACKET_1(FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -47,16 +47,16 @@ TEST_advanced_BRACKET_1(FullInterface *orderbook)
             conv(end-10*incr), conv(end-12*incr), conv(end-6*incr), sz
             );
 
-    cout<< "AdvancedOrderTicketBRACKET: " << aot << endl;
-    cout<< "OrderParamaters 1: " << *aot.order1() << endl;
-    cout<< "OrderParamaters 2: " << *aot.order2() << endl;
+    out<< "AdvancedOrderTicketBRACKET: " << aot << endl;
+    out<< "OrderParamaters 1: " << *aot.order1() << endl;
+    out<< "OrderParamaters 2: " << *aot.order2() << endl;
 
     orderbook->insert_limit_order(true, conv(end-8*incr), sz, ecb, aot);
     orderbook->insert_market_order(false, sz);
     // end - 6      L 100
     // end - 8
     // end - 10     S 100
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     if( orderbook->volume() != sz ){
         return 1;
@@ -65,7 +65,7 @@ TEST_advanced_BRACKET_1(FullInterface *orderbook)
     }
 
     orderbook->insert_market_order(true, sz);
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     if( orderbook->volume() != 2*sz ){
         return 3;
@@ -78,7 +78,7 @@ TEST_advanced_BRACKET_1(FullInterface *orderbook)
 
 
 int
-TEST_advanced_BRACKET_2(FullInterface *orderbook)
+TEST_advanced_BRACKET_2(FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -100,7 +100,7 @@ TEST_advanced_BRACKET_2(FullInterface *orderbook)
     // end - 10     S 100
     // ..
     // beg          L 100
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     if( orderbook->volume() != sz ){
         return 1;
@@ -112,10 +112,10 @@ TEST_advanced_BRACKET_2(FullInterface *orderbook)
     //
     // end - 12     L 100
     //
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     orderbook->insert_limit_order(true, end, 2*sz, ecb);
-    dump_orders(orderbook);
+    dump_orders(orderbook, out);
 
     if( orderbook->volume() != 3*sz ){
         return 3;
@@ -132,7 +132,7 @@ TEST_advanced_BRACKET_2(FullInterface *orderbook)
 
 
 int
-TEST_advanced_BRACKET_3(FullInterface *orderbook)
+TEST_advanced_BRACKET_3(FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -156,7 +156,7 @@ TEST_advanced_BRACKET_3(FullInterface *orderbook)
     //
     // beg         L 50
     //
-    dump_orders(orderbook);
+    dump_orders(orderbook,out);
 
     // NOTE the initial OTO limit is inserted BEFORE the BRACKET limit
     if( orderbook->volume() != static_cast<unsigned long>(1.5 * sz) ){

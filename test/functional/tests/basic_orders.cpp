@@ -27,7 +27,7 @@ namespace{
 }
 
 int
-TEST_basic_orders_1(sob::FullInterface *orderbook)
+TEST_basic_orders_1(sob::FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
@@ -64,7 +64,7 @@ TEST_basic_orders_1(sob::FullInterface *orderbook)
 }
 
 int
-TEST_basic_orders_2(FullInterface *orderbook)
+TEST_basic_orders_2(FullInterface *orderbook, std::ostream& out)
 {
     static const AdvancedOrderTicket AOT_NULL = AdvancedOrderTicket::null;
 
@@ -83,12 +83,12 @@ TEST_basic_orders_2(FullInterface *orderbook)
     orderbook->insert_stop_order( false, conv(b+2*incr), conv(b+incr), sz,
                                   callback, AOT_NULL );
 
-    orderbook->dump_limits();
-    orderbook->dump_buy_limits();
-    orderbook->dump_sell_limits();
-    orderbook->dump_stops();
-    orderbook->dump_buy_stops();
-    orderbook->dump_sell_stops();
+    orderbook->dump_limits(out);
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_stops(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
 
     orderbook->insert_market_order(false, static_cast<size_t>(sz/2), callback);
     // 100 <- s50.a s50.b
@@ -97,6 +97,9 @@ TEST_basic_orders_2(FullInterface *orderbook)
     size_t bs = orderbook->bid_size();
     size_t tbs = orderbook->total_bid_size();
     size_t as = orderbook->ask_size();
+
+    orderbook->dump_limits(out);
+    orderbook->dump_stops(out);
 
     if( bs != sz || tbs != sz || as != static_cast<size_t>(sz*.5) ){
         return 1;

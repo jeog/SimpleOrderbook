@@ -25,7 +25,7 @@ SOURCE_DIR = _join(_dirname(__file__),'src')
 
 setup_dict = {
     "name":NAME,
-    "version":'0.5',
+    "version":'0.6',
     "description": "financial-market orderbook and matching engine",
     "author":"Jonathon Ogden",
     "author_email":"jeog.dev@gmail.com"

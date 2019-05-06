@@ -33,8 +33,6 @@ run(std::string name, const categories_ty& categories, int argc, char* argv[])
         if( err ){
             cout<< endl << endl
                 << "*** " << tc.first << " ERROR (" << err << ") ***" << endl
-                << "*** " << tc.first << " ERROR (" << err << ") ***" << endl
-                << "*** " << tc.first << " ERROR (" << err << ") ***" << endl
                 << endl << endl;
             return err;
         }

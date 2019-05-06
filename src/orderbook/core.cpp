@@ -29,8 +29,13 @@ along with this program. If not, see http://www.gnu.org/licenses.
 //        done implicitly. If (later) called from outside core.cpp
 //        need to add them.
 
+// TODO pre-post AON checks in market insert
+// TODO price-mediation in gapped fills (user input ?)
+// TODO cache the aon levels in a list to avoid gaps in 'window'
+//
 
 namespace sob{
+
 
 /***************************************************************
               *** our ersatz iterator approach ****
@@ -57,6 +62,10 @@ SOB_CLASS::SimpleOrderbookBase(size_t incr, itop_ty itop, ptoi_ty ptoi)
         _high_buy_stop( _beg - 1 ),
         _low_sell_stop( _end ),
         _high_sell_stop( _beg - 1 ),
+        _low_buy_aon( _end ),
+        _high_buy_aon( _beg - 1 ),
+        _low_sell_aon( _end ),
+        _high_sell_aon( _beg - 1 ),
         /* order/id caches for faster lookups */
         _id_cache(),
         _trailing_sell_stops(),
@@ -176,49 +185,49 @@ SOB_CLASS::_insert_order(const order_queue_elem& e)
 
 template<side_of_trade side>
 fill_type
-SOB_CLASS::_route_basic_order(const order_queue_elem& e)
+SOB_CLASS::_route_basic_order(const order_queue_elem& e, bool pass_conditions)
 {
+    constexpr bool IsBuy = side == side_of_trade::buy;
+
     if( side == side_of_trade::both ){
-        return e.is_buy ? _route_basic_order<side_of_trade::buy>(e)
-                        : _route_basic_order<side_of_trade::sell>(e);
+        return e.is_buy
+            ? _route_basic_order<side_of_trade::buy>(e, pass_conditions)
+            : _route_basic_order<side_of_trade::sell>(e, pass_conditions);
     }
+
     switch( e.type ){
     case order_type::limit:
-        return _insert_limit_order<side == side_of_trade::buy>(e);
+        return _insert_limit_order<IsBuy>(e,pass_conditions);
     case order_type::market:
-        _insert_market_order<side == side_of_trade::buy>(e);
+        _insert_market_order<IsBuy>(e);
         return fill_type::immediate_full;
     case order_type::stop: /* no break */
     case order_type::stop_limit:
-        _insert_stop_order<side == side_of_trade::buy>(e);
+        _insert_stop_order<IsBuy>(e, pass_conditions);
         return fill_type::none;
     default:
         throw std::runtime_error("invalid order type in order_queue");
     }
 }
-template fill_type SOB_CLASS::_route_basic_order<side_of_trade::both>(const order_queue_elem&);
-template fill_type SOB_CLASS::_route_basic_order<side_of_trade::buy>(const order_queue_elem&);
-template fill_type SOB_CLASS::_route_basic_order<side_of_trade::sell>(const order_queue_elem&);
 
+template fill_type
+SOB_CLASS::_route_basic_order<side_of_trade::both>(const order_queue_elem&, bool);
 
-bool
-SOB_CLASS::_inject_order(const order_queue_elem& e, bool partial_ok)
-{
-    switch( _route_basic_order<>(e) ){
-    case fill_type::immediate_full: return true;
-    case fill_type::immediate_partial: return partial_ok;
-    default: return false;
-    }
-}
+template fill_type
+SOB_CLASS::_route_basic_order<side_of_trade::buy>(const order_queue_elem&, bool);
+
+template fill_type
+SOB_CLASS::_route_basic_order<side_of_trade::sell>(const order_queue_elem&, bool);
+
 
 
 /*
- *  _trade<bool> : the guts of order execution:
- *      match orders against the order book,
- *      adjust internal state,
- *      check for overflows
- *      if price changed adjust trailing stops
- *      look/execute stop orders
+ *  the guts of order execution:
+ *    - match orders against the order book,
+ *    - adjust internal state,
+ *    - check for overflows
+ *    - if price changed adjust trailing stops
+ *    - look/execute stop orders
  */
 template<bool BidSide>
 size_t
@@ -227,20 +236,42 @@ SOB_CLASS::_trade( plevel plev,
                    size_t size,
                    const order_exec_cb_type& exec_cb )
 {
-    using namespace detail::exec;
+    using namespace detail;
+    using AON = exec::aon<BidSide>;
+    using CORE = exec::core<BidSide>;
+    using LIMIT = exec::limit<BidSide>;
 
+    assert(plev);
+
+    bool all;
     plevel old_last = _last;
-    while(size){
-        /* can we trade at this price level? */
-        if( !core<BidSide>::is_executable_chain(this, plev) )
-            break;
+    plevel p = CORE::begin(this);
+    plevel end = CORE::end(this); // ALL orders must go thru queue
 
-        /* trade at this price level */
-        size = _hit_chain( core<BidSide>::get_inside(this), id, size, exec_cb );
+    while( size
+           && CORE::inside_of(p, plev)
+           && CORE::inside_of(p, end) )
+    {
+        if( AON::in_window(this, p) ){
+            /* first match against the AON chain */
+            aon_chain_type *ac = p->get_aon_chain<BidSide>();
+            if( ac ){
+                std::tie(size, all) = _hit_aon_chain(ac, p, id, size, exec_cb);
+                if( all ){
+                    p->destroy_aon_chain<BidSide>();
+                    AON::adjust_state_after_pull(this, p);
+                }
+            }
+        }
 
-        /* reset the inside price level (if we can) OR stop */
-        if( !core<BidSide>::find_new_best_inside(this) )
-            break;
+        if( LIMIT::in_window(this, p) ){
+            /* then match against the limit chain (which CAN have AON orders) */
+            std::tie(size, all) = _hit_chain( p, id, size, exec_cb );
+            if( all )
+                CORE::find_new_best_inside(this);
+        }
+
+        p = CORE::next_or_jump(this, p);
     }
 
     /*
@@ -256,11 +287,13 @@ SOB_CLASS::_trade( plevel plev,
     return size; /* what we couldn't fill */
 }
 
+
 /*
- * _hit_chain : handles all the trades at a particular plevel
- *              returns what it couldn't fill
+ *  handles all trades against the limit chain at a particular plevel; a
+ *  limit chain can hold a limit_bndl or aon_bndl AFTER the first order(
+ *  which can only be a limit chain )
  */
-size_t
+std::pair<size_t, bool>
 SOB_CLASS::_hit_chain( plevel plev,
                        id_type id,
                        size_t size,
@@ -273,24 +306,32 @@ SOB_CLASS::_hit_chain( plevel plev,
     auto pos = pchain->begin();
     for( ; pos != pchain->end() && size > 0; ++pos )
     {
+        /* if AON need to make sure enough size  */
+        if( order::is_AON(*pos) ){
+            if( size < pos->sz ){ /* if not, move to aon chain */
+                chain<limit_chain_type>::copy_bndl_to_aon_chain(this, plev, pos);
+                pos->sz = 0; // signal erase if last
+                continue;
+            }
+        }
+
         size_t amount = std::min(size, pos->sz);
 
         /* push callbacks onto queue; update state */
         _trade_has_occured( plev, amount, id, pos->id, exec_cb, pos->exec_cb );
 
         /* reduce the amount left to trade */
-        size -= amount;
+        size -= amount;     
 
         /* deal with advanced order conditions */
-        if( order::is_advanced(*pos) )
+        if( order::is_advanced(*pos) && order::has_condition_trigger(*pos) )
         {
-            assert(pos->trigger != condition_trigger::none);
             /* check if trigger condition is met */
             if( !order::needs_full_fill(*pos) || (pos->sz == amount) )
             {
                 // note - pos->sz hasn't been updated yet!
                 _handle_advanced_order_cancel(*pos, pos->id)
-                || _handle_advanced_order_trigger(*pos, pos->id);
+                    || _handle_advanced_order_trigger(*pos, pos->id);
             }
         }
 
@@ -304,11 +345,39 @@ SOB_CLASS::_hit_chain( plevel plev,
 
     /* backup to see if last order was completely filled, if so re-incr */
     --pos;
-    pchain->erase( pchain->begin(), (pos->sz ? pos : ++pos) );
-    return size;
+    auto r = pchain->erase( pchain->begin(), (pos->sz ? pos : ++pos) );
+    return std::make_pair(size, r == pchain->end());
 }
 
 
+/*
+ *  handles all trades against the aon chain at a particular plevel; an aon
+ *  chain only holds aon_bndls, all of which are older than orders on the
+ *  corresponding limit chain and therefore matched first
+ */
+std::pair<size_t, bool>
+SOB_CLASS::_hit_aon_chain( aon_chain_type *achain,
+                           plevel plev,
+                           id_type id,
+                           size_t size,
+                           const order_exec_cb_type& exec_cb )
+{
+    assert( !achain->empty() );
+    for( auto pos = achain->begin(); pos != achain->end() && size > 0; )
+    {
+        if( size >= pos->sz ){
+            _trade_has_occured(plev, pos->sz, id, pos->id, exec_cb, pos->exec_cb);
+            size -= pos->sz;
+            _id_cache.erase(pos->id);
+            pos = achain->erase(pos);
+        }else
+            ++pos;
+    }
+    return std::make_pair(size, achain->empty());
+}
+
+
+/* two orders have been matched */
 void
 SOB_CLASS::_trade_has_occured( plevel plev,
                                size_t size,
@@ -337,34 +406,172 @@ SOB_CLASS::_trade_has_occured( plevel plev,
 }
 
 
+/*
+ * CHECK IF ANY OLD AONs can be filled against new limit BEFORE we
+ * send it to be matched against the book
+ *
+ *   An aon @ a better price should take priority over any standard
+ *   limits on the other side.
+ *
+ *   AONs that are farthest from the limit are executed first.
+ */
+template<bool IsBuy>
+size_t
+SOB_CLASS::_match_aon_orders_PRE_trade(const order_queue_elem& e, plevel p)
+{
+    using namespace detail;
+
+    assert(p);
+    size_t rmndr = e.sz;
+    bool is_aon = order::is_AON(e);
+    auto overlaps = exec::aon<!IsBuy>::overlapping(this, p);
+
+    for( auto a = overlaps.rbegin(); a != overlaps.rend(); ++a )
+    {
+        plevel paon = a->first;
+        aon_bndl& aon = a->second.get();
+        auto fillable = _limit_is_fillable<!IsBuy>(paon, aon.sz, false);
+        size_t available = rmndr + fillable.second;
+
+        if( fillable.first
+            || (is_aon && (aon.sz == available))
+            || (!is_aon && (aon.sz < available)) )
+        {
+            auto bndl = chain<aon_chain_type>::pop(this, aon.id);
+
+            size_t r = _trade<IsBuy>(paon, bndl.id, bndl.sz, bndl.exec_cb);
+            if( r > rmndr )
+                throw std::runtime_error("AON has left over size(PRE)");
+
+            size_t filled_this = std::min(r, rmndr);
+            if( filled_this > 0 ){
+                /*
+                 * make the trade w/ *this* limit
+                 * right now just use *this* plevel for price, in the future
+                 * we'll want a more robust price-mediation mechanism
+                 */
+                _trade_has_occured( p , filled_this, bndl.id, e.id,
+                                    bndl.exec_cb, e.exec_cb );
+
+                // our limit still has this much left
+                rmndr -= filled_this;
+            }
+            if( rmndr == 0 )
+                break;
+        }
+    }
+    return rmndr;
+}
+
+
+/*
+ * CHECK IF ANY OLD AONs can be filled against new limit AFTER its been
+ * matched against the book
+ *
+ *   If we've inserted a new limit we now have to check if we can fill
+ *   any old(er) AONs that overlap with that plevel (or better)
+ *
+ *   AONs that are farthest from the limit are executed first.
+ */
+template<bool IsBuy>
+void
+SOB_CLASS::_match_aon_orders_POST_trade(const order_queue_elem& e, plevel p)
+{
+    using namespace detail;
+
+    auto overlaps = exec::aon<!IsBuy>::overlapping(this, p);
+
+    for( auto a = overlaps.rbegin(); a != overlaps.rend(); ++a ){
+        plevel p = a->first;
+        aon_bndl& aon = a->second.get();
+        if( _limit_is_fillable<!IsBuy>(p, aon.sz, false).first )
+        {
+            auto bndl = chain<aon_chain_type>::pop(this, aon.id);
+            if( _trade<IsBuy>(p, bndl.id, bndl.sz, bndl.exec_cb) )
+            {
+                throw std::runtime_error("AON has left over size(POST)");
+            }
+        }
+    }
+}
+
+
 template<bool BuyLimit>
 sob::fill_type
-SOB_CLASS::_insert_limit_order(const order_queue_elem& e)
+SOB_CLASS::_insert_limit_order(const order_queue_elem& e, bool pass_conditions)
 {
-    assert( detail::order::is_limit(e) );
-    fill_type fill = fill_type::none;
+    using namespace detail;
+
+    assert( order::is_limit(e) );
     plevel p = _ptoi(e.limit);
-    size_t rmndr = e.sz;
 
-    if( (BuyLimit && p >= _ask) || (!BuyLimit && p <= _bid) ){
-        /* If there are matching orders on the other side fill @ market
-           - pass ref to callback functor, we'll copy later if necessary
-           - return what we couldn't fill @ market */
-        rmndr = _trade<!BuyLimit>(p, e.id, e.sz, e.exec_cb);
-    }
+    /* execute any AONs that are valid w/ this order now available */
+    size_t rmndr = _match_aon_orders_PRE_trade<BuyLimit>(e, p);
+    if( rmndr == 0)
+        return fill_type::immediate_full;
 
-    if( rmndr > 0) {
-        /* insert what remains as limit order */
-        detail::chain<limit_chain_type>::template
-            push<BuyLimit>(this, p, limit_bndl(e.id, rmndr, e.exec_cb) );
-        if( rmndr < e.sz ){
-            fill = fill_type::immediate_partial;
+    /* If there are matching orders on the other side ... */
+    if( exec::core<!BuyLimit>::is_tradable(this, p) ){
+        /*
+         * if dealing with AON order we need to 'look-ahead' for a possible
+         * full fill before we send to the matching engine
+         */
+        if( !order::is_AON(e)
+            || _limit_is_fillable<BuyLimit>(p, rmndr, false).first )
+        {
+            // pass ref to callback functor, we'll copy later if necessary
+            // return what we couldn't fill
+            rmndr = _trade<!BuyLimit>(p, e.id, rmndr, e.exec_cb);
         }
-    }else{
-        fill = fill_type::immediate_full;
     }
 
-    return fill;
+    if( rmndr == 0)
+        return fill_type::immediate_full;
+
+    if( order::is_AON(e)
+        && ( exec::limit<!BuyLimit>::is_tradable(this,p)
+             || p->limit_chain_is_empty() ) )
+    {
+        /*
+        *  if 'is_tradable' we have an opposing order at this plevel so
+        *  we NEED to go straight to the aon chain (note - is_tradable
+        *  assumes a non-aon order so we really can't execute)
+        *
+        *  if not, and we'd be the first order on this limit chain,
+        *  we also NEED to go straight to the AON chain
+        */
+        chain<aon_chain_type>::template push<BuyLimit>( this, p,
+            pass_conditions
+                ? aon_bndl(e.id, rmndr, e.exec_cb, e.cond, e.cond_trigger)
+                : aon_bndl(e.id, rmndr, e.exec_cb)
+        );
+    }
+    else
+    {
+        assert( !exec::limit<!BuyLimit>::is_tradable(this,p) );
+
+        chain<limit_chain_type>::template push<BuyLimit>( this, p,
+            pass_conditions
+                ? limit_bndl(e.id, rmndr, e.exec_cb, e.cond, e.cond_trigger)
+                : limit_bndl(e.id, rmndr, e.exec_cb)
+        );
+    }
+
+    /* execute any AONs that are valid w/ the remainder of this order */
+    _match_aon_orders_POST_trade<BuyLimit>(e, p);
+
+    /* we don't know if order filled via aon overlap check so look in cache */
+    try{
+        auto& iwrap = _from_cache(e.id);
+        assert( !iwrap.is_stop() );
+        if( iwrap->sz != e.sz )
+            return fill_type::immediate_partial;
+    }catch( OrderNotInCache& e ){
+        return fill_type::immediate_full;
+    }
+
+    /* we're still in the cache AND have the original size so... */
+    return fill_type::none;
 }
 
 
@@ -373,7 +580,14 @@ void
 SOB_CLASS::_insert_market_order(const order_queue_elem& e)
 {
     assert( detail::order::is_market(e) );
-    size_t rmndr = _trade<!BuyMarket>(nullptr, e.id, e.sz, e.exec_cb);
+
+    /* expects a valid plevel so simulate one */
+    plevel p = BuyMarket ? (_end - 1) : _beg;
+
+    size_t rmndr = _match_aon_orders_PRE_trade<BuyMarket>(e, p);
+    if( rmndr )
+        rmndr = _trade<!BuyMarket>(p, e.id, rmndr, e.exec_cb);
+
     if( rmndr > 0 ){
         throw liquidity_exception( e.sz, rmndr, e.id);
     }
@@ -382,7 +596,7 @@ SOB_CLASS::_insert_market_order(const order_queue_elem& e)
 
 template<bool BuyStop>
 void
-SOB_CLASS::_insert_stop_order(const order_queue_elem& e)
+SOB_CLASS::_insert_stop_order(const order_queue_elem& e, bool pass_conditions)
 {
     assert( detail::order::is_stop(e) );
    /*
@@ -393,7 +607,10 @@ SOB_CLASS::_insert_stop_order(const order_queue_elem& e)
     detail::chain<stop_chain_type>::push(
         this,
         _ptoi(e.stop),
-        stop_bndl(BuyStop, e.limit, e.id, e.sz, e.exec_cb)
+        pass_conditions
+            ? stop_bndl(BuyStop, e.limit, e.id, e.sz, e.exec_cb, e.cond,
+                        e.cond_trigger)
+            : stop_bndl(BuyStop, e.limit, e.id, e.sz, e.exec_cb)
         );
 }
 
@@ -558,29 +775,6 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     }
 }
 
-void
-SOB_CLASS::_trailing_stop_insert(id_type id, bool is_buy)
-{
-    (is_buy ? _trailing_buy_stops : _trailing_sell_stops).insert(id);
-}
-
-void
-SOB_CLASS::_trailing_stop_erase(id_type id, bool is_buy)
-{
-    (is_buy ? _trailing_buy_stops : _trailing_sell_stops).erase(id);
-}
-
-SOB_CLASS::plevel
-SOB_CLASS::_generate_trailing_stop(bool buy_stop, size_t nticks)
-{
-    return nticks ? (_last + (buy_stop ? nticks : (nticks*-1))) : 0;
-}
-
-SOB_CLASS::plevel
-SOB_CLASS::_generate_trailing_limit(bool buy_limit, size_t nticks)
-{
-    return nticks ? (_last + (buy_limit ? (nticks*-1) : nticks)) : 0;
-}
 
 id_type
 SOB_CLASS::_push_order_and_wait( order_type oty,
@@ -681,29 +875,77 @@ SOB_CLASS::_block_on_outstanding_orders()
     }
 }
 
-
-bool
-SOB_CLASS::_is_fillable_between(plevel l, plevel h, size_t sz)
+// note this only returns the total fillable until we conclude the limit is
+// fillable (if not it returns everything available)
+template<bool IsBuy>
+std::pair<bool, size_t>
+SOB_CLASS::_limit_is_fillable( plevel p, size_t sz, bool allow_partial )
 {
+    using namespace detail;
+    using CORE = exec::core<!IsBuy>;
+    using LIMIT = exec::limit<!IsBuy>;
+
     size_t tot = 0;
-    for( ; l <= h; ++l){
-        for( const auto& e : *(l->get_limit_chain()) ){
-            tot += e.sz;
-            if( tot >= sz )
+    auto check_elem = [&](size_t elem_sz, bool is_aon){
+        if( is_aon ){
+            if( (sz-tot) >= elem_sz){
+                tot += elem_sz;
+                if( allow_partial )
+                    return true;
+            }
+        }else{
+            tot += elem_sz;
+            if( allow_partial )
                 return true;
         }
+        if( tot >= sz ){
+            assert( !is_aon || (tot == sz) );
+            return true;
+        }
+        return false;
+    };
+
+    ;
+
+    for( auto b = CORE::begin(this); CORE::inside_of(b,p); b = CORE::next(b) )
+    {
+        // first check the aon order chain at this plevel
+        auto *ac = chain<aon_chain_type>::get<!IsBuy>(b);
+        if( ac ){
+            assert( !ac->empty() );
+            for( auto& elem : *ac ){
+                if( check_elem( elem.sz, true ) )
+                    return {true, tot} ;
+            }
+        }
+        // then check the limit chain, if tradable (can have aons as well)
+        if( LIMIT::in_window(this,b) ){
+            auto *lc = chain<limit_chain_type>::get(b);
+            for( auto& elem : *lc ) {
+                if( check_elem( elem.sz, order::is_AON(elem)) )
+                    return {true, tot};
+            }
+        }
     }
-    return false;
+
+    return {false, tot};
 }
 
+template std::pair<bool, size_t>
+SOB_CLASS::_limit_is_fillable<true>(plevel, size_t, bool);
 
-bool
-SOB_CLASS::_limit_is_fillable(plevel p, size_t sz, bool is_buy)
+template std::pair<bool, size_t>
+SOB_CLASS::_limit_is_fillable<false>(plevel, size_t, bool);
+
+
+SOB_CLASS::chain_iter_wrap&
+SOB_CLASS::_from_cache(id_type id)
 {
-    return is_buy ? (_ask < _end) && _is_fillable_between(_ask, p, sz)
-                  : (_bid >= _beg) && _is_fillable_between(p, _bid, sz);
+    auto elem = _id_cache.find(id);
+    if( elem == _id_cache.end() )
+        throw OrderNotInCache(id);
+    return elem->second;
 }
-
 
 const SOB_CLASS::chain_iter_wrap&
 SOB_CLASS::_from_cache(id_type id) const
@@ -721,8 +963,15 @@ SOB_CLASS::_pull_order(id_type id, bool pull_linked)
     /* caller needs to hold lock on _master_mtx or race w/ callback queue */
     try{
         const auto& iwrap = _from_cache(id);
-        return iwrap.is_limit ? _pull_order<limit_chain_type>(id, pull_linked)
-                              : _pull_order<stop_chain_type>(id, pull_linked);
+        switch( iwrap.type ){
+        case chain_iter_wrap::itype::limit:
+            return _pull_order<limit_chain_type>(id, pull_linked);
+        case chain_iter_wrap::itype::stop:
+            return _pull_order<stop_chain_type>(id, pull_linked);
+        case chain_iter_wrap::itype::aon_buy:
+        case chain_iter_wrap::itype::aon_sell:
+            return _pull_order<aon_chain_type>(id, false);
+        }
     }catch( OrderNotInCache& e )
     {}
     return false;
@@ -777,14 +1026,11 @@ SOB_CLASS::_pull_linked_order(typename ChainTy::value_type& bndl)
 }
 
 
-SOB_CLASS::_order_bndl&
-SOB_CLASS::_find(id_type id) const
+bool
+SOB_CLASS::_in_cache(id_type id) const
 {
-    const auto& iwrap = _from_cache(id);
-    return iwrap.is_limit ? dynamic_cast<_order_bndl&>(*iwrap.l_iter)
-                          : dynamic_cast<_order_bndl&>(*iwrap.s_iter);
+    return _id_cache.count(id);
 }
-
 
 bool
 SOB_CLASS::_is_buy_order(plevel p, const stop_bndl& o) const
@@ -793,102 +1039,6 @@ SOB_CLASS::_is_buy_order(plevel p, const stop_bndl& o) const
 bool
 SOB_CLASS::_is_buy_order(plevel p, const limit_bndl& o) const
 { return (p < _ask); }
-
-
-
-template<side_of_market Side, typename ChainTy>
-std::map<double, typename std::conditional<Side == side_of_market::both,
-                 std::pair<size_t, side_of_market>, size_t>::type >
-SOB_CLASS::_market_depth(size_t depth) const
-{
-    plevel h;
-    plevel l;
-    size_t d;
-    std::map<double, typename detail::depth<Side>::mapped_type> md;
-
-    constexpr bool IsLimit = detail::chain<ChainTy>::is_limit;
-
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-    detail::range<Side>::template get<ChainTy>(this,&h,&l,depth);
-    for( ; h >= l; --h){
-        if( IsLimit && h->limit_chain_is_empty() )
-             continue;
-        if( !IsLimit && h->stop_chain_is_empty() )
-            continue;
-        d = detail::chain<ChainTy>::size( h );
-        auto v = detail::depth<Side>::build_value(this,h,d);
-        md.insert( std::make_pair(_itop(h), v) );
-    }
-    return md;
-    /* --- CRITICAL SECTION --- */
-}
-template std::map<double,std::pair<size_t, side_of_market>>
-SOB_CLASS::_market_depth<side_of_market::both>(size_t) const;
-template std::map<double,size_t>
-SOB_CLASS::_market_depth<side_of_market::bid>(size_t) const;
-template std::map<double,size_t>
-SOB_CLASS::_market_depth<side_of_market::ask>(size_t) const;
-// no stop_chain instantiations
-
-
-/* total size of bid or ask limits */
-template<side_of_market Side, typename ChainTy>
-size_t
-SOB_CLASS::_total_depth() const
-{
-    using namespace detail;
-
-    plevel h;
-    plevel l;
-    size_t tot = 0;
-
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-    range<Side>::template get<ChainTy>(this,&h,&l);
-    for( ; h >= l; --h){
-        tot += chain<ChainTy>::size( h );
-    }
-    return tot;
-  /* --- CRITICAL SECTION --- */
-}
-template size_t SOB_CLASS::_total_depth<side_of_market::both>() const;
-template size_t SOB_CLASS::_total_depth<side_of_market::bid>() const;
-template size_t SOB_CLASS::_total_depth<side_of_market::ask>() const;
-// no stop_chain instantiations
-
-
-template<typename ChainTy>
-void
-SOB_CLASS::_dump_orders(std::ostream& out,
-                        plevel l,
-                        plevel h,
-                        side_of_trade sot) const
-{
-    using namespace detail;
-
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-
-    out << "*** (" << sot << ") " << chain<ChainTy>::as_order_type()
-        << "s ***" << std::endl;
-
-    for( ; h >= l; --h){
-        auto c = chain<ChainTy>::get(h);
-        if( !c->empty() ){
-            out << _itop(h);
-            for( const auto& e : *c ){
-               order::dump(out, e, _is_buy_order(h, e));
-            }
-            out << std::endl;
-        }
-    }
-    /* --- CRITICAL SECTION --- */
-}
-template void SOB_CLASS::_dump_orders<SOB_CLASS::limit_chain_type>(
-        std::ostream&, plevel, plevel, side_of_trade) const;
-template void SOB_CLASS::_dump_orders<SOB_CLASS::stop_chain_type>(
-        std::ostream&, plevel, plevel, side_of_trade) const;
 
 
 double
@@ -920,6 +1070,8 @@ SOB_CLASS::_reset_internal_pointers( plevel old_beg,
     reset_low(&_high_sell_limit);
     reset_low(&_high_buy_stop);
     reset_low(&_high_sell_stop);
+    reset_low(&_high_buy_aon);
+    reset_low(&_high_sell_aon);
 
     /* if plevel is at _end, it's empty and needs to follow new_end */
     auto reset_high = [=](plevel *ptr){
@@ -929,6 +1081,8 @@ SOB_CLASS::_reset_internal_pointers( plevel old_beg,
     reset_high(&_low_buy_limit);
     reset_high(&_low_buy_stop);
     reset_high(&_low_sell_stop);
+    reset_high(&_low_buy_aon);
+    reset_high(&_low_sell_aon);
 
     /* adjust the cache elems (BUG FIX Apr 25 2019) */
     for( auto& elem : _id_cache )
@@ -954,9 +1108,9 @@ void
 SOB_CLASS::_assert_internal_pointers() const
 {
 #ifndef NDEBUG
-    if( _last ){
+    if( _last )
         _assert_plevel(_last);
-    }
+    
     assert( _beg == &(*_book.begin()) + 1 );
     assert( _end == &(*_book.end()) );
     _assert_plevel(_bid);
@@ -967,26 +1121,28 @@ SOB_CLASS::_assert_internal_pointers() const
     _assert_plevel(_high_buy_stop);
     _assert_plevel(_low_sell_stop);
     _assert_plevel(_high_sell_stop);
+
     if( _bid != (_beg-1) ){
-        if( _ask != _end ){
-            assert( _ask > _bid );
-        }
-        if( _low_buy_limit != _end ){
-            assert( _low_buy_limit <= _bid);
-        }
+        if( _ask != _end )
+            assert( _ask > _bid );        
+        if( _low_buy_limit != _end )
+            assert( _low_buy_limit <= _bid);        
     }
+
     if( _high_sell_limit != (_beg-1) ){
-        if( _ask != _end ){
-            assert( _high_sell_limit >= _ask );
-        }
-        if( _low_buy_limit != _end ){
-            assert( _high_sell_limit > _low_buy_limit );
-        }
+        if( _ask != _end )
+            assert( _high_sell_limit >= _ask );        
+        if( _low_buy_limit != _end )
+            assert( _high_sell_limit > _low_buy_limit );        
     }
-    if( _low_buy_stop != _end || _high_buy_stop != (_beg-1) ){  // OR
+
+    if( _low_buy_stop != _end || _high_buy_stop != (_beg-1) )
+    {  
         assert( _high_buy_stop >= _low_buy_stop );
     }
-    if( _low_sell_stop != _end || _high_sell_stop != (_beg-1) ){ // OR
+
+    if( _low_sell_stop != _end || _high_sell_stop != (_beg-1) )
+    {
         assert( _high_sell_stop >= _low_sell_stop );
     }
 #endif
