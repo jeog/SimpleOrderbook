@@ -79,10 +79,10 @@ SOB_CLASS::SimpleOrderbookBase(size_t incr, itop_ty itop, ptoi_ty ptoi)
         _deferred_callbacks(),
         _busy_with_callbacks(false),
         /* our threaded approach to order queuing/exec */
-        _order_queue(),
-        _order_queue_mtx(),
-        _order_queue_cond(),
-        _noutstanding_orders(0),
+        _external_order_queue(),
+        _external_order_queue_mtx(),
+        _external_order_queue_cond(),
+        _internal_order_queue(),
         _need_check_for_stops(false),
         /* core sync objects */
         _master_mtx(),
@@ -102,17 +102,15 @@ SOB_CLASS::~SimpleOrderbookBase()
         _master_run_flag = false;
         try{
             {
-                std::lock_guard<std::mutex> lock(_order_queue_mtx);
-                _order_queue.emplace();
-                /* don't incr _noutstanding_orders;
-                   we break main loop before we can decr */
+                std::lock_guard<std::mutex> lock(_external_order_queue_mtx);
+                _external_order_queue.emplace();
             }
-            _order_queue_cond.notify_one();
+            _external_order_queue_cond.notify_one();
             if( _order_dispatcher_thread.joinable() ){
                 _order_dispatcher_thread.join();
             }
-        }catch(...){
-            std::cerr<< "exception in sob destructor" << std::endl;
+        }catch( std::exception& e ){
+            std::cerr<< "exception in sob destructor: " << e.what() << std::endl;
         }
     }
 
@@ -123,51 +121,57 @@ SOB_CLASS::_threaded_order_dispatcher()
     for( ; ; ){
         order_queue_elem e; // dangling internals?
         {
-            std::unique_lock<std::mutex> lock(_order_queue_mtx);
-            _order_queue_cond.wait(
+            std::unique_lock<std::mutex> lock(_external_order_queue_mtx);
+            _external_order_queue_cond.wait(
                 lock,
-                [this]{ return !this->_order_queue.empty(); }
+                [this]{ return !this->_external_order_queue.empty(); }
             );
 
-            e = std::move(_order_queue.front());
-            _order_queue.pop();
-            if( !_master_run_flag ){
-                if( _noutstanding_orders != 0 ){
-                    throw std::runtime_error("_noutstanding_orders != 0");
-                }
-                break;
-            }
-        }
+            e = std::move(_external_order_queue.front());
+            _external_order_queue.pop();
 
-        std::promise<id_type> p = std::move( e.promise );
-        if( !e.id ){
-            e.id = _generate_id();
+            if( !_master_run_flag )
+                break;
         }
+        std::promise<id_type> p = std::move( e.promise );
 
         try{
             std::lock_guard<std::mutex> lock(_master_mtx);
             /* --- CRITICAL SECTION --- */
-            if( !_insert_order(e) ){
+            if( !e.id )
+                e.id = _generate_id();
+
+            if( !_insert_order(e) )
                 e.id = 0; // bad pull
+
+            /* internally generated orders */
+            while( !_internal_order_queue.empty() )
+            {
+                order_queue_elem ee = std::move(_internal_order_queue.front());
+                _internal_order_queue.pop();
+
+                if( !ee.id )
+                   ee.id = _generate_id();
+
+                if( !_insert_order(ee) )
+                    throw std::runtime_error("internal order failure");
             }
             _assert_internal_pointers();
             /* --- CRITICAL SECTION --- */
         }catch(std::exception& e){
-            --_noutstanding_orders;
             p.set_exception( std::current_exception() );
             std::cerr << "exception in order dispatcher: "
                       << e.what() << std::endl;
             continue;
         }
 
-        --_noutstanding_orders;
         p.set_value(e.id);
     }
 }
 
 
 bool
-SOB_CLASS::_insert_order(const order_queue_elem& e)
+SOB_CLASS::_insert_order(order_queue_elem& e)
 {
     if( detail::order::is_advanced(e) ){
         _route_advanced_order(e);
@@ -618,9 +622,15 @@ SOB_CLASS::_insert_stop_order(const order_queue_elem& e, bool pass_conditions)
 void
 SOB_CLASS::_clear_callback_queue()
 {
+    for( const auto & e : _deferred_callbacks ){
+        if( e.exec_cb )
+            e.exec_cb( e.msg, e.id1, e.id2, e.price, e.sz );
+    }
+    _deferred_callbacks.clear();
+
     /* use _busy_with callbacks to abort recursive calls
          if false, set to true(atomically)
-         if true leave it alone and return */
+         if true leave it alone and return *//*
     bool busy = false;
     _busy_with_callbacks.compare_exchange_strong(busy,true);
     if( busy ){
@@ -630,12 +640,12 @@ SOB_CLASS::_clear_callback_queue()
     std::vector<dfrd_cb_elem> cb_elems;
     {
         std::lock_guard<std::mutex> lock(_master_mtx);
-        /* --- CRITICAL SECTION --- */
+        *//* --- CRITICAL SECTION --- *//*
         std::move( _deferred_callbacks.begin(),
                    _deferred_callbacks.end(),
                    back_inserter(cb_elems) );
         _deferred_callbacks.clear();
-        /* --- CRITICAL SECTION --- */
+        *//* --- CRITICAL SECTION --- *//*
     }
 
     for( const auto & e : cb_elems ){
@@ -643,6 +653,7 @@ SOB_CLASS::_clear_callback_queue()
             e.exec_cb( e.msg, e.id1, e.id2, e.price, e.sz );
     }
     _busy_with_callbacks.store(false);
+    */
 }
 
 
@@ -727,15 +738,10 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
 
         order_type ot = limit ? order_type::limit : order_type::market;
 
-        /*
-         * we can't use the blocking version of _push_order or we'll deadlock
-         * the order_queue; we simply increment _noutstanding_orders instead
-         * and block on that when necessary.
-         */
         if( detail::order::is_trailing_stop(e) )
         {
             assert( e.contingent_order->is_by_nticks() );
-            _push_order_no_wait( ot, e.is_buy, limit, 0, sz, cb, e.cond,
+            _push_internal_order( ot, e.is_buy, limit, 0, sz, cb, e.cond,
                                  e.trigger, e.contingent_order->copy_new(),
                                  nullptr, id_new );
         }
@@ -743,7 +749,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         {
             assert( e.nticks_bracket_orders->first.is_by_nticks() );
             assert( e.nticks_bracket_orders->second.is_by_nticks() );
-            _push_order_no_wait( ot, e.is_buy, limit, 0, sz, cb, e.cond,
+            _push_internal_order( ot, e.is_buy, limit, 0, sz, cb, e.cond,
                                  e.trigger,
                                  e.nticks_bracket_orders->first.copy_new(),
                                  e.nticks_bracket_orders->second.copy_new(),
@@ -751,7 +757,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         }
         else
         {
-            _push_order_no_wait( ot, e.is_buy, limit, 0, sz, cb,
+            _push_internal_order( ot, e.is_buy, limit, 0, sz, cb,
                                  order_condition::none, condition_trigger::none,
                                  nullptr, nullptr, id_new );
         }
@@ -776,8 +782,9 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
 }
 
 
+// BLOCKING
 id_type
-SOB_CLASS::_push_order_and_wait( order_type oty,
+SOB_CLASS::_push_external_order( order_type oty,
                                  bool buy,
                                  double limit,
                                  double stop,
@@ -792,88 +799,51 @@ SOB_CLASS::_push_order_and_wait( order_type oty,
 
     std::promise<id_type> p;
     std::future<id_type> f(p.get_future());
-    _push_order(oty, buy, limit, stop, size, cb, cond, cond_trigger,
-            std::move(cparams1), std::move(cparams2), id, std::move(p) );
+
+    {
+        std::lock_guard<std::mutex> lock(_external_order_queue_mtx);
+        /* --- CRITICAL SECTION --- */
+        _external_order_queue.push( // faster than emplace + cnstr
+             { oty, buy, limit, stop, size, cb, cond, cond_trigger,
+               std::move(cparams1), std::move(cparams2), id, std::move(p) }
+        );
+        /* --- CRITICAL SECTION --- */
+    }
+    _external_order_queue_cond.notify_one();
 
     id_type ret_id;
     try{
         ret_id = f.get(); /* BLOCKING */
     }catch(...){
-        _block_on_outstanding_orders(); /* BLOCKING */
         _clear_callback_queue();
         throw;
     }
 
-    _block_on_outstanding_orders(); /* BLOCKING */
     _clear_callback_queue();
     return ret_id;
 }
 
 
 void
-SOB_CLASS::_push_order_no_wait( order_type oty,
-                                bool buy,
-                                double limit,
-                                double stop,
-                                size_t size,
-                                order_exec_cb_type cb,
-                                order_condition cond,
-                                condition_trigger cond_trigger,
-                                std::unique_ptr<OrderParamaters>&& cparams1,
-                                std::unique_ptr<OrderParamaters>&& cparams2,
-                                id_type id )
+SOB_CLASS::_push_internal_order( order_type oty,
+                                 bool buy,
+                                 double limit,
+                                 double stop,
+                                 size_t size,
+                                 order_exec_cb_type cb,
+                                 order_condition cond,
+                                 condition_trigger cond_trigger,
+                                 std::unique_ptr<OrderParamaters>&& cparams1,
+                                 std::unique_ptr<OrderParamaters>&& cparams2,
+                                 id_type id )
 {
-    _push_order( oty, buy, limit, stop, size, cb, cond, cond_trigger,
-                 std::move(cparams1), std::move(cparams2), id,
-                 /*dummy*/ std::promise<id_type>() );
+    _internal_order_queue.push(
+        { oty, buy, limit, stop, size, cb, cond, cond_trigger,
+          std::move(cparams1), std::move(cparams2), id,
+          /*dummy*/ std::promise<id_type>() }
+    );
 }
 
-
-void
-SOB_CLASS::_push_order( order_type oty,
-                        bool buy,
-                        double limit,
-                        double stop,
-                        size_t size,
-                        order_exec_cb_type cb,
-                        order_condition cond,
-                        condition_trigger cond_trigger,
-                        std::unique_ptr<OrderParamaters>&& cparams1,
-                        std::unique_ptr<OrderParamaters>&& cparams2,
-                        id_type id,
-                        std::promise<id_type>&& p )
-{
-    {
-        std::lock_guard<std::mutex> lock(_order_queue_mtx);
-        /* --- CRITICAL SECTION --- */
-        _order_queue.push( // faster than emplace + cnstr
-             { oty, buy, limit, stop, size, cb, cond, cond_trigger,
-               std::move(cparams1), std::move(cparams2), id, std::move(p) }
-        );
-        ++_noutstanding_orders;
-        /* --- CRITICAL SECTION --- */
-    }
-    _order_queue_cond.notify_one();
-}
-
-
-void
-SOB_CLASS::_block_on_outstanding_orders()
-{
-    while(1){
-        {
-            std::lock_guard<std::mutex> lock(_order_queue_mtx);
-            /* --- CRITICAL SECTION --- */
-            if( _noutstanding_orders < 0 ){
-                throw std::runtime_error("_noutstanding_orders < 0");
-            }else if( _noutstanding_orders == 0 ){
-                break;
-            }
-            /* --- CRITICAL SECTION --- */
-        }
-        std::this_thread::yield();
-    }
-}
 
 // note this only returns the total fillable until we conclude the limit is
 // fillable (if not it returns everything available)

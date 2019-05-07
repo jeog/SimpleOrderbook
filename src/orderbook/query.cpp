@@ -259,6 +259,8 @@ SOB_CLASS::aon_market_depth() const
 
     std::map<double, std::pair<size_t, size_t>> md;
 
+    std::lock_guard<std::mutex> lock(_master_mtx);
+
     plevel l = std::min(exec::core<true>::end(this),
                         exec::core<false>::begin(this));
 
@@ -289,12 +291,15 @@ SOB_CLASS::aon_market_depth() const
 }
 
 
+
 size_t
 SOB_CLASS::total_aon_bid_size() const
 {
     using namespace detail;
 
     auto pred = [](const limit_bndl& b){ return order::is_AON(b); };
+
+    std::lock_guard<std::mutex> lock(_master_mtx);
 
     size_t tot = 0;
     for( plevel l = _low_buy_limit; l <= _bid; ++l )
@@ -317,6 +322,8 @@ SOB_CLASS::total_aon_ask_size() const
 
     auto pred = [](const limit_bndl& b){ return order::is_AON(b); };
 
+    std::lock_guard<std::mutex> lock(_master_mtx);
+
     size_t tot = 0;
     for( plevel h = _high_sell_limit; h >= _ask; --h )
         tot += chain<limit_chain_type>::size_if(h, pred );
@@ -334,7 +341,30 @@ SOB_CLASS::total_aon_ask_size() const
 size_t
 SOB_CLASS::total_aon_size() const
 {
-    return total_aon_bid_size() + total_aon_ask_size();
+    using namespace detail;
+
+    auto pred = [](const limit_bndl& b){ return order::is_AON(b); };
+
+    std::lock_guard<std::mutex> lock(_master_mtx);
+
+    size_t tot = 0;
+    for( plevel l = _low_buy_limit; l <= _bid; ++l )
+        tot += chain<limit_chain_type>::size_if(l, pred );
+    for( plevel h = _high_sell_limit; h >= _ask; --h )
+        tot += chain<limit_chain_type>::size_if(h, pred );
+
+    for( plevel l = _low_buy_aon; l <= _high_buy_aon; ++l ){
+        aon_chain_type *abc = l->get_aon_chain<true>();
+        if( abc )
+            tot += chain<aon_chain_type>::size<true>(l);
+    }
+    for( plevel h = _high_sell_aon; h >= _low_sell_aon; --h ){
+        aon_chain_type *asc = h->get_aon_chain<false>();
+        if( asc )
+            tot += chain<aon_chain_type>::size<false>(h);
+    }
+
+    return tot;
 }
 
 

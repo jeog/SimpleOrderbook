@@ -63,7 +63,7 @@ SOB_CLASS::insert_limit_order( bool buy,
         /* --- CRITICAL SECTION --- */
     }
 
-    return _push_order_and_wait(order_type::limit, buy, limit, 0, size, exec_cb,
+    return _push_external_order(order_type::limit, buy, limit, 0, size, exec_cb,
                                 cond, trig, std::move(pp1), std::move(pp2) );
 }
 
@@ -99,7 +99,7 @@ SOB_CLASS::insert_market_order( bool buy,
         /* --- CRITICAL SECTION --- */
     }
 
-    return _push_order_and_wait(order_type::market, buy, 0, 0, size, exec_cb,
+    return _push_external_order(order_type::market, buy, 0, 0, size, exec_cb,
                                 cond, trig, std::move(pp1), std::move(pp2) );
 }
 
@@ -159,7 +159,7 @@ SOB_CLASS::insert_stop_order( bool buy,
         /* --- CRITICAL SECTION --- */
     }
 
-    return _push_order_and_wait(ot, buy, limit, stop, size, exec_cb, cond,
+    return _push_external_order(ot, buy, limit, stop, size, exec_cb, cond,
                                 trig, std::move(pp1), std::move(pp2) );
 }
 
@@ -170,7 +170,7 @@ SOB_CLASS::pull_order(id_type id)
     if(id == 0)
         throw std::invalid_argument("invalid order id(0)");
 
-    return _push_order_and_wait(order_type::null, false, 0, 0, 0, nullptr,
+    return _push_external_order(order_type::null, false, 0, 0, 0, nullptr,
                                 order_condition::none, condition_trigger::none,
                                 nullptr, nullptr, id);
 }

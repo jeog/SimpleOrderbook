@@ -67,6 +67,7 @@ orderbook_tests = {
       {"TEST_advanced_OCO_2", TEST_advanced_OCO_2},
       {"TEST_advanced_OCO_3", TEST_advanced_OCO_3},
       {"TEST_advanced_OCO_4", TEST_advanced_OCO_4},
+      {"TEST_advanced_OCO_5", TEST_advanced_OCO_5},
       {"TEST_advanced_OTO_1", TEST_advanced_OTO_1},
       {"TEST_advanced_OTO_2", TEST_advanced_OTO_2},
       {"TEST_advanced_OTO_3", TEST_advanced_OTO_3},
@@ -139,8 +140,10 @@ run_tick_price_tests(int argc, char* argv[])
     set_ostream(argc, argv);
 
     for( auto& tests : tick_price_tests ){
-        if( !out_is_cout )
+        if( !out_is_cout ){
             cout << "** " << tests.first << " ** ";
+            cout.flush();
+        }
         out.get() << "** BEGIN - " << tests.first << " **" << endl;
 
         int err = tests.second(out.get());
@@ -178,8 +181,10 @@ run_orderbook_tests(int argc, char* argv[])
                 test_head << test.first << " - 1/" << get<0>(proxy_info)
                           << " - " << min_price << "-" << max_price;
 
-                if( !out_is_cout )
+                if( !out_is_cout ){
                     cout << "** " << test_head.str() << " ** ";
+                    cout.flush();
+                }
                 out.get() << "** BEGIN - " << test_head.str() << " **" << endl;
 
                 FullInterface *orderbook = proxy.create(min_price, max_price);

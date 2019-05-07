@@ -203,6 +203,7 @@ TEST_replace_order_1(FullInterface *orderbook, std::ostream& out)
     id_type id6 = orderbook->replace_with_limit_order( ids[id4], false,
                                                        conv(beg+2*incr), sz,
                                                        ecb );
+
     ids[id6] = id6;
     // beg + 2            L 100
     // beg + 1
@@ -216,7 +217,7 @@ TEST_replace_order_1(FullInterface *orderbook, std::ostream& out)
     }
 
     // TODO fix the race w/ the callback (temporary fix)
-    std::this_thread::sleep_for( std::chrono::milliseconds(100) );
+    //std::this_thread::sleep_for( std::chrono::milliseconds(100) );
 
     id_type id7 = orderbook->replace_with_stop_order( ids[id1], false,
                                                       conv(beg+4*incr), sz,
@@ -227,7 +228,7 @@ TEST_replace_order_1(FullInterface *orderbook, std::ostream& out)
     dump_orders(orderbook, out);
 
     // TODO fix the race w/ the callback (temporary fix)
-    std::this_thread::sleep_for( std::chrono::milliseconds(100) );
+    //std::this_thread::sleep_for( std::chrono::milliseconds(100) );
 
     id_type id8 = orderbook->replace_with_stop_order( id7, false,
                                                       conv(beg+3*incr),
@@ -286,29 +287,33 @@ TEST_replace_order_1(FullInterface *orderbook, std::ostream& out)
     id_type id11 = orderbook->replace_with_stop_order( ids[id10], false,
                                                        conv(beg+incr), sz,
                                                        ecb, aot2 );
+
     ids[id11] = id11;
-    orderbook->insert_limit_order(true, beg, sz, ecb);
+    id_type id12 = orderbook->insert_limit_order(true, beg, sz, ecb);
+
     // beg + 3
     // beg + 2  S 100(A)        L 100
     // beg + 1                  S 100(A)
     // beg + 0 L 100
     dump_orders(orderbook, out);
 
-    orderbook->insert_market_order(true, static_cast<int>(sz/2));
+    id_type id13 = orderbook->insert_market_order(true, static_cast<int>(sz/2));
     tvol += sz;
     // beg + 3 L 50
     // beg + 2
     // beg + 0 L 100
     dump_orders(orderbook, out);
 
+
     auto aot3 = AdvancedOrderTicketOCO::build_limit(false, beg, sz);
-    orderbook->replace_with_limit_order( ids[id11], false, conv(beg+3*incr),
+    id_type id14 = orderbook->replace_with_limit_order( ids[id11], false, conv(beg+3*incr),
                                          sz, ecb, aot3 );
     tvol += sz;
     // beg + 4
     // beg + 3
     // beg + 2
     dump_orders(orderbook, out);
+
 
     if( orderbook->total_ask_size() != 0 ){
         return 15;

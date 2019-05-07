@@ -39,7 +39,7 @@ namespace sob{
 
 
 void
-SOB_CLASS::_route_advanced_order(const order_queue_elem& e)
+SOB_CLASS::_route_advanced_order(order_queue_elem& e)
 {
     switch(e.cond){
     case order_condition::_bracket_active: /* no break */
@@ -240,7 +240,7 @@ SOB_CLASS::_exec_OTO_order(const OrderParamaters *op,
         callback_msg::trigger_OTO, cb, id, id_new , 0, 0
         );
 
-    _push_order_no_wait( op->get_order_type(), op->is_buy(),
+    _push_internal_order( op->get_order_type(), op->is_buy(),
                          op->limit_price(), op->stop_price(), op->size(), cb,
                          order_condition::none, condition_trigger::none,
                          nullptr, nullptr, id_new );
@@ -271,7 +271,7 @@ SOB_CLASS::_exec_BRACKET_order(const OrderParamaters *op1,
         callback_msg::trigger_BRACKET_open, cb, id, id_new , 0, 0
         );
 
-    _push_order_no_wait( op2->get_order_type(), op2->is_buy(),
+    _push_internal_order( op2->get_order_type(), op2->is_buy(),
                          op2->limit_price(), op2->stop_price(), op2->size(),
                          cb, order_condition::_bracket_active,
                          trigger, op1->copy_new(), nullptr, id_new );
@@ -297,7 +297,7 @@ SOB_CLASS::_exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
     plevel l = _generate_trailing_limit(op2->is_buy(), op2->limit_nticks());
     assert(l);
 
-    _push_order_no_wait( order_type::limit, op2->is_buy(), _itop(l),
+    _push_internal_order( order_type::limit, op2->is_buy(), _itop(l),
                          0, op2->size(), cb,
                          order_condition::_trailing_bracket_active,
                          trigger, op1->copy_new() , nullptr, id_new );
@@ -320,7 +320,7 @@ SOB_CLASS::_exec_TRAILING_STOP_order(const OrderParamaters *op,
     plevel stop = _generate_trailing_stop(op->is_buy(), op->stop_nticks());
     assert(stop);
 
-    _push_order_no_wait( order_type::stop, op->is_buy(), 0, _itop(stop),
+    _push_internal_order( order_type::stop, op->is_buy(), 0, _itop(stop),
                          op->size(), cb,
                          order_condition::_trailing_stop_active,
                          trigger, op->copy_new(), nullptr, id_new);
@@ -361,7 +361,7 @@ SOB_CLASS::_inject_order(const order_queue_elem& e, bool partial_ok)
 
 
 void
-SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
+SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
 {
     using namespace detail;
 
@@ -390,6 +390,13 @@ SOB_CLASS::_insert_OCO_order(const order_queue_elem& e)
     if( _inject_order(e2, order::needs_partial_fill(e)) ){
         _exec_OCO_order(e, e.id, id2, e.id, order::index_price(e),
                         order::is_limit(e));
+        /*
+         *  May 7 2019 - return order ID of other order
+         *
+         *  this fixes the problem of the order-id change callback occurring
+         *  before the initial insert order method returns with the original ID
+         */
+        e.id = id2;
         return;
     }
 
@@ -422,6 +429,9 @@ SOB_CLASS::_insert_OTO_order(const order_queue_elem& e)
     /* if we fill immediately we need to insert other order from here */
     if( _inject_order(e, detail::order::needs_partial_fill(e)) ){
         _exec_OTO_order(op, e.exec_cb, e.id);
+        /*
+         * TODO id replace like OCO ?
+         */
         return;
     }
 
@@ -450,6 +460,9 @@ SOB_CLASS::_insert_BRACKET_order(const order_queue_elem& e)
     /* if we fill immediately we need to insert other order from here */
     if( _inject_order(e, detail::order::needs_partial_fill(e)) ){
         _exec_BRACKET_order(op1, op2, e.exec_cb, e.cond_trigger, e.id);
+        /*
+         * TODO ID replace like OCO ?
+         */
         return;
     }
 
@@ -479,6 +492,9 @@ SOB_CLASS::_insert_TRAILING_BRACKET_order(const order_queue_elem& e)
     /* if we fill immediately we need to insert other order from here */
     if( _inject_order(e, detail::order::needs_partial_fill(e)) ){
         _exec_TRAILING_BRACKET_order(op1, op2, e.exec_cb, e.cond_trigger, e.id);
+        /*
+         * TODO ID replace like OCO ?
+         */
         return;
     }
 

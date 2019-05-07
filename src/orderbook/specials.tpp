@@ -571,24 +571,24 @@ public:
 
     static limit_bndl
     pop(sob_class *sob, sob::id_type id)
-    {        
-        const chain_iter_wrap& iwrap = sob->_from_cache(id);
+    {                   
+        const chain_iter_wrap& iwrap = sob->_from_cache(id);         
         assert( iwrap.is_limit() );
                 
         limit_bndl bndl = *(iwrap.l_iter); // copy
         plevel p = iwrap.p;
         limit_chain_type *c = p->get_limit_chain();
               
-        c->erase(iwrap.l_iter); // first
+        c->erase(iwrap.l_iter); // first        
         sob->_id_cache.erase(id);  // second
-                     
+                             
         /* if an aon is now at the front we need to move to aon chain */
-        while( order::is_AON( c->front() ) ){
+        while( !c->empty() && order::is_AON( c->front() ) ){       
             auto b = c->begin();
             copy_bndl_to_aon_chain( sob, p, b );                   
             c->erase( b );
         }
-        
+    
         if( c->empty() ){               
             /*
              * we can compare vs bid because if we get here and the order
@@ -598,6 +598,7 @@ public:
                 ? exec::limit<true>::adjust_state_after_pull(sob, p)
                 : exec::limit<false>::adjust_state_after_pull(sob, p);
         }       
+         
         return bndl;
     }
     

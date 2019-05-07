@@ -597,7 +597,8 @@ TEST_advanced_OCO_4(sob::FullInterface *orderbook, std::ostream& out)
     aot = AdvancedOrderTicketOCO::build_limit(
             true, conv(beg+incr), sz*3, condition_trigger::fill_full
             );
-    id_insert( orderbook->insert_limit_order(true, beg, sz*2, ecb, aot) ); //3
+    id_type id = orderbook->insert_limit_order(true, beg, sz*2, ecb, aot); //3
+    id_insert( id );
     /*
      *
      *  (3, B300)           (2, S100) --> (3, SM100) --> (3, SS100)
@@ -624,5 +625,190 @@ TEST_advanced_OCO_4(sob::FullInterface *orderbook, std::ostream& out)
     return 0;
 }
 
+
+int
+TEST_advanced_OCO_5(sob::FullInterface *orderbook, std::ostream& out)
+{
+    auto conv = [&](double d){ return orderbook->price_to_tick(d); };
+
+    double beg = orderbook->min_price();
+    double end = orderbook->max_price();
+    double mid = conv((beg+end) / 2);
+    double incr = orderbook->tick_size();
+    size_t nticks = orderbook->ticks_in_range();
+
+    ids.clear();
+
+    id_insert( orderbook->insert_limit_order(false, mid, sz, ecb)); //1
+
+    auto aot = AdvancedOrderTicketOCO::build_limit(
+            true, conv(mid+incr), sz, condition_trigger::fill_partial
+            );
+    id_insert( orderbook->insert_limit_order(true, mid, sz*2, ecb, aot) ); //2
+
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    auto aot2 = AdvancedOrderTicketOTO::build_limit(
+            false, conv(mid+incr), sz, condition_trigger::fill_full
+            );
+    id_type id1 = orderbook->insert_limit_order(false, mid, sz*3, ecb, aot2); //3
+    id_insert(id1);
+
+    order_info of = orderbook->get_order_info(id1);
+    if( of.type != order_type::limit
+        || of.advanced.trigger() != condition_trigger::fill_full
+        || of.advanced.condition() != order_condition::one_triggers_other )
+    {
+        return 1;
+    }
+
+    const OrderParamaters *op = of.advanced.order1();
+    if( !op->is_by_price()
+        || !op->is_limit_order()
+        || op->size() != sz )
+    {
+        return 2;
+    }
+    out<< "ORDER INFO: " << id1 << " "<< of << endl;
+
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    id_insert( orderbook->insert_limit_order(true, conv(mid+incr), sz*3, ecb) ); //4
+    /*
+     *                       (4.c, B100)                             (4.b, S100)
+     *                            |                                        |
+     *                            |                                        |                                       |
+     * mid (2, B100)(2, B100)(4.a, B200)          (1, S100) (3, S100) (3, S200)
+     *                            |_______________________________________|
+     *
+     *
+     *  S100    0    0  S200  0   S100   0
+     *        B100 B100  0    0   B100   0
+     *
+     *   0    100  100  200  400  400   500
+     */
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    size_t tbs = orderbook->total_bid_size();
+    size_t tas = orderbook->total_ask_size();
+    size_t bs = orderbook->bid_size();
+    size_t as = orderbook->ask_size();
+    unsigned long long vol = orderbook->volume();
+    size_t nts = orderbook->time_and_sales().size();
+
+    if( bs != 0 ){
+        return 3;
+    }else if( as != 0 ){
+        return 4;
+    }else if( tbs != 0 ){
+        return 5;
+    }else if( tas != 0 ){
+        return 6;
+    }else if( vol != 500 ){
+        return 7;
+    }else if( nts != 4 ){
+        return 8;
+    }
+
+    auto md_book = orderbook->market_depth(nticks + 2);
+    size_t book_sz = md_book.size();
+    if( book_sz > 0 ){
+        return 9;
+    }
+
+    id_insert( orderbook->insert_limit_order(false, mid, sz, ecb)); //1
+    aot = AdvancedOrderTicketOCO::build_limit(
+            true, mid, sz, condition_trigger::fill_full
+            );
+    id_insert( orderbook->insert_limit_order( true, conv(mid+incr),
+                                              sz, ecb, aot) ); //2
+
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    if( orderbook->market_depth(nticks+2).size() > 0 ){
+        return 10;
+    }
+
+    if( orderbook->volume() != vol+100 ){
+        return 11;
+    }
+
+    id_insert( orderbook->insert_limit_order(false, beg, sz, ecb) ); //1
+    id_insert( orderbook->insert_limit_order(false, conv(beg+incr), sz, ecb) ); //1
+    aot = AdvancedOrderTicketOCO::build_limit(
+            true, beg, sz, condition_trigger::fill_full
+            );
+    id_insert( orderbook->insert_limit_order( true, conv(beg+incr), sz*2,
+                                              ecb, aot) ); //2
+
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    if( orderbook->market_depth(nticks+2).size() > 0 ){
+        return 12;
+    }
+
+    if( orderbook->volume() != vol+100+200 ){
+        return 13;
+    }
+
+    aot2 = AdvancedOrderTicketOTO::build_stop(
+            false, conv(beg+incr*2), sz, condition_trigger::fill_full
+            );
+    id_insert( orderbook->insert_limit_order(false, beg+incr , sz, ecb, aot2)); //1
+
+    aot2 = AdvancedOrderTicketOTO::build_market(
+            false, sz, condition_trigger::fill_full
+            );
+    id_insert( orderbook->insert_limit_order( false, conv(beg+incr*2), sz,
+                                              ecb, aot2) ); //2
+
+    aot = AdvancedOrderTicketOCO::build_limit(
+            true, conv(beg+incr), sz*2, condition_trigger::fill_partial
+            );
+    id_type id = orderbook->insert_limit_order(true, beg, sz*3, ecb, aot); //3
+    id_insert( id );
+
+    /*
+     *
+     * beg + 2                      (2, S100) --> (3, SM100) --> (3, SS100)
+     * beg + 1  (3, B200)   ->      (1, S100)------------------------|     *
+     * beg      (3, B300)
+     *
+     *  100
+     */
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    tbs = orderbook->total_bid_size();
+    tas = orderbook->total_ask_size();
+    if( orderbook->market_depth(nticks+3).size() > 2 ){
+        return 14;
+    }else if( tbs != sz || tas != sz ){
+        return 15;
+    }
+
+    if( orderbook->volume() != vol+100+200+100){
+        return 16;
+    }
+
+    return 0;
+}
 #endif /* RUN_FUNCTIONAL_TESTS */
 

@@ -55,6 +55,7 @@ DECL_SOB_TEST_FUNC(advanced_OCO_1);
 DECL_SOB_TEST_FUNC(advanced_OCO_2);
 DECL_SOB_TEST_FUNC(advanced_OCO_3);
 DECL_SOB_TEST_FUNC(advanced_OCO_4);
+DECL_SOB_TEST_FUNC(advanced_OCO_5);
 /* advanced_orders/bracket.cpp */
 DECL_SOB_TEST_FUNC(advanced_BRACKET_1);
 DECL_SOB_TEST_FUNC(advanced_BRACKET_2);

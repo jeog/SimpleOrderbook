@@ -528,10 +528,13 @@ private:
         std::atomic_bool _busy_with_callbacks;
 
         /* async order queue and sync objects */
-        std::queue<order_queue_elem> _order_queue;
-        mutable std::mutex _order_queue_mtx;
-        std::condition_variable _order_queue_cond;
-        long long _noutstanding_orders;
+        std::queue<order_queue_elem> _external_order_queue;
+        mutable std::mutex _external_order_queue_mtx;
+        std::condition_variable _external_order_queue_cond;
+
+        /* sync order queue for internal entry */
+        std::queue<order_queue_elem> _internal_order_queue;
+
         bool _need_check_for_stops;
 
         /* master sync for accessing internals */
@@ -587,15 +590,23 @@ private:
 
         /*
          * generic execution helpers
-         *   ::is_executable_chain : chain/plevel is ready
-         *   ::get_inside : the inside bid/ask
-         *   ::find_new_best_inside : adjust the internal pointers to the new
+         *   ::begin : most inside plevel w/ orders
+         *   ::end : most outside plevel w/ orders
+         *   ::inside_of : arg1 inside of arg2
+         *   ::next : move arg towards 'end'
+         *   ::next_or_jump : move arg towards 'end' or jump w/ new cached val
+         *   ::in_window : arg between 'begin' and 'end'
+         *   ::is_tradable : arg is outside 'begin'
          *                            best bids/asks after trade activity
          */
         template<bool Bidside, bool Redirect> friend struct detail::exec::core;
 
         /*
          * aon order execution helpers
+         *   ::in_window : arg within cached range
+         *   ::adjust_state_after_pull : adjust cached range after chain removed
+         *   ::adjust_state_after_insert : adjust cached range after chain inserted
+         *   ::overlapping : return aon orders that go passed inside limits
          */
         template<bool BidSide> friend struct detail::exec::aon;
 
@@ -605,9 +616,10 @@ private:
          *                                 order insert
          *   ::adjust_state_after_pull : adjust internal pointers after
          *                               order pull
-         *   ::fillable : check if an order can immediate fill against this level
+         *   ::in_window : arg with cached range
+         *   ::is_tradable : arg is at or outside of inside cached val
          */
-        template<bool BuyLimit> friend struct detail::exec::limit;
+        template<bool BidSide> friend struct detail::exec::limit;
 
         /*
          * stop order execution helpers
@@ -627,7 +639,7 @@ private:
 
         /* all order types go through here */
         bool
-        _insert_order(const order_queue_elem& e);
+        _insert_order(order_queue_elem& e);
 
         /* basic order types */
         template<side_of_trade side = side_of_trade::both>
@@ -637,7 +649,7 @@ private:
 
         /* advanced order types */
         void
-        _route_advanced_order(const order_queue_elem& e);
+        _route_advanced_order(order_queue_elem& e);
 
         /* if we need immediate (partial/full) fill info for basic order type*/
         bool
@@ -729,7 +741,7 @@ private:
                         bool is_limit);
 
         void
-        _insert_OCO_order(const order_queue_elem& e);
+        _insert_OCO_order(order_queue_elem& e);
 
         void
         _insert_OTO_order(const order_queue_elem& e);
@@ -807,9 +819,9 @@ private:
         plevel
         _generate_trailing_limit(bool buy_limit, size_t nticks);
 
-        /* push order onto the order queue and block until execution */
+        /* push order onto the external queue, BLOCK */
         id_type
-        _push_order_and_wait(order_type oty,
+        _push_external_order(order_type oty,
                              bool buy,
                              double limit, // TickPrices ??
                              double stop, // TickPrices ??
@@ -822,9 +834,12 @@ private:
                              std::unique_ptr<OrderParamaters>&& cparams2=nullptr,
                              id_type id = 0);
 
-        /* push order onto the order queue, DONT block */
+        /*
+         * push order onto the internal queue, DONT BLOCK - this can
+         * only be called by by the order dispatcher thread.
+         */
         void
-        _push_order_no_wait(order_type oty,
+        _push_internal_order(order_type oty,
                             bool buy,
                             double limit,
                             double stop,
@@ -837,23 +852,6 @@ private:
                             std::unique_ptr<OrderParamaters>&& cparams2=nullptr,
                             id_type id = 0);
 
-
-        void
-        _push_order(order_type oty,
-                    bool buy,
-                    double limit,
-                    double stop,
-                    size_t size,
-                    order_exec_cb_type cb,
-                    order_condition cond,
-                    condition_trigger cond_trigger,
-                    std::unique_ptr<OrderParamaters>&& cparams1,
-                    std::unique_ptr<OrderParamaters>&& cparams2,
-                    id_type id,
-                    std::promise<id_type>&& p);
-
-        void
-        _block_on_outstanding_orders();
 
         /* limit @ p can fill sz */
         template<bool IsBuy>
