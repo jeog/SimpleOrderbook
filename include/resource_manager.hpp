@@ -33,8 +33,8 @@ class ResourceManager {
     DeleterTy _deleter;
 
 public:
-    typedef std::reference_wrapper<ResourceManager> ref_ty;
-    typedef std::vector<ref_ty> relatives_ty;
+    using ref_ty = std::reference_wrapper<ResourceManager>;
+    using relatives_ty = std::vector<ref_ty>;
     const std::string tag;
 
 private:
@@ -196,7 +196,7 @@ public:
 template<typename T, class DeleterTy>
 class ResourceManager_Debug
         : public ResourceManager<T,DeleterTy>{
-    typedef ResourceManager<T,DeleterTy> base_ty;
+    using base_ty = ResourceManager<T,DeleterTy>;
 
     inline void
     _write(std::string msg) const

@@ -45,12 +45,6 @@ public:
     virtual long long
     ticks_in_range() const = 0;
 
-    virtual unsigned long long
-    tick_memory_required(double lower, double upper) const = 0;
-
-    virtual unsigned long long
-    tick_memory_required() const = 0;
-
     virtual bool
     is_valid_price(double price) const = 0;
 };

@@ -71,7 +71,7 @@ class TickPrice{
     long _n_ticks;
 
 public:
-    typedef TickRatio tick_ratio;
+    using tick_ratio = TickRatio;
 
     static constexpr double(*round_function)(double) = RoundFunction;
     static constexpr unsigned long round_precision = RoundPrecision;

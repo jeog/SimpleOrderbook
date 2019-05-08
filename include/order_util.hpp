@@ -53,7 +53,7 @@ is_buy_stop(const stop_bndl& bndl)
 
 static constexpr bool
 is_advanced(const order_queue_elem& e)
-{ return e.cond != order_condition::none; }
+{ return e.condition != order_condition::none; }
 
 static constexpr bool
 is_advanced(const _order_bndl& bndl)
@@ -61,7 +61,7 @@ is_advanced(const _order_bndl& bndl)
 
 static constexpr bool
 is_OCO(const order_queue_elem& e )
-{ return e.cond == order_condition::one_cancels_other; }
+{ return e.condition == order_condition::one_cancels_other; }
 
 static constexpr bool
 is_OCO(const _order_bndl& bndl )
@@ -69,7 +69,7 @@ is_OCO(const _order_bndl& bndl )
 
 static constexpr bool
 is_OTO(const order_queue_elem& e )
-{ return e.cond == order_condition::one_triggers_other; }
+{ return e.condition == order_condition::one_triggers_other; }
 
 static constexpr bool
 is_OTO(const _order_bndl& bndl )
@@ -77,7 +77,7 @@ is_OTO(const _order_bndl& bndl )
 
 static constexpr bool
 is_bracket(const order_queue_elem& e )
-{ return e.cond == order_condition::bracket; }
+{ return e.condition == order_condition::bracket; }
 
 static constexpr bool
 is_bracket(const _order_bndl& bndl )
@@ -85,7 +85,7 @@ is_bracket(const _order_bndl& bndl )
 
 static constexpr bool
 is_active_bracket(const order_queue_elem& e )
-{ return e.cond == order_condition::_bracket_active; }
+{ return e.condition == order_condition::_bracket_active; }
 
 static constexpr bool
 is_active_bracket(const _order_bndl& bndl )
@@ -93,7 +93,7 @@ is_active_bracket(const _order_bndl& bndl )
 
 static constexpr bool
 is_trailing_stop(const order_queue_elem& e )
-{ return e.cond == order_condition::trailing_stop; }
+{ return e.condition == order_condition::trailing_stop; }
 
 static constexpr bool
 is_trailing_stop(const _order_bndl& bndl )
@@ -101,7 +101,7 @@ is_trailing_stop(const _order_bndl& bndl )
 
 static constexpr bool
 is_active_trailing_stop(const order_queue_elem& e )
-{ return e.cond == order_condition::_trailing_stop_active; }
+{ return e.condition == order_condition::_trailing_stop_active; }
 
 static constexpr bool
 is_active_trailing_stop(const _order_bndl& bndl )
@@ -109,7 +109,7 @@ is_active_trailing_stop(const _order_bndl& bndl )
 
 static constexpr bool
 is_trailing_bracket(const order_queue_elem& e )
-{ return e.cond == order_condition::trailing_bracket; }
+{ return e.condition == order_condition::trailing_bracket; }
 
 static constexpr bool
 is_trailing_bracket(const _order_bndl& bndl )
@@ -117,7 +117,7 @@ is_trailing_bracket(const _order_bndl& bndl )
 
 static constexpr bool
 is_active_trailing_bracket(const order_queue_elem& e )
-{ return e.cond == order_condition::_trailing_bracket_active; }
+{ return e.condition == order_condition::_trailing_bracket_active; }
 
 static constexpr bool
 is_active_trailing_bracket(const _order_bndl& bndl )
@@ -125,7 +125,7 @@ is_active_trailing_bracket(const _order_bndl& bndl )
 
 static constexpr bool
 is_FOK(const order_queue_elem& e)
-{ return e.cond == order_condition::fill_or_kill; }
+{ return e.condition == order_condition::fill_or_kill; }
 
 static constexpr bool
 is_FOK(const _order_bndl& bndl )
@@ -133,7 +133,7 @@ is_FOK(const _order_bndl& bndl )
 
 static constexpr bool
 is_AON(const order_queue_elem& e)
-{ return e.cond == order_condition::all_or_nothing; }
+{ return e.condition == order_condition::all_or_nothing; }
 
 static constexpr bool
 is_AON(const _order_bndl& bndl )
@@ -145,7 +145,7 @@ is_not_AON(const _order_bndl& bndl )
 
 static constexpr bool
 needs_partial_fill(const order_queue_elem& e)
-{ return e.cond_trigger == condition_trigger::fill_partial; }
+{ return e.trigger == condition_trigger::fill_partial; }
 
 static constexpr bool
 needs_partial_fill(const _order_bndl& bndl)
@@ -153,7 +153,7 @@ needs_partial_fill(const _order_bndl& bndl)
 
 static constexpr bool
 needs_full_fill(const order_queue_elem& e)
-{ return e.cond_trigger == condition_trigger::fill_full; }
+{ return e.trigger == condition_trigger::fill_full; }
 
 static constexpr bool
 needs_full_fill(const _order_bndl& bndl)
@@ -161,7 +161,7 @@ needs_full_fill(const _order_bndl& bndl)
 
 static constexpr bool
 has_condition_trigger(const order_queue_elem& e)
-{ return e.cond_trigger != condition_trigger::none; }
+{ return e.trigger != condition_trigger::none; }
 
 static constexpr bool
 has_condition_trigger(const _order_bndl& bndl)

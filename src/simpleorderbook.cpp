@@ -21,10 +21,9 @@ along with this program. If not, see http://www.gnu.org/licenses.
 /* 
  *  The bulk of simpleorderbook is implemented in:
  *
- *      include/simpleorderbook.hpp,
  *      src/orderbook/core.cpp
  *      src/orderbook/advanced.cpp
- *      src/orderbook/public.cpp
+ *      src/orderbook/orders.cpp
  *      src/orderbook/impl.tpp
  *      src/orderbook/specials.tpp
  *

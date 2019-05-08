@@ -29,14 +29,18 @@ along with this program. If not, see http://www.gnu.org/licenses.
 //        done implicitly. If (later) called from outside core.cpp
 //        need to add them.
 
+// TODO create helpers for shared functionality in aon query methods
 
 namespace sob{
+
 
 double
 SOB_CLASS::bid_price() const
 {
     using namespace detail;
 
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
     plevel h = _bid;
     while( h >= _beg ){
         if( chain<limit_chain_type>::atleast_if( h, 1, order::is_not_AON ) )
@@ -44,6 +48,7 @@ SOB_CLASS::bid_price() const
         --h;
     }
     return 0;
+    /* --- CRITICAL SECTION --- */
 }
 
 double
@@ -51,6 +56,8 @@ SOB_CLASS::ask_price() const
 {
     using namespace detail;
 
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
     plevel l = _ask;
     while( l < _end ){
         if( chain<limit_chain_type>::atleast_if( l, 1, order::is_not_AON ) )
@@ -58,6 +65,37 @@ SOB_CLASS::ask_price() const
         ++l;
     }
     return 0;
+    /* --- CRITICAL SECTION --- */
+}
+
+
+double
+SOB_CLASS::last_price() const
+{
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+    return (_last >= _beg && _last < _end) ? _itop(_last) : 0.0;
+    /* --- CRITICAL SECTION --- */
+}
+
+
+double
+SOB_CLASS::min_price() const
+{
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+    return _itop(_beg);
+    /* --- CRITICAL SECTION --- */
+}
+
+
+double
+SOB_CLASS::max_price() const
+{
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+    return _itop(_end - 1);
+    /* --- CRITICAL SECTION --- */
 }
 
 
@@ -66,6 +104,8 @@ SOB_CLASS::bid_size() const
 {
     using namespace detail;
 
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
     size_t tot = 0;
     plevel h = _bid;
     while( h >= _beg && tot == 0 ){
@@ -73,6 +113,7 @@ SOB_CLASS::bid_size() const
         --h;
     }
     return tot;
+    /* --- CRITICAL SECTION --- */
 }
 
 
@@ -81,6 +122,8 @@ SOB_CLASS::ask_size() const
 {
     using namespace detail;
 
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
     size_t tot = 0;
     plevel l = _ask;
     while( l < _end && tot == 0 ){
@@ -88,14 +131,54 @@ SOB_CLASS::ask_size() const
         ++l;
     }
     return tot;
+    /* --- CRITICAL SECTION --- */
+}
+
+
+size_t
+SOB_CLASS::last_size() const
+{
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+    return _last_size;
+    /* --- CRITICAL SECTION --- */
+}
+
+
+unsigned long long
+SOB_CLASS::volume() const
+{
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+    return _total_volume;
+    /* --- CRITICAL SECTION --- */
+}
+
+
+id_type
+SOB_CLASS::last_id() const
+{
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+    return _last_id;
+    /* --- CRITICAL SECTION --- */
+}
+
+
+const std::vector<timesale_entry_type>&
+SOB_CLASS::time_and_sales() const
+{
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+    return _timesales;
+    /* --- CRITICAL SECTION --- */
 }
 
 
 void
 SOB_CLASS::dump_internal_pointers(std::ostream& out) const
 {
-    // hack to get tick size - guaranteed >= 3 ticks
-    auto tick = _itop(_beg+1) - _itop(_beg);
+    double tick;
 
     auto println = [&](std::string n, plevel p){
         std::string price("N/A");
@@ -121,6 +204,10 @@ SOB_CLASS::dump_internal_pointers(std::ostream& out) const
 
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
+
+    // hack to get tick size - guaranteed >= 3 ticks
+    tick = _itop(_beg+1) - _itop(_beg);
+
     std::ios sstate(nullptr);
     sstate.copyfmt(out);
     out<< "*** CACHED PLEVELS ***" << std::left << std::endl;
@@ -260,6 +347,7 @@ SOB_CLASS::aon_market_depth() const
     std::map<double, std::pair<size_t, size_t>> md;
 
     std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
 
     plevel l = std::min(exec::core<true>::end(this),
                         exec::core<false>::begin(this));
@@ -288,6 +376,7 @@ SOB_CLASS::aon_market_depth() const
     }
 
     return md;
+    /* --- CRITICAL SECTION --- */
 }
 
 
@@ -300,6 +389,7 @@ SOB_CLASS::total_aon_bid_size() const
     auto pred = [](const limit_bndl& b){ return order::is_AON(b); };
 
     std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
 
     size_t tot = 0;
     for( plevel l = _low_buy_limit; l <= _bid; ++l )
@@ -312,6 +402,7 @@ SOB_CLASS::total_aon_bid_size() const
     }
 
     return tot;
+    /* --- CRITICAL SECTION --- */
 }
 
 
@@ -323,6 +414,7 @@ SOB_CLASS::total_aon_ask_size() const
     auto pred = [](const limit_bndl& b){ return order::is_AON(b); };
 
     std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
 
     size_t tot = 0;
     for( plevel h = _high_sell_limit; h >= _ask; --h )
@@ -335,6 +427,7 @@ SOB_CLASS::total_aon_ask_size() const
     }
 
     return tot;
+    /* --- CRITICAL SECTION --- */
 }
 
 
@@ -346,6 +439,7 @@ SOB_CLASS::total_aon_size() const
     auto pred = [](const limit_bndl& b){ return order::is_AON(b); };
 
     std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
 
     size_t tot = 0;
     for( plevel l = _low_buy_limit; l <= _bid; ++l )
@@ -365,6 +459,7 @@ SOB_CLASS::total_aon_size() const
     }
 
     return tot;
+    /* --- CRITICAL SECTION --- */
 }
 
 
@@ -373,14 +468,13 @@ SOB_CLASS::dump_aon_buy_limits(std::ostream& out) const
 {
     using namespace detail;
 
+    out << "*** (AON buy limits) ***" << std::endl;
+
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
 
-    out << "*** (AON buy limits) ***" << std::endl;
-
     plevel h = exec::core<true>::begin(this);
     plevel l = exec::core<true>::end(this);
-
     for( ; h >= l; --h ){
         std::stringstream ss;
 
@@ -402,6 +496,7 @@ SOB_CLASS::dump_aon_buy_limits(std::ostream& out) const
         if( !ss.str().empty() )
             out << _itop(h) << ss.str() << std::endl;
     }
+    /* --- CRITICAL SECTION --- */
 }
 
 
@@ -410,14 +505,13 @@ SOB_CLASS::dump_aon_sell_limits(std::ostream& out) const
 {
     using namespace detail;
 
+    out << "*** (AON sell limits) ***" << std::endl;
+
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
 
-    out << "*** (AON sell limits) ***" << std::endl;
-
     plevel h = exec::core<false>::end(this);
     plevel l = exec::core<false>::begin(this);
-
     for( ; h >= l; --h ){
         std::stringstream ss;
 
@@ -439,6 +533,7 @@ SOB_CLASS::dump_aon_sell_limits(std::ostream& out) const
         if( !ss.str().empty() )
             out << _itop(h) << ss.str() << std::endl;
     }
+    /* --- CRITICAL SECTION --- */
 
 }
 
@@ -447,14 +542,13 @@ SOB_CLASS::dump_aon_limits(std::ostream& out) const
 {
     using namespace detail;
 
+    out << "*** (AON limits) ***" << std::endl;
+
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
 
-    out << "*** (AON limits) ***" << std::endl;
-
     plevel h = exec::core<false>::end(this);
     plevel l = exec::core<true>::end(this);
-
     for( ; h >= l; --h ){
         std::stringstream ss;
 
@@ -493,6 +587,7 @@ SOB_CLASS::dump_aon_limits(std::ostream& out) const
         if( !ss.str().empty() )
             out << _itop(h) << ss.str() << std::endl;
     }
+    /* --- CRITICAL SECTION --- */
 
 }
 

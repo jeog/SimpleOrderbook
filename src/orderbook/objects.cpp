@@ -363,7 +363,133 @@ SOB_CLASS::OrderNotInCache::OrderNotInCache(id_type id)
                          + " not in cache")
     {}
 
+
+SOB_CLASS::order_queue_elem_base_::order_queue_elem_base_(
+        order_type ot,
+        bool is_buy,
+        double limit,
+        double stop,
+        size_t sz,
+        order_exec_cb_type exec_cb,
+        id_type id )
+    :
+        type(ot),
+        is_buy(is_buy),
+        limit(limit),
+        stop(stop),
+        sz(sz),
+        exec_cb(exec_cb),
+        id(id)
+     {}
+
+SOB_CLASS::order_queue_elem_base_::order_queue_elem_base_()
+    :
+        order_queue_elem_base_(order_type::null,false,0,0,0,nullptr,0)
+    {}
+
+
+SOB_CLASS::external_order_queue_elem::external_order_queue_elem(
+        order_type ot,
+        bool is_buy,
+        double limit,
+        double stop,
+        size_t sz,
+        order_exec_cb_type exec_cb,
+        id_type id,
+        const AdvancedOrderTicket &aot,
+        std::promise<id_type>&& promise )
+    :
+        order_queue_elem_base_(ot, is_buy, limit, stop, sz, exec_cb, id),
+        aot(aot),
+        promise( std::move(promise) )
+    {}
+
+SOB_CLASS::external_order_queue_elem::external_order_queue_elem()
+    :
+        order_queue_elem_base_(),
+        aot(),
+        promise()
+    {}
+
+
+SOB_CLASS::order_queue_elem::order_queue_elem(
+        order_type ot,
+        bool is_buy,
+        double limit,
+        double stop,
+        size_t sz,
+        order_exec_cb_type exec_cb, // TODO
+        id_type id,
+        order_condition condition,
+        condition_trigger trigger,
+        std::unique_ptr<OrderParamaters>&& cparams1,
+        std::unique_ptr<OrderParamaters>&& cparams2 )
+    :
+        order_queue_elem_base_(ot, is_buy, limit, stop, sz,
+                               exec_cb, id),
+        condition(condition),
+        trigger(trigger),
+        cparams1( std::move(cparams1) ),
+        cparams2( std::move(cparams2) )
+    {}
+
+
+SOB_CLASS::order_queue_elem::order_queue_elem(
+        const external_order_queue_elem& e,
+        const SOB_CLASS* sob )
+    :
+        order_queue_elem_base_(e.type, e.is_buy, e.limit, e.stop,
+                               e.sz, e.exec_cb, e.id),
+        condition( e.aot.condition() ),
+        trigger( e.aot.trigger() ),
+        cparams1(),
+        cparams2()
+    {
+        switch( type ){
+        case order_type::market:
+            if( e.aot )
+                std::tie(cparams1, cparams2) = sob->_build_advanced_params(
+                    is_buy, sz, e.aot);
+            break;
+
+        case order_type::limit:
+            limit = sob->_tick_price_or_throw(limit, "invalid limit price");
+            if( e.aot ){
+                std::tie(cparams1, cparams2) = sob->_build_advanced_params(
+                    is_buy, sz, e.aot);
+                switch( condition ){
+                case order_condition::bracket:
+                    sob->_check_limit_order(is_buy, limit, cparams2, condition );
+                    break;
+                case order_condition::one_cancels_other:
+                    sob->_check_limit_order(is_buy, limit, cparams1, condition );
+                    break;
+                default: break;
+                };
+            }
+            break;
+
+        case order_type::stop_limit:
+            limit = sob->_tick_price_or_throw(limit, "invalid limit price");
+            /* no break */
+        case order_type::stop:
+            stop = sob->_tick_price_or_throw(stop, "invalid stop price");
+            if( e.aot ){
+                std::tie(cparams1, cparams2) = sob->_build_advanced_params(
+                    is_buy, sz, e.aot);
+                if( cparams1->stop_price() == stop )
+                    throw advanced_order_error("stop orders of same price");
+            }
+            break;
+
+        default:
+            throw std::runtime_error("invalid order type");
+        }
+    }
+
+
 };
+
 
 #undef SOB_CLASS
 

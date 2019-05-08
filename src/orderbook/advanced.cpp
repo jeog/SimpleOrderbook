@@ -41,7 +41,7 @@ namespace sob{
 void
 SOB_CLASS::_route_advanced_order(order_queue_elem& e)
 {
-    switch(e.cond){
+    switch(e.condition){
     case order_condition::_bracket_active: /* no break */
     case order_condition::one_cancels_other:
         _insert_OCO_order(e);
@@ -349,17 +349,6 @@ SOB_CLASS::_exec_OCO_order(const T& t,
 }
 
 
-bool
-SOB_CLASS::_inject_order(const order_queue_elem& e, bool partial_ok)
-{
-    switch( _route_basic_order<>(e) ){
-    case fill_type::immediate_full: return true;
-    case fill_type::immediate_partial: return partial_ok;
-    default: return false;
-    }
-}
-
-
 void
 SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
 {
@@ -374,20 +363,19 @@ SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
     assert(op->get_order_type() != order_type::null);
 
     /* if we fill immediately, no need to enter 2nd order */
-    if( _inject_order(e, order::needs_partial_fill(e)) ){
+    if( _inject_basic_order(e, order::needs_partial_fill(e)) ){
         _exec_OCO_order(e, e.id, e.id, 0, 0, order::is_limit(e));
         return;
     }
 
     /* construct a new queue elem from cparams1, with a new ID. */
     id_type id2 = _generate_id();
-    order_queue_elem e2{ op->get_order_type(), op->is_buy(), op->limit_price(),
-                         op->stop_price(), op->size(), e.exec_cb, e.cond,
-                         e.cond_trigger, nullptr, nullptr, id2,
-                         std::promise<id_type>() };
+    order_queue_elem e2( op->get_order_type(), op->is_buy(), op->limit_price(),
+                         op->stop_price(), op->size(), e.exec_cb, id2, e.condition,
+                         e.trigger, nullptr, nullptr);
 
     /* if we fill second order immediately, remove first */
-    if( _inject_order(e2, order::needs_partial_fill(e)) ){
+    if( _inject_basic_order(e2, order::needs_partial_fill(e)) ){
         _exec_OCO_order(e, e.id, id2, e.id, order::index_price(e),
                         order::is_limit(e));
         /*
@@ -412,8 +400,8 @@ SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
     o2->linked_order = new order_location(e, true);
 
     /* transfer condition/trigger info */
-    o1->cond = o2->cond = e.cond;
-    o1->trigger = o2->trigger = e.cond_trigger;
+    o1->cond = o2->cond = e.condition;
+    o1->trigger = o2->trigger = e.trigger;
 }
 
 
@@ -427,7 +415,7 @@ SOB_CLASS::_insert_OTO_order(const order_queue_elem& e)
     assert( op->is_by_price() );
 
     /* if we fill immediately we need to insert other order from here */
-    if( _inject_order(e, detail::order::needs_partial_fill(e)) ){
+    if( _inject_basic_order(e, detail::order::needs_partial_fill(e)) ){
         _exec_OTO_order(op, e.exec_cb, e.id);
         /*
          * TODO id replace like OCO ?
@@ -439,8 +427,8 @@ SOB_CLASS::_insert_OTO_order(const order_queue_elem& e)
     assert(o);
 
     o->contingent_order = op->copy_new().release(); // TODO
-    o->cond = e.cond;
-    o->trigger = e.cond_trigger;
+    o->cond = e.condition;
+    o->trigger = e.trigger;
 }
 
 
@@ -458,8 +446,8 @@ SOB_CLASS::_insert_BRACKET_order(const order_queue_elem& e)
     assert( op2->is_by_price() );
 
     /* if we fill immediately we need to insert other order from here */
-    if( _inject_order(e, detail::order::needs_partial_fill(e)) ){
-        _exec_BRACKET_order(op1, op2, e.exec_cb, e.cond_trigger, e.id);
+    if( _inject_basic_order(e, detail::order::needs_partial_fill(e)) ){
+        _exec_BRACKET_order(op1, op2, e.exec_cb, e.trigger, e.id);
         /*
          * TODO ID replace like OCO ?
          */
@@ -473,8 +461,8 @@ SOB_CLASS::_insert_BRACKET_order(const order_queue_elem& e)
             reinterpret_cast<const OrderParamatersByPrice&>(*op1),
             reinterpret_cast<const OrderParamatersByPrice&>(*op2)
             );
-    o->cond = e.cond;
-    o->trigger = e.cond_trigger;
+    o->cond = e.condition;
+    o->trigger = e.trigger;
 }
 
 
@@ -490,8 +478,8 @@ SOB_CLASS::_insert_TRAILING_BRACKET_order(const order_queue_elem& e)
     assert(op2);
 
     /* if we fill immediately we need to insert other order from here */
-    if( _inject_order(e, detail::order::needs_partial_fill(e)) ){
-        _exec_TRAILING_BRACKET_order(op1, op2, e.exec_cb, e.cond_trigger, e.id);
+    if( _inject_basic_order(e, detail::order::needs_partial_fill(e)) ){
+        _exec_TRAILING_BRACKET_order(op1, op2, e.exec_cb, e.trigger, e.id);
         /*
          * TODO ID replace like OCO ?
          */
@@ -505,8 +493,8 @@ SOB_CLASS::_insert_TRAILING_BRACKET_order(const order_queue_elem& e)
             reinterpret_cast<const OrderParamatersByNTicks&>(*op1),
             reinterpret_cast<const OrderParamatersByNTicks&>(*op2)
             );
-    o->cond = e.cond;
-    o->trigger = e.cond_trigger;
+    o->cond = e.condition;
+    o->trigger = e.trigger;
 }
 
 
@@ -518,8 +506,8 @@ SOB_CLASS::_insert_TRAILING_STOP_order(const order_queue_elem& e)
     const OrderParamaters *op = e.cparams1.get();
     assert(op);
 
-    if( _inject_order(e, detail::order::needs_partial_fill(e)) ){
-        _exec_TRAILING_STOP_order(op, e.exec_cb, e.cond_trigger, e.id);
+    if( _inject_basic_order(e, detail::order::needs_partial_fill(e)) ){
+        _exec_TRAILING_STOP_order(op, e.exec_cb, e.trigger, e.id);
         return;
     }
 
@@ -527,8 +515,8 @@ SOB_CLASS::_insert_TRAILING_STOP_order(const order_queue_elem& e)
     assert(o);
 
     o->contingent_order = op->copy_new().release(); // TODO
-    o->cond = e.cond;
-    o->trigger = e.cond_trigger;
+    o->cond = e.condition;
+    o->trigger = e.trigger;
 }
 
 
@@ -546,7 +534,7 @@ SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e)
     assert(op->get_order_type() != order_type::null);
 
     /* if we fill immediately, no need to enter 2nd order */
-    if( _inject_order(e, order::needs_partial_fill(e)) ){
+    if( _inject_basic_order(e, order::needs_partial_fill(e)) ){
        _deferred_callbacks.emplace_back(
             callback_msg::trigger_BRACKET_close, e.exec_cb, e.id, e.id, 0, 0
             );
@@ -562,7 +550,7 @@ SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e)
     plevel p = _generate_trailing_stop(op->is_buy(), nticks);
 
     stop_bndl o2(op->is_buy(), 0, id2, op->size(), e.exec_cb,
-                 order_condition::_trailing_bracket_active,  e.cond_trigger);
+                 order_condition::_trailing_bracket_active,  e.trigger);
 
     /* link each order with the other */
     o1->linked_trailer = new linked_trailer_type(
@@ -574,8 +562,8 @@ SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e)
             );
 
     /* transfer condition/trigger info */
-    o1->cond = o2.cond = e.cond;
-    o1->trigger = o2.trigger = e.cond_trigger;
+    o1->cond = o2.cond = e.condition;
+    o1->trigger = o2.trigger = e.trigger;
 
     chain<stop_chain_type>::push(this, p, std::move(o2));
     _trailing_stop_insert(id2, op->is_buy());
@@ -587,7 +575,7 @@ SOB_CLASS::_insert_TRAILING_STOP_ACTIVE_order(const order_queue_elem& e)
 {
     assert( detail::order::is_active_trailing_stop(e) );
 
-    stop_bndl bndl(e.is_buy, 0, e.id, e.sz, e.exec_cb, e.cond, e.cond_trigger);
+    stop_bndl bndl(e.is_buy, 0, e.id, e.sz, e.exec_cb, e.condition, e.trigger);
 
     const OrderParamaters *op = e.cparams1.get();
     assert(op);
@@ -807,10 +795,12 @@ SOB_CLASS::_build_nticks_params(bool buy,
 {
     assert( order->is_by_nticks() );
 
-    if( static_cast<long>(order->limit_nticks()) > ticks_in_range() ){
+    long long ticks = _ticks_in_range(_itop(_beg), _itop(_end-1));
+
+    if( static_cast<long>(order->limit_nticks()) > ticks ){
         throw advanced_order_error("limit_nticks too large");
     }
-    if( static_cast<long>(order->stop_nticks()) > ticks_in_range() ){
+    if( static_cast<long>(order->stop_nticks()) > ticks ){
         throw advanced_order_error("stop_nticks too large");
     }
 

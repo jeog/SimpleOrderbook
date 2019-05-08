@@ -33,66 +33,24 @@ SOB_TEMPLATE
 SOB_CLASS::SimpleOrderbookImpl(TickPrice<TickRatio> min, size_t incr)
     :
         SimpleOrderbookBase(
-                incr,
-                [this](SimpleOrderbookImpl::plevel p)->double{
-                    return this->_itop(p);
-                },
-                [this](double price)-> SimpleOrderbookImpl::plevel{
-                    return this->_ptoi(TickPrice<TickRatio>(price) );
-                }
-                ),
+            incr,
+            [this](SimpleOrderbookImpl::plevel p)->double{
+                return this->_itop(p);
+            },
+            [this](double price)-> SimpleOrderbookImpl::plevel{
+                return this->_ptoi(TickPrice<TickRatio>(price) );
+            },
+            [](double a, double b) -> long long{
+                return ticks_in_range_(a,b);
+            },
+            [this](double price) -> bool{
+                return this->_is_valid_price(price);
+            }
+            
+            ),
         _base(min)
     {
     }
-
-SOB_TEMPLATE
-void
-SOB_CLASS::grow_book_above(double new_max)
-{
-    auto diff = TickPrice<TickRatio>(new_max) - max_price();
-
-    if( diff > std::numeric_limits<long>::max() ){
-        throw std::invalid_argument("new_max too far from old max to grow");
-    }
-    if( diff > 0 ){
-        size_t incr = static_cast<size_t>(diff.as_ticks());
-        _grow_book(_base, incr, false);
-    }
-}
-
-
-SOB_TEMPLATE
-void
-SOB_CLASS::grow_book_below(double new_min)
-{
-    if( _base == 1 ){ // can't go any lower
-        return;
-    }
-
-    TickPrice<TickRatio> new_base(new_min);
-    if( new_base < 1 ){
-        new_base = TickPrice<TickRatio>(1);
-    }
-
-    auto diff = _base - new_base;
-    if( diff > std::numeric_limits<long>::max() ){
-        throw std::invalid_argument("new_min too far from old min to grow");
-    }
-    if( diff > 0 ){
-        size_t incr = static_cast<size_t>(diff.as_ticks());
-        _grow_book(new_base, incr, true);
-    }
-}
-
-
-SOB_TEMPLATE
-bool
-SOB_CLASS::is_valid_price(double price) const
-{
-    long long offset = (TickPrice<TickRatio>(price) - _base).as_ticks();
-    plevel p = _beg + offset;
-    return (p >= _beg && p < _end);
-}
 
 
 SOB_TEMPLATE
@@ -122,11 +80,60 @@ SOB_CLASS::create(TickPrice<TickRatio> min, TickPrice<TickRatio> max)
     return tmp;
 }
 
+SOB_TEMPLATE
+void
+SOB_CLASS::grow_book_above(double new_max)
+{
+    std::lock_guard<std::mutex> lock(_master_mtx); 
+    /* --- CRITICAL SECTION --- */
+    
+    auto diff = TickPrice<TickRatio>(new_max) - _itop(_end-1);
+
+    if( diff > std::numeric_limits<long>::max() ){
+        throw std::invalid_argument("new_max too far from old max to grow");
+    }
+    if( diff > 0 ){
+        size_t incr = static_cast<size_t>(diff.as_ticks());
+        _grow_book(_base, incr, false);
+    }
+    /* --- CRITICAL SECTION --- */
+}
+
+
+SOB_TEMPLATE
+void
+SOB_CLASS::grow_book_below(double new_min)
+{
+    std::lock_guard<std::mutex> lock(_master_mtx); 
+    /* --- CRITICAL SECTION --- */
+    
+    if( _base == 1 ){ // can't go any lower
+        return;
+    }
+
+    TickPrice<TickRatio> new_base(new_min);
+    if( new_base < 1 ){
+        new_base = TickPrice<TickRatio>(1);
+    }
+
+    auto diff = _base - new_base;
+    if( diff > std::numeric_limits<long>::max() ){
+        throw std::invalid_argument("new_min too far from old min to grow");
+    }
+    if( diff > 0 ){
+        size_t incr = static_cast<size_t>(diff.as_ticks());
+        _grow_book(new_base, incr, true);
+    }
+    /* --- CRITICAL SECTION --- */
+}
+
 
 SOB_TEMPLATE
 void
 SOB_CLASS::_grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg)
 {
+    /* PROTECTED by '_master_mtx' */
+    
     if( incr == 0 ){
         return;
     }
@@ -136,9 +143,6 @@ SOB_CLASS::_grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg)
 #ifndef NDEBUG
     size_t old_sz = _book.size();
 #endif
-
-    std::lock_guard<std::mutex> lock(_master_mtx); 
-    /* --- CRITICAL SECTION --- */
     
     decltype(_book) tmp( _book.size() + incr );    
     std::move( _book.begin(), _book.end(), tmp.begin() + (at_beg ? incr : 0) );
@@ -167,7 +171,27 @@ SOB_CLASS::_grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg)
     /* book is now in a VALID state */
 
     _assert_internal_pointers();
+}
+
+
+SOB_TEMPLATE
+bool
+SOB_CLASS::_is_valid_price(double price) const
+{
+    long long offset = (TickPrice<TickRatio>(price) - _base).as_ticks();
+    plevel p = _beg + offset;
+    return (p >= _beg && p < _end);
+}
+
+
+SOB_TEMPLATE
+bool
+SOB_CLASS::is_valid_price(double price) const
+{
+    std::lock_guard<std::mutex> lock(_master_mtx); 
     /* --- CRITICAL SECTION --- */
+    return _is_valid_price(price);
+    /* --- CRITICAL SECTION --- */            
 }
 
 
@@ -195,6 +219,18 @@ SOB_CLASS::_itop(plevel p) const
     _assert_plevel(p); // internal range and align check
     return _base + plevel_offset(p, _beg);
 }
+
+
+SOB_TEMPLATE
+long long
+SOB_CLASS::ticks_in_range() const
+{
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+    return ticks_in_range_(_itop(_beg), _itop(_end-1));
+    /* --- CRITICAL SECTION --- */
+}
+
 
 
 };

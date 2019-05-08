@@ -157,7 +157,7 @@ class SimpleOrderbook {
 public:
     template<typename... TArgs>
     struct create_func_varargs{
-        typedef FullInterface*(*type)(TArgs...);
+        using type = FullInterface*(*)(TArgs...);
     };
 
     template<typename TArg>
@@ -167,15 +167,14 @@ public:
 
     template< typename CTy=create_func_2args<double>::type>
     struct FactoryProxy{
-        typedef CTy create_func_type;
-        typedef void(*destroy_func_type)(FullInterface *);
-        typedef bool(*is_managed_func_type)(FullInterface *);
-        typedef std::vector<FullInterface *>(*get_all_func_type)();
-        typedef void(*destroy_all_func_type)();
-        typedef double(*tick_size_func_type)();
-        typedef double(*price_to_tick_func_type)(double);
-        typedef long long(*ticks_in_range_func_type)(double, double);
-        typedef unsigned long long(*tick_memory_required_func_type)(double, double);
+        using create_func_type = CTy;
+        using destroy_func_type = void(*)(FullInterface*);
+        using is_managed_func_type = bool(*)(FullInterface *);
+        using get_all_func_type = std::vector<FullInterface *>(*)();
+        using destroy_all_func_type = void(*)();
+        using tick_size_func_type = double(*)();
+        using price_to_tick_func_type = double(*)(double);
+        using ticks_in_range_func_type = long long(*)(double, double);
 
         const create_func_type create;
         const destroy_func_type destroy;
@@ -185,7 +184,6 @@ public:
         const tick_size_func_type tick_size;
         const price_to_tick_func_type price_to_tick;
         const ticks_in_range_func_type ticks_in_range;
-        const tick_memory_required_func_type tick_memory_required;
 
         explicit constexpr FactoryProxy( create_func_type create,
                                          destroy_func_type destroy,
@@ -194,9 +192,7 @@ public:
                                          destroy_all_func_type destroy_all,
                                          tick_size_func_type tick_size,
                                          price_to_tick_func_type price_to_tick,
-                                         ticks_in_range_func_type ticks_in_range,
-                                         tick_memory_required_func_type
-                                             tick_memory_required )
+                                         ticks_in_range_func_type ticks_in_range )
             :
                 create(create),
                 destroy(destroy),
@@ -205,8 +201,7 @@ public:
                 destroy_all(destroy_all),
                 tick_size(tick_size),
                 price_to_tick(price_to_tick),
-                ticks_in_range(ticks_in_range),
-                tick_memory_required(tick_memory_required)
+                ticks_in_range(ticks_in_range)
             {
             }
     };
@@ -215,20 +210,19 @@ public:
     static constexpr FactoryProxy<CTy>
     BuildFactoryProxy()
     {
-         typedef SimpleOrderbookImpl<TickRatio> ImplTy;
-         static_assert( std::is_base_of<FullInterface, ImplTy>::value,
-                        "FullInterface not base of SimpleOrderbookImpl");
-         return FactoryProxy<CTy>(
-                 ImplTy::create,
-                 ImplTy::destroy,
-                 ImplTy::is_managed,
-                 ImplTy::get_all,
-                 ImplTy::destroy_all,
-                 ImplTy::tick_size_,
-                 ImplTy::price_to_tick_,
-                 ImplTy::ticks_in_range_,
-                 ImplTy::tick_memory_required_
-                 );
+        using ImplTy = SimpleOrderbookImpl<TickRatio>;
+        static_assert( std::is_base_of<FullInterface, ImplTy>::value,
+                       "FullInterface not base of SimpleOrderbookImpl");
+        return FactoryProxy<CTy>(
+                ImplTy::create,
+                ImplTy::destroy,
+                ImplTy::is_managed,
+                ImplTy::get_all,
+                ImplTy::destroy_all,
+                ImplTy::tick_size_,
+                ImplTy::price_to_tick_,
+                ImplTy::ticks_in_range_
+                );
     }
 
     static inline void
@@ -258,31 +252,91 @@ private:
     class SimpleOrderbookBase
         : public ManagementInterface{
     protected:
-         /* info held for each order in the execution queue */
-        typedef struct{
+
+        struct order_queue_elem_base_{
             order_type type;
             bool is_buy;
             double limit;
             double stop;
             size_t sz;
             order_exec_cb_type exec_cb;
-            order_condition cond;
-            condition_trigger cond_trigger;
+            id_type id;
+
+            order_queue_elem_base_(
+                order_type ot,
+                bool is_buy,
+                double limit,
+                double stop,
+                size_t sz,
+                order_exec_cb_type exec_cb,
+                id_type id
+                );
+
+            order_queue_elem_base_();
+        };
+
+        /* order info passed to external/execution queue */
+        struct external_order_queue_elem
+                : public order_queue_elem_base_{
+            AdvancedOrderTicket aot; // copy ??
+            std::promise<id_type> promise;
+
+            external_order_queue_elem(
+                order_type ot,
+                bool is_buy,
+                double limit,
+                double stop,
+                size_t sz,
+                order_exec_cb_type exec_cb,
+                id_type id,
+                const AdvancedOrderTicket& aot,
+                std::promise<id_type>&& promise
+                );
+
+            external_order_queue_elem();
+            external_order_queue_elem( external_order_queue_elem&& ) = default;
+            external_order_queue_elem&
+            operator=( external_order_queue_elem&& )  = default;
+        };
+
+        /* order info used internally, passed to internal/execution queue */
+        struct order_queue_elem
+                : public order_queue_elem_base_{
+            order_condition condition;
+            condition_trigger trigger;
             std::unique_ptr<OrderParamaters> cparams1;
             std::unique_ptr<OrderParamaters> cparams2;
-            id_type id;
-            std::promise<id_type> promise;
-        } order_queue_elem;
+
+            order_queue_elem(
+                order_type ot,
+                bool is_buy,
+                double limit,
+                double stop,
+                size_t sz,
+                order_exec_cb_type exec_cb, // TODO
+                id_type id,
+                order_condition cond,
+                condition_trigger trigger,
+                std::unique_ptr<OrderParamaters>&& cparams1,
+                std::unique_ptr<OrderParamaters>&& cparams2
+                );
+
+            order_queue_elem(const external_order_queue_elem& e,
+                             const SimpleOrderbookBase* sob);
+        };
+
+
+
 
         struct order_location; /* forward decl */
 
-        typedef std::pair<OrderParamatersByPrice,
-                          OrderParamatersByPrice> price_bracket_type;
+        using price_bracket_type = std::pair<OrderParamatersByPrice,
+                                             OrderParamatersByPrice>;
 
-        typedef std::pair<OrderParamatersByNTicks,
-                          OrderParamatersByNTicks> nticks_bracket_type;
+        using nticks_bracket_type = std::pair<OrderParamatersByNTicks,
+                                              OrderParamatersByNTicks> ;
 
-        typedef std::pair<size_t, order_location> linked_trailer_type;
+        using linked_trailer_type = std::pair<size_t, order_location>;
 
         /*
          * base representation of orders internally (inside chains)
@@ -436,10 +490,12 @@ private:
         using plevel = level*;
 
 
-        using itop_ty = std::function<double(plevel)>;
-        using ptoi_ty = std::function<plevel(double)>;
-
-        SimpleOrderbookBase(size_t incr, itop_ty itop, ptoi_ty ptoi);
+        SimpleOrderbookBase( size_t incr,
+                             std::function<double(plevel)> itop,
+                             std::function<plevel(double)> ptoi,
+                             std::function<long long(double, double)> ticks_in_range,
+                             std::function<bool(double)> is_valid_price
+                             );
         ~SimpleOrderbookBase();
 
          /* THE ORDER BOOK */
@@ -528,7 +584,7 @@ private:
         std::atomic_bool _busy_with_callbacks;
 
         /* async order queue and sync objects */
-        std::queue<order_queue_elem> _external_order_queue;
+        std::queue<external_order_queue_elem> _external_order_queue;
         mutable std::mutex _external_order_queue_mtx;
         std::condition_variable _external_order_queue_cond;
 
@@ -546,9 +602,10 @@ private:
         /* async order queu thread */
         std::thread _order_dispatcher_thread;
 
-        itop_ty _itop;
-        ptoi_ty _ptoi;
-
+        std::function<double(plevel)> _itop;
+        std::function<plevel(double)> _ptoi;
+        std::function<long long(double, double)> _ticks_in_range;
+        std::function<bool(double)> _is_valid_price;
 
         friend struct detail::sob_types;
 
@@ -637,9 +694,16 @@ private:
         void
         _threaded_order_dispatcher();
 
+        id_type
+        _execute_external_order(const external_order_queue_elem& e);
+
         /* all order types go through here */
-        bool
+        void
         _insert_order(order_queue_elem& e);
+
+        /* if we need immediate (partial/full) fill info for basic order type*/
+        bool
+        _inject_basic_order(const order_queue_elem& e, bool partial_ok);
 
         /* basic order types */
         template<side_of_trade side = side_of_trade::both>
@@ -650,11 +714,6 @@ private:
         /* advanced order types */
         void
         _route_advanced_order(order_queue_elem& e);
-
-        /* if we need immediate (partial/full) fill info for basic order type*/
-        bool
-        _inject_order(const order_queue_elem& e, bool partial_ok);
-
 
         template<bool BidSide>
         size_t
@@ -827,11 +886,7 @@ private:
                              double stop, // TickPrices ??
                              size_t size,
                              order_exec_cb_type cb,
-                             order_condition cond = order_condition::none,
-                             condition_trigger cond_trigger
-                                 = condition_trigger::fill_partial,
-                             std::unique_ptr<OrderParamaters>&& cparams1=nullptr,
-                             std::unique_ptr<OrderParamaters>&& cparams2=nullptr,
+                             const AdvancedOrderTicket& aot,
                              id_type id = 0);
 
         /*
@@ -1111,16 +1166,13 @@ private:
         ask_price() const;
 
         double
-        last_price() const
-        { return (_last >= _beg && _last < _end) ? _itop(_last) : 0.0; }
+        last_price() const;
 
         double
-        min_price() const
-        { return _itop(_beg); }
+        min_price() const;
 
         double
-        max_price() const
-        { return _itop(_end - 1); }
+        max_price() const;
 
         size_t
         bid_size() const;
@@ -1141,20 +1193,16 @@ private:
         { return _total_depth<side_of_market::both>(); }
 
         size_t
-        last_size() const
-        { return _last_size; }
+        last_size() const;
 
         unsigned long long
-        volume() const
-        { return _total_volume; }
+        volume() const;
 
         id_type
-        last_id() const
-        { return _last_id; }
+        last_id() const;
 
         const std::vector<timesale_entry_type>&
-        time_and_sales() const
-        { return _timesales; }
+        time_and_sales() const;
 
         /* NEW - AON orders */
         std::map<double, std::pair<size_t,size_t>>
@@ -1198,14 +1246,17 @@ private:
         TickPrice<TickRatio> _base;
 
         /* price-to-index and index-to-price utilities  */
-        plevel
+        plevel /* NOT THREAD-SAFE */
         _ptoi(TickPrice<TickRatio> price) const;
 
-        TickPrice<TickRatio>
+        TickPrice<TickRatio> /* NOT THREAD-SAFE */
         _itop(plevel p) const;
 
+        bool /* NOT THREAD-SAFE */
+        _is_valid_price(double price) const;
+
         /* called by ManagementInterface to increase book size */
-        void
+        void /* NOT THREAD-SAFE */
         _grow_book(TickPrice<TickRatio> min, size_t incr, bool at_beg);
 
     public:
@@ -1228,16 +1279,7 @@ private:
         { return ticks_in_range_(lower, upper); }
 
         long long
-        ticks_in_range() const
-        { return ticks_in_range_(min_price(), max_price()); }
-
-        unsigned long long
-        tick_memory_required(double lower, double upper) const
-        { return tick_memory_required_(lower, upper); }
-
-        unsigned long long
-        tick_memory_required() const
-        { return tick_memory_required_(min_price(), max_price()); }
+        ticks_in_range() const;
 
         bool
         is_valid_price(double price) const;
@@ -1278,11 +1320,6 @@ private:
         { return ( TickPrice<TickRatio>(upper)
                  - TickPrice<TickRatio>(lower) ).as_ticks(); }
 
-        static constexpr unsigned long long
-        tick_memory_required_(double lower, double upper)
-        { return static_cast<unsigned long long>(ticks_in_range_(lower, upper))
-                * sizeof(level); }
-
     }; /* SimpleOrderbookImpl */
 
     class ImplDeleter{
@@ -1299,7 +1336,7 @@ private:
 
 }; /* SimpleOrderbook */
 
-typedef SimpleOrderbook::FactoryProxy<> DefaultFactoryProxy;
+using DefaultFactoryProxy = SimpleOrderbook::FactoryProxy<>;
 
 template<typename TickRatio>
 SOB_RESOURCE_MANAGER<FullInterface, SimpleOrderbook::ImplDeleter>
