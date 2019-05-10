@@ -547,7 +547,7 @@ SOB_ticks_in_range(pySOB *self, PyObject *args, PyObject *kwds)
     return PyLong_FromLongLong(ticks);
 }
 
-
+/*
 PyObject*
 SOB_tick_memory_required(pySOB *self, PyObject *args, PyObject *kwds)
 {
@@ -580,7 +580,7 @@ SOB_tick_memory_required(pySOB *self, PyObject *args, PyObject *kwds)
     }
     return PyLong_FromUnsignedLongLong(mem);
 }
-
+*/
 
 PyObject*
 pySOB_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
@@ -721,7 +721,7 @@ PyMethodDef pySOB_methods[] = {
                   "    lower :: float :: lower price \n"
                   "    upper :: float :: upper price \n\n"
                   "    returns -> int \n"),
-
+/*
     MDef::KeyArgs("tick_memory_required", SOB_tick_memory_required,
                   "bytes of memory pre-allocated by orderbook internals. "
                   "THIS IS NOT TOTAL MEMORY BEING USED! \n\n"
@@ -730,7 +730,7 @@ PyMethodDef pySOB_methods[] = {
                   "    lower :: float :: lower price \n"
                   "    upper :: float :: upper price \n\n"
                   "    returns -> int \n"),
-
+*/
 #define DOCS_MARKET_DEPTH(arg1) \
 " get total outstanding order size at each " arg1 " price level \n\n" \
 "    def " arg1 "_depth(depth) -> {price:size, price:size ...} \n\n" \

@@ -48,13 +48,23 @@ To access the state of the orderbook(e.g bid_price, market_depth) the same lock 
 
 ##### Synchronous Access
 
-Standard insert/replace/pull orders BLOCK until the execution window is closed AND either 1) a valid order ID is returned, 2) '0' is returned to indicate an error, or 3) '1' is returned for a successfull pull/cancel. Any callback events that took place inside the window are not executed until AFTER the window closes, but BEFORE the function returns. These callbacks are all executed from the ***thread of the caller*** in the order they occured (not from the dispatcher/execution thread). Callbacks from orders inserted previously will also be executed in the CURRENT calling thread.
+Standard insert/replace/pull orders BLOCK until the execution window is closed and return either:
+1. a valid order ID for 'insert' or 'replace'
+2. '0' for an error during 'replace'
+3. true/false for success of 'pull'
+
+Any callback events that took place inside the window are not executed until AFTER the window closes, but BEFORE the function returns. These callbacks are all executed from the ***thread of the caller*** in the order they occured (not from the dispatcher/execution thread). Callbacks from orders inserted previously will also be executed in the CURRENT calling thread.
 
 *If the synchronous interface is used from multiple threads there's no guarantee that the callbacks from an earlier window will occur before those of a later window OR order will be maintained.*
 
 ##### Asynchronous Access 
 
-Insert/replace/pull orders with an '_async' suffix return IMMEDIATELY, with a ```std::future<id_type>``` object. When the execution window is closed the ```.get()``` method will return a valid order ID or success/error state(see above) or throw an exception. (```.wait()``` is similar but doesn't return anything and will not throw.) Any callback events that take place inside the window are immediately pushed to and executed from a ***separate callback thread***. The only guarantee is that the order of callbacks is maintained, accross windows. It's important to keep in mind that just because the future object's ```.get()``` or ```.wait()``` method returns doesn't mean the callbacks from that window will have occurred yet.
+Insert/replace/pull orders with an '_async' suffix return IMMEDIATELY, with a ```std::future<id_type>``` object. When the execution window is closed the ```.get()``` method will return either:
+1. a valid order ID for 'insert' or 'replace'
+2. '0' for an error during 'replace' or 'pull'
+3. '1' for a successful 'pull'
+
+It can also throw an exception. ( ```.wait()```  is similar but doesn't return anything and will not throw.) Any callback events that take place inside the window are immediately pushed to and executed from a ***separate callback thread***. The only guarantee is that the order of callbacks is maintained, accross windows. It's important to keep in mind that just because the future object's ```.get()``` or ```.wait()``` method returns doesn't mean the callbacks from that window will have occurred yet.
 
 *Callbacks never occur from the dispatcher/execution thread.*
 
@@ -86,6 +96,8 @@ user@host:/usr/local/SimpleOrderbook$ make all #all of the above
 ```
 
 ##### Windows
+
+***This has yet to be upgraded for v0.6***
 
 Use the VisualStudio solution in /vsbuild. You only need to build the SimpleOrderbook project but it's recommended to build the entire solution:
 

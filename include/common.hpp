@@ -42,7 +42,7 @@ using id_type = unsigned long;
 
 using quarter_tick = std::ratio<1,4>;
 using tenth_tick = std::ratio<1,10>;
-using thirty_second_tick = std::ratio<1,32>;
+using thirty_secondth_tick = std::ratio<1,32>;
 using hundredth_tick = std::ratio<1,100>;
 using thousandth_tick = std::ratio<1,1000>;
 using ten_thousandth_tick = std::ratio<1,10000>;

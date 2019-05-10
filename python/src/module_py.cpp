@@ -184,7 +184,7 @@ ticks_in_range(PyObject *self, PyObject *args, PyObject *kwds)
     return PyLong_FromLongLong(ticks);
 }
 
-
+/*
 PyObject*
 tick_memory_required(PyObject *self, PyObject *args, PyObject *kwds)
 {
@@ -213,7 +213,7 @@ tick_memory_required(PyObject *self, PyObject *args, PyObject *kwds)
     }
     return PyLong_FromUnsignedLongLong(mem);
 }
-
+*/
 
 PyMethodDef methods[] = {
     MDef::KeyArgs("tick_size", tick_size,
@@ -237,7 +237,7 @@ PyMethodDef methods[] = {
                   "    lower :: float :: lower price \n"
                   "    upper :: float :: upper price \n\n"
                   "    returns -> int \n"),
-
+/*
     MDef::KeyArgs("tick_memory_required", tick_memory_required,
                   "bytes of memory required for (pre-allocating) orderbook "
                   "internals. THIS IS NOT TOTAL MEMORY NEEDED! \n\n"
@@ -247,6 +247,7 @@ PyMethodDef methods[] = {
                   "    lower :: float :: lower price \n"
                   "    upper :: float :: upper price \n\n"
                   "    returns -> int \n"),
+*/
     {NULL}
 };
 
