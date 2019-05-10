@@ -293,5 +293,167 @@ TEST_tick_price_1(std::ostream& out)
     return 0;
 }
 
+int
+TEST_grow_ASYNC_1(FullInterface *full_orderbook, std::ostream& out)
+{
+    auto conv = [&](double d){ return full_orderbook->price_to_tick(d); };
+
+    ManagementInterface *orderbook =
+            dynamic_cast<ManagementInterface*>(full_orderbook);
+
+    double beg = orderbook->min_price();
+    double end = orderbook->max_price();
+    double incr = orderbook->tick_size();
+    size_t ticks = static_cast<size_t>((end - beg)/incr);
+
+    vector<pair<int,bool>> grow_stats = {
+            {1,true},
+            {1,false},
+            {static_cast<int>(ticks/2), false},
+            {0,true},
+            {0,false},
+            {static_cast<int>(ticks/2), true},
+            {ticks, true},
+            {ticks, false}
+    };
+
+    map<double, pair<size_t,side_of_market>> md;
+    std::future<id_type> F;
+
+    size_t limit_filled = 0;
+    bool cb_error = false;
+    bool cb_active = true;
+    order_exec_cb_type limit_cb =
+        [&](callback_msg msg, id_type id1, id_type id2, double price, size_t s)
+        {
+            if( !cb_active ){
+                return;
+            }
+            out<< "limit_cb: active" << endl;
+            limit_filled += s;
+            try{
+                auto val = md.at(price);
+                if( val.first > s ){
+                    md[price] = make_pair(val.first - sz, val.second);
+                }else if( val.first == s ){
+                    md.erase(price);
+                }else{
+                    throw runtime_error("size < s in test 4 callback");
+                }
+            }catch(...){
+                cb_error = true;
+            }
+        };
+
+    size_t total_bid_size = 0;
+    size_t total_ask_size = 0;
+    size_t total_buy_stop_size = 0;
+    size_t total_sell_stop_size = 0;
+    for(auto& p : grow_stats){
+        double min = orderbook->min_price();
+        double max = orderbook->max_price();
+        double lower = conv(min + (max - min) / 4);
+        double upper = conv(max - (max - min) / 4);
+        double lower_mid = conv(min + (max - min) / 2.5);
+        double upper_mid = conv(max - (max - min) / 2.5);
+
+        F = orderbook->insert_limit_order_async(true, min, sz, limit_cb);
+        out<< "order # " << F.get() << std::endl;
+        md[min] = make_pair(md[min].first + sz, side_of_market::bid);
+        total_bid_size += sz;
+
+        F = orderbook->insert_limit_order_async(true, lower, sz, limit_cb);
+        out<< "order # " << F.get() << std::endl;
+        md[lower] = make_pair(md[lower].first + sz, side_of_market::bid);
+        total_bid_size += sz;
+
+        F = orderbook->insert_limit_order_async(true, lower_mid, sz, limit_cb);
+        out<< "order # " << F.get() << std::endl;
+        md[lower_mid] = make_pair(md[lower_mid].first + sz, side_of_market::bid);
+        total_bid_size += sz;
+
+        F = orderbook->insert_stop_order_async(false, lower, sz);
+        out<< "order # " << F.get() << std::endl;
+        total_sell_stop_size += sz;
+
+        F = orderbook->insert_limit_order_async(false, max, sz, limit_cb);
+        out<< "order # " << F.get() << std::endl;
+        md[max] = make_pair(md[max].first + sz, side_of_market::ask);
+        total_ask_size += sz;
+
+        F = orderbook->insert_limit_order_async(false, upper, sz, limit_cb);
+        out<< "order # " << F.get() << std::endl;
+        md[upper] = make_pair(md[upper].first + sz, side_of_market::ask);
+        total_ask_size += sz;
+
+        F = orderbook->insert_limit_order_async(false, upper_mid, sz, limit_cb);
+        out<< "order # " << F.get() << std::endl;
+        md[upper_mid] = make_pair(md[upper_mid].first + sz, side_of_market::ask);
+        total_ask_size += sz;
+
+        F = orderbook->insert_stop_order_async(true, upper, sz);
+        out<< "order # " << F.get() << std::endl;
+        total_buy_stop_size += sz;
+
+        if(cb_error){
+            return 1;
+        }
+
+        if( p.second ){
+            orderbook->grow_book_above(max + (p.second * incr));
+        }else{
+            orderbook->grow_book_below(min - (p.second * incr));
+        }
+
+        auto md_book = orderbook->market_depth(ticks + 2);
+        if( md != md_book ){
+            out << "*** ERROR (2) ***" << endl;
+            for( auto& pp : md ){
+                out<< pp.first << " " << pp.second.first
+                                     << " " << pp.second.second << '\t';
+                try{
+                    auto v = md_book.at(pp.first);
+                    out<< v.first << " " << v.second;
+                }catch(...){
+                }
+                out<< endl;
+            }
+            return 2;
+        }
+    }
+    cb_active = false;
+
+    if( orderbook->total_bid_size() != total_bid_size ){
+        return 3;
+    }else if( orderbook->total_ask_size() != total_ask_size ){
+        return 4;
+    }else{
+        try{
+            auto ssz = total_bid_size - limit_filled - total_sell_stop_size;
+            F = orderbook->insert_market_order_async(false, static_cast<size_t>(ssz));
+            out<< "order # " << F.get() << std::endl;
+            orderbook->wait_for_async_callbacks(); // *** WAIT ***
+
+            auto bsz = total_ask_size - limit_filled - total_buy_stop_size;
+            F = orderbook->insert_market_order_async(true, static_cast<size_t>(bsz));
+            out<< "order # " << F.get() << std::endl;
+            orderbook->wait_for_async_callbacks(); // *** WAIT ***
+        }catch(liquidity_exception&){
+            return 5;
+        }
+    }
+
+    unsigned long long vol = orderbook->volume();
+    if( vol != total_bid_size + total_ask_size ){
+        return 6;
+    }else if( orderbook->bid_size() != 0 ){
+        return 7;
+    }else if( orderbook->ask_size() != 0 ){
+        return 8;
+    }
+
+    return 0;
+}
+
 #endif /* RUN_FUNCTIONAL_TESTS */
 

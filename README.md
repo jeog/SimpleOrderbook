@@ -13,13 +13,14 @@ SimpleOrderbook is a C++(11) financial market orderbook and matching engine with
     - bracket
     - trailing stop 
     - bracket /w trailing stop
-    - all-or-none (AON) ***(in development, C++ interface added in V0.6, not stable)***
+    - all-or-none (AON) ***(NEW, C++ interface added in V0.6, not stable)***
 - advanced condition triggers:
     - fill-partial 
     - fill-full 
     - fill-n-percent ***(not available yet)***
 - cancel/replace orders by ID
 - callbacks on order execution/cancelation/advanced triggers etc.
+- synchronous & asynchronous order insertion/callback ***NEW***
 - query market state(bid size, volume etc.), dump orders to stdout, view Time & Sales 
 - extensible backend resource management(global and type-specific) via factory proxies 
 - tick sizing/rounding/math handled implicity by TickPrice\<std::ratio\> objects
@@ -39,13 +40,32 @@ Orders are referenced by ID #s that are generated sequentially and cached - with
 
 See 'Performance Tests' section below for run times of standard orders. 
 
+##### MultiThreading 
+
+All order matching and execution is done on a separate 'dispatcher/execution' thread via a thread-safe queue. Each time an order is popped from the queue a lock is acquired and the order is processed, as well as ***all contingent orders*** (e.g a stop is triggered -> a new limit is inserted -> a trade occurs -> this trade triggers an OTO -> etc. etc.) before releasing the lock. We'll refer to this as the 'execution window' as it's an important concept for understanding synchronous vs asynchronous insert and callback.
+
+To access the state of the orderbook(e.g bid_price, market_depth) the same lock is acquired so the caller can be assured the most recent execution window has completed and the book is in a 'static' state.
+
+##### Synchronous Access
+
+Standard insert/replace/pull orders BLOCK until the execution window is closed AND either 1) a valid order ID is returned, 2) '0' is returned to indicate an error, or 3) '1' is returned for a successfull pull/cancel. Any callback events that took place inside the window are not executed until AFTER the window closes, but BEFORE the function returns. These callbacks are all executed from the ***thread of the caller*** in the order they occured (not from the dispatcher/execution thread). Callbacks from orders inserted previously will also be executed in the CURRENT calling thread.
+
+*If the synchronous interface is used from multiple threads there's no guarantee that the callbacks from an earlier window will occur before those of a later window OR order will be maintained.*
+
+##### Asynchronous Access 
+
+Insert/replace/pull orders with an '_async' suffix return IMMEDIATELY, with a ```std::future<id_type>``` object. When the execution window is closed the ```.get()``` method will return a valid order ID or success/error state(see above) or throw an exception. (```.wait()``` is similar but doesn't return anything and will not throw.) Any callback events that take place inside the window are immediately pushed to and executed from a ***separate callback thread***. The only guarantee is that the order of callbacks is maintained, accross windows. It's important to keep in mind that just because the future object's ```.get()``` or ```.wait()``` method returns doesn't mean the callbacks from that window will have occurred yet.
+
+*Callbacks never occur from the dispatcher/execution thread.*
+
+
 ##### All-Or-None Functionality
 
-Recently added 'all-or-none' orders use a combination of traditional limit chains and seperate buy and sell ('aon') chains that allow for limit buys to be stored at or above the ask and limit sells at or below the bid. This creates a relatively high level of complexity behind the scenes that won't prove stable for some time. 
+Recently added 'all-or-none' orders use a combination of traditional limit chains and separate buy and sell ('aon') chains that allow for limit buys to be stored at or above the ask and limit sells at or below the bid. This creates a relatively high level of complexity behind the scenes that won't prove stable for some time. 
 
 The implementation currently caches range bounds and iterates naively; it requires a fair amount of 'look-ahead' for both new and old orders; and re-checking of outstaning AON orders on each new entry - all of which will cause performance issues if these order types are used extensively.
 
-*** To avoid the performance and stability issues with AON orders you can revert to v0.5 which can be found on the appropriately named branch. ***
+*To avoid the performance and stability issues with AON orders you can revert to v0.5 which can be found on the appropriately named branch.*
 
 ##### Price-Mediation
 
@@ -158,7 +178,7 @@ Run the setup script.
 #### Performance Tests
 
 - use orderbooks of 1/100 TickRatio of varying sizes (nticks)
-- average 9 seperate runs of each test using 3 threads on i7-8700 cpu
+- average 9 separate runs of each test using 3 threads on i7-8700 cpu
 - output is TOTAL run time, NOT per order
 - some of the tests take a while (edit test/performance.cpp to change)
 ```    

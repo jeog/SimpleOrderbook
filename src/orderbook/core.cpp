@@ -80,9 +80,14 @@ SOB_CLASS::SimpleOrderbookBase(
         _last_id(0),
         _last_size(0),
         _timesales(),
-        /* trade callbacks */
-        _deferred_callbacks(),
-        _busy_with_callbacks(false),
+        /* sync callbacks */
+        _callbacks_sync(),
+        /* async callbacks */
+        _callbacks_async(),
+        _async_callback_mtx(),
+        _async_callback_cond(),
+        _async_callback_done_cond(),
+        _async_callbacks_done(true),
         /* our threaded approach to order queuing/exec */
         _external_order_queue(),
         _external_order_queue_mtx(),
@@ -125,6 +130,8 @@ SOB_CLASS::~SimpleOrderbookBase()
 void
 SOB_CLASS::_threaded_order_dispatcher()
 {
+    AsyncCallbackThreadGuard async_cb_thread(this);
+
     for( ; ; ){
         external_order_queue_elem e;
         {
@@ -141,24 +148,45 @@ SOB_CLASS::_threaded_order_dispatcher()
         if( !_master_run_flag )
             break;
 
-        std::promise<id_type> p = std::move( e.promise );
-        id_type ret;
-
-        try{
-            std::lock_guard<std::mutex> lock(_master_mtx);
-            /* --- CRITICAL SECTION --- */
-            ret = _execute_external_order( e );
-            _assert_internal_pointers();
-            /* --- CRITICAL SECTION --- */
-        }catch(std::exception& e){
-            while( !_internal_order_queue.empty() )
-                 _internal_order_queue.pop();
-            p.set_exception( std::current_exception() );
-            continue;
-        }
-
-        p.set_value(ret);
+        e.cb.is_synchronous()
+            ? _dispatch_external_order(e, std::move(e.promise_sync) )
+            : _dispatch_external_order(e, std::move(e.promise_async) );
     }
+
+    // end/join async callback thread (via ~AsyncCallbackThread)
+}
+
+
+template<typename T>
+void
+SOB_CLASS::_dispatch_external_order( const external_order_queue_elem& ee,
+                                     std::promise<T>&& promise )
+{
+    id_type ret;
+    callback_queue_type copies;
+
+    try{
+         /* --- CRITICAL SECTION --- */
+         std::lock_guard<std::mutex> lock(_master_mtx);
+
+         ret = _execute_external_order( ee );
+
+         if( detail::promise_helper<T>::is_synchronous ){
+             copies = _callbacks_sync;
+             _callbacks_sync.clear();
+         }
+
+         _assert_internal_pointers();
+         /* --- CRITICAL SECTION --- */
+     }catch(...){
+         while( !_internal_order_queue.empty() )
+              _internal_order_queue.pop();
+
+         promise.set_exception( std::current_exception() );
+         return;
+     }
+
+     promise.set_value( detail::promise_helper<T>::build_value(ret, copies) );
 }
 
 id_type
@@ -272,7 +300,7 @@ size_t
 SOB_CLASS::_trade( plevel plev,
                    id_type id,
                    size_t size,
-                   const order_exec_cb_type& exec_cb )
+                   const order_exec_cb_bndl& cb )
 {
     using namespace detail;
     using AON = exec::aon<BidSide>;
@@ -294,7 +322,7 @@ SOB_CLASS::_trade( plevel plev,
             /* first, match against the AON chain */
             aon_chain_type *ac = p->get_aon_chain<BidSide>();
             if( ac ){
-                std::tie(size, all) = _hit_aon_chain(ac, p, id, size, exec_cb);
+                std::tie(size, all) = _hit_aon_chain(ac, p, id, size, cb);
                 if( all ){
                     p->destroy_aon_chain<BidSide>();
                     AON::adjust_state_after_pull(this, p);
@@ -304,7 +332,7 @@ SOB_CLASS::_trade( plevel plev,
 
         if( LIMIT::in_window(this, p) ){
             /* then, match against the limit chain (which CAN have AON orders) */
-            std::tie(size, all) = _hit_chain( p, id, size, exec_cb );
+            std::tie(size, all) = _hit_chain( p, id, size, cb );
             if( all )
                 CORE::find_new_best_inside(this);
         }
@@ -329,19 +357,21 @@ SOB_CLASS::_trade( plevel plev,
 /*
  *  handles all trades against the limit chain at a particular plevel; a
  *  limit chain can hold a limit_bndl or aon_bndl AFTER the first order(
- *  which can only be a limit chain )
+ *  first order can only be limit_bndl )
  */
 std::pair<size_t, bool>
 SOB_CLASS::_hit_chain( plevel plev,
                        id_type id,
                        size_t size,
-                       const order_exec_cb_type& exec_cb )
+                       const order_exec_cb_bndl& cb )
 {
     using namespace detail;
 
     limit_chain_type *pchain = plev->get_limit_chain();
 
     auto pos = pchain->begin();
+    assert( pchain->empty() || order::is_limit(*pos) );
+
     for( ; pos != pchain->end() && size > 0; ++pos )
     {
         /* if AON need to make sure enough size  */
@@ -356,7 +386,7 @@ SOB_CLASS::_hit_chain( plevel plev,
         size_t amount = std::min(size, pos->sz);
 
         /* push callbacks onto queue; update state */
-        _trade_has_occured( plev, amount, id, pos->id, exec_cb, pos->exec_cb );
+        _trade_has_occured( plev, amount, id, pos->id, cb, pos->cb );
 
         /* reduce the amount left to trade */
         size -= amount;     
@@ -398,13 +428,14 @@ SOB_CLASS::_hit_aon_chain( aon_chain_type *achain,
                            plevel plev,
                            id_type id,
                            size_t size,
-                           const order_exec_cb_type& exec_cb )
+                           const order_exec_cb_bndl& cb_bndl )
 {
     assert( !achain->empty() );
     for( auto pos = achain->begin(); pos != achain->end() && size > 0; )
     {
         if( size >= pos->sz ){
-            _trade_has_occured(plev, pos->sz, id, pos->id, exec_cb, pos->exec_cb);
+            // TODO buy/sell order
+            _trade_has_occured(plev, pos->sz, id, pos->id, cb_bndl, pos->cb);
             size -= pos->sz;
             _id_cache.erase(pos->id);
             pos = achain->erase(pos);
@@ -421,20 +452,16 @@ SOB_CLASS::_trade_has_occured( plevel plev,
                                size_t size,
                                id_type idbuy,
                                id_type idsell,
-                               const order_exec_cb_type& cbbuy,
-                               const order_exec_cb_type& cbsell )
+                               const order_exec_cb_bndl& cbbuy,
+                               const order_exec_cb_bndl& cbsell )
 {
     /* CAREFUL: we can't insert orders from here since we have yet to finish
        processing the initial order (possible infinite loop); */
     double p = _itop(plev);
 
     /* buy and sell sides */
-    _deferred_callbacks.emplace_back(
-        callback_msg::fill, cbbuy, idbuy, idbuy, p, size
-        );
-    _deferred_callbacks.emplace_back(
-        callback_msg::fill, cbsell, idsell, idsell, p, size
-        );
+    _push_exec_callback(callback_msg::fill, cbbuy, idbuy, idbuy, p, size);
+    _push_exec_callback(callback_msg::fill, cbsell, idsell, idsell, p, size);
 
     _timesales.push_back( std::make_tuple(clock_type::now(), p, size) );
     _last = plev;
@@ -477,7 +504,7 @@ SOB_CLASS::_match_aon_orders_PRE_trade(const order_queue_elem& e, plevel p)
         {
             auto bndl = chain<aon_chain_type>::pop(this, aon.id);
 
-            size_t r = _trade<IsBuy>(paon, bndl.id, bndl.sz, bndl.exec_cb);
+            size_t r = _trade<IsBuy>(paon, bndl.id, bndl.sz, bndl.cb);
             if( r > rmndr )
                 throw std::runtime_error("AON has left over size(PRE)");
 
@@ -489,7 +516,7 @@ SOB_CLASS::_match_aon_orders_PRE_trade(const order_queue_elem& e, plevel p)
                  * we'll want a more robust price-mediation mechanism
                  */
                 _trade_has_occured( p , filled_this, bndl.id, e.id,
-                                    bndl.exec_cb, e.exec_cb );
+                                    bndl.cb, e.cb );
 
                 // our limit still has this much left
                 rmndr -= filled_this;
@@ -525,7 +552,7 @@ SOB_CLASS::_match_aon_orders_POST_trade(const order_queue_elem& e, plevel p)
         if( _limit_is_fillable<!IsBuy>(p, aon.sz, false).first )
         {
             auto bndl = chain<aon_chain_type>::pop(this, aon.id);
-            if( _trade<IsBuy>(p, bndl.id, bndl.sz, bndl.exec_cb) )
+            if( _trade<IsBuy>(p, bndl.id, bndl.sz, bndl.cb) )
             {
                 throw std::runtime_error("AON has left over size(POST)");
             }
@@ -559,7 +586,7 @@ SOB_CLASS::_insert_limit_order(const order_queue_elem& e, bool pass_conditions)
         {
             // pass ref to callback functor, we'll copy later if necessary
             // return what we couldn't fill
-            rmndr = _trade<!BuyLimit>(p, e.id, rmndr, e.exec_cb);
+            rmndr = _trade<!BuyLimit>(p, e.id, rmndr, e.cb);
         }
     }
 
@@ -580,8 +607,8 @@ SOB_CLASS::_insert_limit_order(const order_queue_elem& e, bool pass_conditions)
         */
         chain<aon_chain_type>::template push<BuyLimit>( this, p,
             pass_conditions
-                ? aon_bndl(e.id, rmndr, e.exec_cb, e.condition, e.trigger)
-                : aon_bndl(e.id, rmndr, e.exec_cb)
+                ? aon_bndl(e.id, rmndr, e.cb, e.condition, e.trigger)
+                : aon_bndl(e.id, rmndr, e.cb)
         );
     }
     else
@@ -590,8 +617,8 @@ SOB_CLASS::_insert_limit_order(const order_queue_elem& e, bool pass_conditions)
 
         chain<limit_chain_type>::template push<BuyLimit>( this, p,
             pass_conditions
-                ? limit_bndl(e.id, rmndr, e.exec_cb, e.condition, e.trigger)
-                : limit_bndl(e.id, rmndr, e.exec_cb)
+                ? limit_bndl(e.id, rmndr, e.cb, e.condition, e.trigger)
+                : limit_bndl(e.id, rmndr, e.cb)
         );
     }
 
@@ -624,7 +651,7 @@ SOB_CLASS::_insert_market_order(const order_queue_elem& e)
 
     size_t rmndr = _match_aon_orders_PRE_trade<BuyMarket>(e, p);
     if( rmndr )
-        rmndr = _trade<!BuyMarket>(p, e.id, rmndr, e.exec_cb);
+        rmndr = _trade<!BuyMarket>(p, e.id, rmndr, e.cb);
 
     if( rmndr > 0 ){
         throw liquidity_exception( e.sz, rmndr, e.id);
@@ -646,23 +673,118 @@ SOB_CLASS::_insert_stop_order(const order_queue_elem& e, bool pass_conditions)
         this,
         _ptoi(e.stop),
         pass_conditions
-            ? stop_bndl(BuyStop, e.limit, e.id, e.sz, e.exec_cb, e.condition,
+            ? stop_bndl(BuyStop, e.limit, e.id, e.sz, e.cb, e.condition,
                         e.trigger)
-            : stop_bndl(BuyStop, e.limit, e.id, e.sz, e.exec_cb)
+            : stop_bndl(BuyStop, e.limit, e.id, e.sz, e.cb)
         );
 }
 
 
+// called by dispatcher thread
 void
-SOB_CLASS::_clear_callback_queue()
+SOB_CLASS::_push_exec_callback(callback_msg msg,
+                               const order_exec_cb_bndl& cb_bndl,
+                               id_type id1,
+                               id_type id2,
+                               double price,
+                               size_t sz )
 {
-    for( const auto & e : _deferred_callbacks ){
-        if( e.exec_cb )
-            e.exec_cb( e.msg, e.id1, e.id2, e.price, e.sz );
-    }
-    _deferred_callbacks.clear();
+    if( !cb_bndl.cb_obj )
+        return;
+
+    if( cb_bndl.is_synchronous() )
+        _callbacks_sync.emplace_back(msg, cb_bndl.cb_obj, id1, id2, price, sz);
+    else
+        _push_async_callback( msg, cb_bndl.cb_obj, id1, id2, price, sz );
+
 }
 
+
+// called by dispatcher thread
+template<typename... Args>
+void
+SOB_CLASS::_push_async_callback(Args&&... args)
+{
+    {
+        std::lock_guard<std::mutex> lock(_async_callback_mtx);
+        _callbacks_async.emplace_back( std::forward<Args>(args)... );
+    }
+    _async_callback_cond.notify_one();
+}
+
+
+// called by dispatcher thread
+SOB_CLASS::AsyncCallbackThreadGuard::AsyncCallbackThreadGuard(SOB_CLASS *sob)
+    :
+        _sob(sob),
+        _t( [=](){ sob->_threaded_async_callback_executor(); } )
+    {
+    }
+
+// called by dispatcher thread
+SOB_CLASS::AsyncCallbackThreadGuard::~AsyncCallbackThreadGuard()
+    {
+        // send NULL signal to async callback thread and wait
+        _sob->_push_async_callback();
+
+        if( _t.joinable() )
+            _t.join();
+    }
+
+
+void
+SOB_CLASS::_threaded_async_callback_executor()
+{
+    for( ; ; ){
+        callback_queue_type copies;
+        {
+            std::unique_lock<std::mutex> lock(_async_callback_mtx);
+            _async_callback_cond.wait(
+                lock,
+                [this]{ return !_callbacks_async.empty(); }
+            );
+            _async_callbacks_done = false;
+            copies = std::move(_callbacks_async);
+            _callbacks_async.clear();
+        }
+
+        for(auto b = copies.begin(); b < copies.end(); ++ b){
+            if( !b->exec_cb ){
+                auto d = std::distance(b, copies.end());
+                if( d > 1 )
+                    std::cerr << "leaving AsyncCallbackThread with " << d - 1
+                              << " outstanding callbacks" << std::endl;
+                _notify_async_callbacks_done();
+                return;
+            }
+            b->exec_cb( b->msg, b->id1, b->id2, b->price, b->sz );
+        }
+        _notify_async_callbacks_done();
+    }
+}
+
+void
+SOB_CLASS::_notify_async_callbacks_done()
+{
+    {
+        std::lock_guard<std::mutex> lock(_async_callback_mtx);
+        _async_callbacks_done = true;
+    }
+    _async_callback_done_cond.notify_one();
+}
+
+void
+SOB_CLASS::wait_for_async_callbacks()
+{
+    std::unique_lock<std::mutex> lock(_async_callback_mtx);
+    if( !_async_callbacks_done || !_callbacks_async.empty() ){
+        _async_callback_done_cond.wait(
+            lock,
+            [this]{ return _async_callbacks_done && _callbacks_async.empty(); }
+        );
+    }else
+        lock.unlock();
+}
 
 /*
  *  CURRENTLY working under the constraint that stop priority goes:
@@ -702,7 +824,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     */
     using namespace detail;
 
-    order_exec_cb_type cb;
+    order_exec_cb_bndl cb;
     double limit;
     size_t sz;
     id_type id, id_new;
@@ -722,7 +844,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     for( auto & e : cchain ){
         id = e.id;
         limit = e.limit;
-        cb = e.exec_cb;
+        cb = e.cb;
         sz = e.sz;
 
         /* remove trailing stops (no need to check if is trailing stop) */
@@ -740,7 +862,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         if( cb ){
             callback_msg msg = limit ? callback_msg::stop_to_limit
                                      : callback_msg::stop_to_market;
-            _deferred_callbacks.emplace_back(msg, cb, id, id_new, limit, sz);
+            _push_exec_callback(msg, cb, id, id_new, limit, sz);
         }
 
         order_type ot = limit ? order_type::limit : order_type::market;
@@ -788,59 +910,101 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
     }
 }
 
+/*
+ * used by the sync/async _push_external calls to send orders to the
+ * dispatcher queue/thread
+ */
+template<typename T>
+std::future<T>
+SOB_CLASS::_push_external_order( order_type oty,
+                                 bool buy,
+                                 double limit,
+                                 double stop,
+                                 size_t size,
+                                 order_exec_cb_type exec_cb,
+                                 const AdvancedOrderTicket& aot,
+                                 id_type id )
+{
+    std::promise<T> p;
+    std::future<T> f(p.get_future());
+    {
+        std::lock_guard<std::mutex> lock(_external_order_queue_mtx);
+        /* --- CRITICAL SECTION --- */
+        _external_order_queue.emplace(
+            oty, buy, limit, stop, size,
+            order_exec_cb_bndl{exec_cb, detail::promise_helper<T>::callback_type},
+            id, aot, std::move(p) );
+        /* --- CRITICAL SECTION --- */
+    }
+    _external_order_queue_cond.notify_one();
+
+    return f;
+}
 
 /*
  * This can be called from multiple threads and will block until
  * the order is inserted (and contingent actions/insertions happen)
+ *
+ * ALL callbacks that happen within the insertion window will not be executed
+ * until windows close, but before the call returns, in the thread of the
+ * caller.
  *
  * inserts - return order ID
  * pulls - return success(failure) as 1(0)
  * replaces - return order ID on success, 0 on (pull) failure
  */
 id_type
-SOB_CLASS::_push_external_order( order_type oty,
-                                 bool buy,
-                                 double limit,
-                                 double stop,
-                                 size_t size,
-                                 order_exec_cb_type cb,
-                                 const AdvancedOrderTicket& aot,
-                                 id_type id )
+SOB_CLASS::_push_external_order_sync( order_type oty,
+                                      bool buy,
+                                      double limit,
+                                      double stop,
+                                      size_t size,
+                                      order_exec_cb_type exec_cb,
+                                      const AdvancedOrderTicket& aot,
+                                      id_type id )
 {
+    using T = std::pair<id_type,callback_queue_type>;
 
-    std::promise<id_type> p;
-    std::future<id_type> f(p.get_future());
-
-    {
-        std::lock_guard<std::mutex> lock(_external_order_queue_mtx);
-        /* --- CRITICAL SECTION --- */
-        _external_order_queue.emplace(
-            oty, buy, limit, stop, size, cb, id, aot, std::move(p)
+    std::future<T> f = _push_external_order<T>(
+        oty, buy, limit, stop, size, exec_cb, aot, id
         );
-        /* --- CRITICAL SECTION --- */
-    }
-    _external_order_queue_cond.notify_one();
 
-    id_type ret_id;
-    try{
-        ret_id = f.get(); /* BLOCKING */
-        /*
-         * IMPORTANT - after here need to hold '_master_mtx' before
-         *             accessing internal state
-         */
-    }catch(...){
-        std::lock_guard<std::mutex> lock(_master_mtx);
-        /* --- CRITICAL SECTION --- */
-        _clear_callback_queue();
-        throw;
-        /* --- CRITICAL SECTION --- */
+    T p = f.get();
+
+    for( const auto & e : p.second ){ // no need to protect, copies
+        assert( e.exec_cb );
+        e.exec_cb( e.msg, e.id1, e.id2, e.price, e.sz );
     }
 
-    /* --- CRITICAL SECTION --- */
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    _clear_callback_queue();
-    return ret_id;
-    /* --- CRITICAL SECTION --- */
+    return p.first;
+}
+
+
+/*
+ * This can be called from multiple threads and the returned future
+ * will provide a valid order id or success/fail state (for pulls and replaces)
+ * AFTER the order is inserted (and contingent actions/insertions happen)
+ *
+ * ALL callbacks that happen within the insertion window will be executed
+ * IMMEDIATELY a seperate callback execution thread.
+ *
+ * inserts - return order ID
+ * pulls - return success(failure) as 1(0)
+ * replaces - return order ID on success, 0 on (pull) failure
+ */
+std::future<id_type>
+SOB_CLASS::_push_external_order_async( order_type oty,
+                                       bool buy,
+                                       double limit,
+                                       double stop,
+                                       size_t size,
+                                       order_exec_cb_type exec_cb,
+                                       const AdvancedOrderTicket& aot,
+                                       id_type id )
+{
+    return _push_external_order<id_type>(
+        oty, buy, limit, stop, size, exec_cb, aot, id
+        );
 }
 
 
@@ -850,7 +1014,7 @@ SOB_CLASS::_push_internal_order( order_type oty,
                                  double limit,
                                  double stop,
                                  size_t size,
-                                 order_exec_cb_type cb,
+                                 const order_exec_cb_bndl& cb,
                                  order_condition cond,
                                  condition_trigger cond_trigger,
                                  std::unique_ptr<OrderParamaters>&& cparams1,
@@ -978,9 +1142,7 @@ SOB_CLASS::_pull_order(id_type id, bool pull_linked)
         if( !bndl )
             return false;
 
-        _deferred_callbacks.emplace_back(
-            callback_msg::cancel, bndl.exec_cb, id, id, 0, 0
-            );
+        _push_exec_callback(callback_msg::cancel, bndl.cb, id, id, 0, 0);
 
         if( pull_linked )
             _pull_linked_order<ChainTy>(bndl);

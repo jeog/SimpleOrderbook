@@ -148,6 +148,7 @@ namespace detail {
         template<bool BidSide> struct limit;
         template<bool BuyStop> struct stop;
     };
+    template<typename T> struct promise_helper;
 };
 
 class SimpleOrderbook {
@@ -253,50 +254,64 @@ private:
         : public ManagementInterface{
     protected:
 
+        typedef struct{
+            enum class type{
+                synchronous = 1,
+                asynchronous = 2
+            };
+            order_exec_cb_type cb_obj;
+            type cb_type;
+            operator bool() const { return cb_obj.operator bool(); }
+            bool is_synchronous() const { return cb_type == type::synchronous; }
+            bool is_asynchronous() const { return cb_type == type::asynchronous; }
+        }order_exec_cb_bndl;
+
+#define ORDER_QUEUE_ELEM_BASE_ARGS \
+    order_type ot, bool is_buy, double limit, double stop, \
+    size_t sz, order_exec_cb_bndl cb, id_type id
+
         struct order_queue_elem_base_{
             order_type type;
             bool is_buy;
             double limit;
             double stop;
             size_t sz;
-            order_exec_cb_type exec_cb;
+            order_exec_cb_bndl cb;
             id_type id;
 
-            order_queue_elem_base_(
-                order_type ot,
-                bool is_buy,
-                double limit,
-                double stop,
-                size_t sz,
-                order_exec_cb_type exec_cb,
-                id_type id
-                );
-
+            order_queue_elem_base_(ORDER_QUEUE_ELEM_BASE_ARGS);
             order_queue_elem_base_();
         };
+
+        struct dfrd_cb_elem;
+        using callback_queue_type = std::deque<dfrd_cb_elem>;
 
         /* order info passed to external/execution queue */
         struct external_order_queue_elem
                 : public order_queue_elem_base_{
-            AdvancedOrderTicket aot; // copy ??
-            std::promise<id_type> promise;
+            AdvancedOrderTicket aot;
+
+            union{
+                std::promise<id_type> promise_async;
+                std::promise<std::pair<id_type, callback_queue_type>> promise_sync;
+            };
+
+            external_order_queue_elem( ORDER_QUEUE_ELEM_BASE_ARGS,
+                                       const AdvancedOrderTicket& aot,
+                                       std::promise<id_type>&& promise );
 
             external_order_queue_elem(
-                order_type ot,
-                bool is_buy,
-                double limit,
-                double stop,
-                size_t sz,
-                order_exec_cb_type exec_cb,
-                id_type id,
+                ORDER_QUEUE_ELEM_BASE_ARGS,
                 const AdvancedOrderTicket& aot,
-                std::promise<id_type>&& promise
+                std::promise<std::pair<id_type, callback_queue_type>>&& promise
                 );
 
             external_order_queue_elem();
-            external_order_queue_elem( external_order_queue_elem&& ) = default;
+
             external_order_queue_elem&
-            operator=( external_order_queue_elem&& )  = default;
+            operator=( external_order_queue_elem&& elem );
+
+            ~external_order_queue_elem();
         };
 
         /* order info used internally, passed to internal/execution queue */
@@ -308,13 +323,7 @@ private:
             std::unique_ptr<OrderParamaters> cparams2;
 
             order_queue_elem(
-                order_type ot,
-                bool is_buy,
-                double limit,
-                double stop,
-                size_t sz,
-                order_exec_cb_type exec_cb, // TODO
-                id_type id,
+                ORDER_QUEUE_ELEM_BASE_ARGS,
                 order_condition cond,
                 condition_trigger trigger,
                 std::unique_ptr<OrderParamaters>&& cparams1,
@@ -325,7 +334,7 @@ private:
                              const SimpleOrderbookBase* sob);
         };
 
-
+#undef ORDER_QUEUE_ELEM_BASE_ARGS
 
 
         struct order_location; /* forward decl */
@@ -349,7 +358,7 @@ private:
         struct _order_bndl {
             id_type id;
             size_t sz;
-            order_exec_cb_type exec_cb;
+            order_exec_cb_bndl cb;
             order_condition cond;
             condition_trigger trigger;
             union {
@@ -363,7 +372,7 @@ private:
             operator bool() const { return sz; }
             _order_bndl();
             _order_bndl(id_type id, size_t sz,
-                        order_exec_cb_type exec_cb,
+                        const order_exec_cb_bndl& cb,
                         order_condition cond = order_condition::none,
                         condition_trigger trigger = condition_trigger::none);
             _order_bndl(const _order_bndl& bndl);
@@ -394,7 +403,7 @@ private:
             double limit;
             stop_bndl();
             stop_bndl(bool is_buy, double limit, id_type id, size_t sz,
-                      order_exec_cb_type exec_cb,
+                      const order_exec_cb_bndl& exec_cb,
                       order_condition cond = order_condition::none,
                       condition_trigger trigger = condition_trigger::none);
             stop_bndl(const stop_bndl& bndl);
@@ -437,6 +446,10 @@ private:
                          id_type id1, id_type id2, double price, size_t sz)
                 : msg(msg), exec_cb(exec_cb), id1(id1), id2(id2),
                   price(price), sz(sz)
+                {}
+            dfrd_cb_elem()
+                : msg(callback_msg::cancel), exec_cb(nullptr), id1(0), id2(0),
+                  price(0.0), sz(0)
                 {}
         };
 
@@ -577,11 +590,24 @@ private:
         /* time & sales */
         std::vector<timesale_entry_type> _timesales;
 
-        /* store deferred callbacks info until we are clear to execute */
-        std::vector<dfrd_cb_elem> _deferred_callbacks;
+        /* synchronous(manual) callbacks */
+        callback_queue_type _callbacks_sync;
 
-        /* to prevent recursion within _clear_callback_queue */
-        std::atomic_bool _busy_with_callbacks;
+        /* container, thread, and sync for asynchronous callbacks */
+        callback_queue_type _callbacks_async;
+
+        mutable std::mutex _async_callback_mtx;
+        std::condition_variable _async_callback_cond;
+        std::condition_variable _async_callback_done_cond;
+        volatile bool _async_callbacks_done;
+
+        class AsyncCallbackThreadGuard {
+            SimpleOrderbookBase *_sob;
+            std::thread _t;
+        public:
+            AsyncCallbackThreadGuard(SimpleOrderbookBase *sob);
+            ~AsyncCallbackThreadGuard();
+        };
 
         /* async order queue and sync objects */
         std::queue<external_order_queue_elem> _external_order_queue;
@@ -689,10 +715,20 @@ private:
          */
         template<bool BuyStop> friend struct detail::exec::stop;
 
+        /*
+         * helpers for order callback types and related promises/futures
+         */
+        template<typename T> friend struct detail::promise_helper;
+
 
         /* handles the async/consumer side of the order queue */
         void
         _threaded_order_dispatcher();
+
+        template<typename T>
+        void
+        _dispatch_external_order( const external_order_queue_elem& ee,
+                                  std::promise<T>&& promise );
 
         id_type
         _execute_external_order(const external_order_queue_elem& e);
@@ -720,20 +756,20 @@ private:
         _trade(plevel plev,
                id_type id,
                size_t size,
-               const order_exec_cb_type& exec_cb);
+               const order_exec_cb_bndl& exec_cb);
 
         std::pair<size_t, bool>
         _hit_chain(plevel plev,
                    id_type id,
                    size_t size,
-                   const order_exec_cb_type& exec_cb);
+                   const order_exec_cb_bndl& exec_cb);
 
         std::pair<size_t, bool>
         _hit_aon_chain(aon_chain_type *achain,
                        plevel plev,
                        id_type id,
                        size_t size,
-                       const order_exec_cb_type& exec_cb );
+                       const order_exec_cb_bndl& exec_cb );
 
         /* DONT INSERT NEW TRADES IN HERE! */
         void
@@ -741,8 +777,16 @@ private:
                            size_t size,
                            id_type idbuy,
                            id_type idsell,
-                           const order_exec_cb_type& cbbuy,
-                           const order_exec_cb_type& cbsell);
+                           const order_exec_cb_bndl& cbbuy,
+                           const order_exec_cb_bndl& cbsell);
+
+        template<bool IsBuy>
+        size_t
+        _match_aon_orders_PRE_trade(const order_queue_elem& e, plevel p);
+
+        template<bool IsBuy>
+        void
+        _match_aon_orders_POST_trade(const order_queue_elem& e, plevel p);
 
         bool
         _handle_advanced_order_trigger(_order_bndl& bndl, id_type id);
@@ -767,26 +811,26 @@ private:
 
         void
         _exec_OTO_order(const OrderParamaters *op,
-                        const order_exec_cb_type& cb,
+                        const order_exec_cb_bndl& cb,
                         id_type id);
 
         void
         _exec_BRACKET_order(const OrderParamaters *op1,
                             const OrderParamaters *op2,
-                            const order_exec_cb_type& cb,
+                            const order_exec_cb_bndl& cb,
                             condition_trigger trigger,
                             id_type id);
 
         void
         _exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
                                      const OrderParamaters *op2,
-                                     const order_exec_cb_type& cb,
+                                     const order_exec_cb_bndl& cb,
                                      condition_trigger trigger,
                                      id_type id);
 
         void
         _exec_TRAILING_STOP_order(const OrderParamaters *op,
-                                  const order_exec_cb_type& cb,
+                                  const order_exec_cb_bndl& cb,
                                   condition_trigger trigger,
                                   id_type id);
 
@@ -826,14 +870,6 @@ private:
         void
         _insert_ALL_OR_NOTHING_order(const order_queue_elem& e);
 
-        template<bool IsBuy>
-        size_t
-        _match_aon_orders_PRE_trade(const order_queue_elem& e, plevel p);
-
-        template<bool IsBuy>
-        void
-        _match_aon_orders_POST_trade(const order_queue_elem& e, plevel p);
-
         /* internal insert orders once/if we have an id */
         template<bool BuyLimit>
         fill_type
@@ -849,9 +885,23 @@ private:
         _insert_stop_order( const order_queue_elem& e,
                             bool pass_conditions = false );
 
-        /* handle post-trade tasks */
         void
-        _clear_callback_queue();
+        _push_exec_callback(callback_msg msg,
+                            const order_exec_cb_bndl& cb_bndl,
+                            id_type id1,
+                            id_type id2,
+                            double price,
+                            size_t sz ) ;
+
+        template<typename... Args>
+        void
+        _push_async_callback(Args&&... args);
+
+        void
+        _threaded_async_callback_executor();
+
+        void
+        _notify_async_callbacks_done();
 
         void
         _look_for_triggered_stops();
@@ -880,14 +930,37 @@ private:
 
         /* push order onto the external queue, BLOCK */
         id_type
-        _push_external_order(order_type oty,
-                             bool buy,
-                             double limit, // TickPrices ??
-                             double stop, // TickPrices ??
-                             size_t size,
-                             order_exec_cb_type cb,
-                             const AdvancedOrderTicket& aot,
-                             id_type id = 0);
+        _push_external_order_sync( order_type oty,
+                                   bool buy,
+                                   double limit,
+                                   double stop,
+                                   size_t size,
+                                   order_exec_cb_type exec_cb,
+                                   const AdvancedOrderTicket& aot,
+                                   id_type id = 0);
+
+        /* push order onto the external queue, DON'T BLOCK */
+        std::future<id_type>
+        _push_external_order_async(order_type oty,
+                                   bool buy,
+                                   double limit,
+                                   double stop,
+                                   size_t size,
+                                   order_exec_cb_type exec_cb,
+                                   const AdvancedOrderTicket& aot,
+                                   id_type id = 0);
+
+        /* backend insert into queue */
+        template<typename T>
+        std::future<T>
+        _push_external_order( order_type oty,
+                              bool buy,
+                              double limit,
+                              double stop,
+                              size_t size,
+                              order_exec_cb_type exec_cb,
+                              const AdvancedOrderTicket& aot,
+                              id_type id );
 
         /*
          * push order onto the internal queue, DONT BLOCK - this can
@@ -899,7 +972,7 @@ private:
                             double limit,
                             double stop,
                             size_t size,
-                            order_exec_cb_type cb,
+                            const order_exec_cb_bndl& cb_bndl,
                             order_condition cond = order_condition::none,
                             condition_trigger cond_trigger
                                 = condition_trigger::fill_partial,
@@ -1045,6 +1118,14 @@ private:
                           const AdvancedOrderTicket& advanced
                               = AdvancedOrderTicket::null);
 
+        std::future<id_type>
+        insert_limit_order_async(bool buy,
+                                 double limit,
+                                 size_t size,
+                                 order_exec_cb_type exec_cb = nullptr,
+                                 const AdvancedOrderTicket& advanced
+                                     = AdvancedOrderTicket::null);
+
         id_type
         insert_market_order(bool buy,
                            size_t size,
@@ -1052,13 +1133,12 @@ private:
                            const AdvancedOrderTicket& advanced
                                = AdvancedOrderTicket::null);
 
-        id_type
-        insert_stop_order(bool buy,
-                         double stop,
-                         size_t size,
-                         order_exec_cb_type exec_cb = nullptr,
-                         const AdvancedOrderTicket& advanced
-                             = AdvancedOrderTicket::null);
+        std::future<id_type>
+        insert_market_order_async(bool buy,
+                                  size_t size,
+                                  order_exec_cb_type exec_cb = nullptr,
+                                  const AdvancedOrderTicket& advanced
+                                      = AdvancedOrderTicket::null);
 
         id_type
         insert_stop_order(bool buy,
@@ -1069,11 +1149,39 @@ private:
                          const AdvancedOrderTicket& advanced
                              = AdvancedOrderTicket::null);
 
+        std::future<id_type>
+        insert_stop_order_async(bool buy,
+                                double stop,
+                                double limit,
+                                size_t size,
+                                order_exec_cb_type exec_cb = nullptr,
+                                const AdvancedOrderTicket& advanced
+                                    = AdvancedOrderTicket::null);
+
+        id_type
+        insert_stop_order(bool buy,
+                          double stop,
+                          size_t size,
+                          order_exec_cb_type exec_cb = nullptr,
+                          const AdvancedOrderTicket& advanced
+                              = AdvancedOrderTicket::null)
+        { return insert_stop_order(buy, stop, 0, size, exec_cb, advanced); }
+
+
+        std::future<id_type>
+        insert_stop_order_async(bool buy,
+                                double stop,
+                                size_t size,
+                                order_exec_cb_type exec_cb = nullptr,
+                                const AdvancedOrderTicket& advanced
+                                    = AdvancedOrderTicket::null)
+        { return insert_stop_order_async(buy, stop, 0, size, exec_cb, advanced); }
+
         bool
         pull_order(id_type id);
 
-        order_info
-        get_order_info(id_type id) const;
+        std::future<id_type> // 1 = true, 0 = false
+        pull_order_async(id_type id);
 
         id_type
         replace_with_limit_order(id_type id,
@@ -1083,6 +1191,14 @@ private:
                                 order_exec_cb_type exec_cb = nullptr,
                                 const AdvancedOrderTicket& advanced
                                     = AdvancedOrderTicket::null);
+        std::future<id_type>
+        replace_with_limit_order_async(id_type id,
+                                       bool buy,
+                                       double limit,
+                                       size_t size,
+                                       order_exec_cb_type exec_cb = nullptr,
+                                       const AdvancedOrderTicket& advanced
+                                            = AdvancedOrderTicket::null);
 
         id_type
         replace_with_market_order(id_type id,
@@ -1092,14 +1208,13 @@ private:
                                  const AdvancedOrderTicket& advanced
                                      = AdvancedOrderTicket::null);
 
-        id_type
-        replace_with_stop_order(id_type id,
-                               bool buy,
-                               double stop,
-                               size_t size,
-                               order_exec_cb_type exec_cb = nullptr,
-                               const AdvancedOrderTicket& advanced
-                                   = AdvancedOrderTicket::null);
+        std::future<id_type>
+        replace_with_market_order_async(id_type id,
+                                        bool buy,
+                                        size_t size,
+                                        order_exec_cb_type exec_cb = nullptr,
+                                        const AdvancedOrderTicket& advanced
+                                            = AdvancedOrderTicket::null);
 
         id_type
         replace_with_stop_order(id_type id,
@@ -1111,6 +1226,43 @@ private:
                                const AdvancedOrderTicket& advanced
                                    = AdvancedOrderTicket::null);
 
+        std::future<id_type>
+        replace_with_stop_order_async(id_type id,
+                                      bool buy,
+                                      double stop,
+                                      double limit,
+                                      size_t size,
+                                      order_exec_cb_type exec_cb = nullptr,
+                                      const AdvancedOrderTicket& advanced
+                                          = AdvancedOrderTicket::null);
+
+        id_type
+        replace_with_stop_order(id_type id,
+                               bool buy,
+                               double stop,
+                               size_t size,
+                               order_exec_cb_type exec_cb = nullptr,
+                               const AdvancedOrderTicket& advanced
+                                   = AdvancedOrderTicket::null)
+        { return replace_with_stop_order(id, buy, stop, 0, size, exec_cb,
+                                         advanced); }
+
+        std::future<id_type>
+        replace_with_stop_order_async(id_type id,
+                                      bool buy,
+                                      double stop,
+                                      size_t size,
+                                      order_exec_cb_type exec_cb = nullptr,
+                                      const AdvancedOrderTicket& advanced
+                                          = AdvancedOrderTicket::null)
+        { return replace_with_stop_order_async(id, buy, stop, 0, size, exec_cb,
+                                               advanced); }
+
+        void
+        wait_for_async_callbacks();
+
+        order_info
+        get_order_info(id_type id) const;
 
         void
         dump_internal_pointers(std::ostream& out = std::cout) const;
@@ -1382,6 +1534,9 @@ struct sob_types {
     using _order_bndl = sob_class::_order_bndl;
     using OrderNotInCache = sob_class::OrderNotInCache;
     using chain_iter_wrap = sob_class::chain_iter_wrap;
+    using dfrd_cb_elem = sob_class::dfrd_cb_elem;
+    using order_exec_cb_bndl = sob_class::order_exec_cb_bndl;
+    using callback_queue_type = sob_class::callback_queue_type;
 };
 
 } /* detail */

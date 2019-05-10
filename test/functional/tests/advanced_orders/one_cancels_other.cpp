@@ -810,5 +810,313 @@ TEST_advanced_OCO_5(sob::FullInterface *orderbook, std::ostream& out)
 
     return 0;
 }
+
+int
+TEST_advanced_OCO_ASYNC_1(sob::FullInterface *orderbook, std::ostream& out)
+{
+    auto conv = [&](double d){ return orderbook->price_to_tick(d); };
+
+    double beg = orderbook->min_price();
+    double end = orderbook->max_price();
+    double mid = conv((beg+end) / 2);
+    double incr = orderbook->tick_size();
+
+    ids.clear();
+
+    // check for market/* OCO
+    try{
+        auto aot = AdvancedOrderTicketOCO::build_stop(false, conv(mid-incr), sz);
+        orderbook->insert_market_order_async(true, sz, ecb, aot).wait();
+        return 1;
+    }catch(advanced_order_error& e){
+        out<< "sucessfully caught aot error: " << e.what() << endl;
+    }catch(invalid_argument& e){
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
+    }
+
+    // check for limit/market OCO
+    try{
+        auto aot = AdvancedOrderTicketOTO::build_market(false, sz);
+        aot.change_condition( order_condition::one_cancels_other );
+        orderbook->insert_limit_order_async(true, mid, sz, ecb, aot).get();
+        return 2;
+    }catch(advanced_order_error& e){
+        out<< "sucessfully caught aot error: " << e.what() << endl;
+    }catch(invalid_argument& e){
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
+    }
+
+    // check for limit/limit OCO where buy price >= sell price
+    try{
+        auto aot = AdvancedOrderTicketOCO::build_limit(false, conv(mid-incr), sz);
+        orderbook->insert_limit_order_async(true, mid, sz, ecb, aot).get();
+        return 3;
+    }catch(advanced_order_error& e){
+        out<< "sucessfully caught aot error: " << e.what() << endl;
+    }catch(invalid_argument& e){
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
+    }
+
+    // check for limit/limit OCO where sell price <= buy price
+    try{
+        auto aot = AdvancedOrderTicketOCO::build_limit(true, conv(beg+incr), sz);
+        orderbook->insert_limit_order_async(false, beg, sz, ecb, aot).get();
+        return 4;
+    }catch(advanced_order_error& e){
+        out<< "sucessfully caught aot error: " << e.what() << endl;
+    }catch(invalid_argument& e){
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
+    }
+
+    // check for limit/limit OCO where buy limit == buy limit
+    try{
+        auto aot = AdvancedOrderTicketOCO::build_limit(true, end, sz);
+        orderbook->insert_limit_order_async(true, end, sz, ecb, aot).get();
+        return 5;
+    }catch(advanced_order_error& e){
+        out<< "sucessfully caught aot error: " << e.what() << endl;
+    }catch(invalid_argument& e){
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
+    }
+
+    // check for malformed order ticket
+    try{
+        auto aot = AdvancedOrderTicketOTO::build_stop_limit(true, beg, end, sz);
+        aot.change_order1( OrderParamatersByPrice(true, 0, end, beg) );
+        orderbook->insert_limit_order_async(true, end, sz, ecb, aot).get();
+        return 6;
+    }catch(advanced_order_error& e){
+        out<< "sucessfully caught aot error: " << e.what() << endl;
+    }catch(invalid_argument& e){
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
+    }
+
+    // check for bad limit ticket prices
+    try{
+        auto aot = AdvancedOrderTicketOTO::build_limit(true, conv(end+incr), sz);
+        orderbook->insert_stop_order_async(true, end, sz, ecb, aot).get();
+        return 7;
+    }catch(advanced_order_error& e){
+        out<< "sucessfully caught aot error: " << e.what() << endl;
+    }catch(invalid_argument& e){
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
+    }
+
+    // check for bad stop ticket prices
+    try{
+        auto aot = AdvancedOrderTicketOTO::build_stop(true, conv(end+incr), sz);
+        orderbook->insert_stop_order_async(true, end, end, sz, ecb, aot).get();
+        return 8;
+    }catch(advanced_order_error& e){
+        out<< "sucessfully caught aot error: " << e.what() << endl;
+    }catch(invalid_argument& e){
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
+    }
+
+    // check for bad stop limit ticket prices
+    try{
+        auto aot = AdvancedOrderTicketOCO::build_stop_limit( false, beg,
+                                                             conv(beg-incr), sz );
+        orderbook->insert_limit_order_async(true, end, sz, ecb, aot).get();
+        return 9;
+    }catch(advanced_order_error& e){
+        out<< "sucessfully caught aot error: " << e.what() << endl;
+    }catch(invalid_argument& e){
+        out<< "sucessfully caught invalid arg: " << e.what() << endl;
+    }
+
+    // check for bad ticket size
+    try{
+        AdvancedOrderTicketOTO::build_market(false, 0);
+        return 10;
+    }catch(invalid_argument& e){
+        out<< "sucessfully caught invalid argument: " << e.what() << endl;
+    }
+
+    return 0;
+}
+
+int
+TEST_advanced_OCO_ASYNC_2(sob::FullInterface *orderbook, std::ostream& out)
+{
+    auto conv = [&](double d){ return orderbook->price_to_tick(d); };
+
+    double beg = orderbook->min_price();
+    double end = orderbook->max_price();
+    double mid = conv((beg+end) / 2);
+    double incr = orderbook->tick_size();
+    size_t nticks = orderbook->ticks_in_range();
+
+    ids.clear();
+
+    id_insert( orderbook->insert_limit_order_async(false, mid, sz, ecb).get()); //1
+
+    auto aot = AdvancedOrderTicketOCO::build_limit(
+            true, conv(mid+incr), sz, condition_trigger::fill_partial
+            );
+    id_insert( orderbook->insert_limit_order_async(true, mid, sz*2, ecb, aot).get() ); //2
+
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    auto aot2 = AdvancedOrderTicketOTO::build_limit(
+            false, conv(mid+incr), sz, condition_trigger::fill_full
+            );
+    id_type id1 = orderbook->insert_limit_order(false, mid, sz*3, ecb, aot2); //3
+    id_insert(id1);
+
+    order_info of = orderbook->get_order_info(id1);
+    if( of.type != order_type::limit
+        || of.advanced.trigger() != condition_trigger::fill_full
+        || of.advanced.condition() != order_condition::one_triggers_other )
+    {
+        return 1;
+    }
+
+    const OrderParamaters *op = of.advanced.order1();
+    if( !op->is_by_price()
+        || !op->is_limit_order()
+        || op->size() != sz )
+    {
+        return 2;
+    }
+    out<< "ORDER INFO: " << id1 << " "<< of << endl;
+
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    id_insert( orderbook->insert_limit_order_async(true, conv(mid+incr), sz*3, ecb).get() ); //4
+    /*
+     *                       (4.c, B100)                             (4.b, S100)
+     *                            |                                        |
+     *                            |                                        |                                       |
+     * mid (2, B100)(2, B100)(4.a, B200)          (1, S100) (3, S100) (3, S200)
+     *                            |_______________________________________|
+     *
+     *
+     *  S100    0    0  S200  0   S100   0
+     *        B100 B100  0    0   B100   0
+     *
+     *   0    100  100  200  400  400   500
+     */
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    size_t tbs = orderbook->total_bid_size();
+    size_t tas = orderbook->total_ask_size();
+    size_t bs = orderbook->bid_size();
+    size_t as = orderbook->ask_size();
+    unsigned long long vol = orderbook->volume();
+    size_t nts = orderbook->time_and_sales().size();
+
+    if( bs != 0 ){
+        return 3;
+    }else if( as != 0 ){
+        return 4;
+    }else if( tbs != 0 ){
+        return 5;
+    }else if( tas != 0 ){
+        return 6;
+    }else if( vol != 500 ){
+        return 7;
+    }else if( nts != 4 ){
+        return 8;
+    }
+
+    auto md_book = orderbook->market_depth(nticks + 2);
+    size_t book_sz = md_book.size();
+    if( book_sz > 0 ){
+        return 9;
+    }
+
+    id_insert( orderbook->insert_limit_order(false, mid, sz, ecb)); //1
+    aot = AdvancedOrderTicketOCO::build_limit(
+            true, mid, sz, condition_trigger::fill_full
+            );
+    id_insert( orderbook->insert_limit_order( true, conv(mid+incr),
+                                              sz, ecb, aot) ); //2
+
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    if( orderbook->market_depth(nticks+2).size() > 0 ){
+        return 10;
+    }
+
+    if( orderbook->volume() != vol+100 ){
+        return 11;
+    }
+
+    id_insert( orderbook->insert_limit_order_async(false, beg, sz, ecb).get() ); //1
+    id_insert( orderbook->insert_limit_order_async(false, conv(beg+incr), sz, ecb).get() ); //1
+    aot = AdvancedOrderTicketOCO::build_limit(
+            true, beg, sz, condition_trigger::fill_full
+            );
+    id_insert( orderbook->insert_limit_order_async( true, conv(beg+incr), sz*2,
+                                              ecb, aot).get() ); //2
+
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    if( orderbook->market_depth(nticks+2).size() > 0 ){
+        return 12;
+    }
+
+    if( orderbook->volume() != vol+100+200 ){
+        return 13;
+    }
+
+    aot2 = AdvancedOrderTicketOTO::build_stop(
+            false, conv(beg+incr), sz, condition_trigger::fill_full
+            );
+    id_insert( orderbook->insert_limit_order(false, beg , sz, ecb, aot2)); //1
+
+    aot2 = AdvancedOrderTicketOTO::build_market(
+            false, sz, condition_trigger::fill_full
+            );
+    id_insert( orderbook->insert_limit_order( false, conv(beg+incr), sz,
+                                              ecb, aot2) ); //2
+
+    aot = AdvancedOrderTicketOCO::build_limit(
+            true, conv(beg+incr), sz*3, condition_trigger::fill_full
+            );
+    id_type id = orderbook->insert_limit_order(true, beg, sz*2, ecb, aot); //3
+    id_insert( id );
+    /*
+     *
+     *  (3, B300)           (2, S100) --> (3, SM100) --> (3, SS100)
+     *  (3, B200)   ->      (1, S100)------------------------|
+     *
+     *  100 100 100 100
+     */
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    if( orderbook->market_depth(nticks+2).size() > 0 ){
+        return 14;
+    }else if( orderbook->total_bid_size()
+              || orderbook->total_ask_size() ){
+        return 15;
+    }
+
+    if( orderbook->volume() != vol+100+200+400 ){
+        return 16;
+    }
+
+    return 0;
+}
+
 #endif /* RUN_FUNCTIONAL_TESTS */
 

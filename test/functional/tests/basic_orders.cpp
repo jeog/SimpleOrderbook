@@ -116,4 +116,68 @@ TEST_basic_orders_2(FullInterface *orderbook, std::ostream& out)
     return 0;
 }
 
+int
+TEST_basic_orders_ASYNC_1(FullInterface *orderbook, std::ostream& out)
+{
+    static const AdvancedOrderTicket AOT_NULL = AdvancedOrderTicket::null;
+
+    auto conv = [&](double d){ return orderbook->price_to_tick(d); };
+
+    double beg = orderbook->min_price();
+    double end = orderbook->max_price();
+    double incr = orderbook->tick_size();
+    double b = conv((beg + end) / 2);
+
+    std::future<id_type> F;
+
+    F = orderbook->insert_limit_order_async(true, b, sz, callback, AOT_NULL);
+    F.wait();
+
+    F = orderbook->insert_limit_order_async(true, conv(b+incr), sz, callback, AOT_NULL);
+    F.wait();
+
+    F = orderbook->insert_limit_order_async(true, conv(b+2*incr), sz, callback, AOT_NULL);
+    F.wait();
+
+    F = orderbook->insert_stop_order_async(false, conv(b+2*incr), sz, callback, AOT_NULL);
+    F.wait();
+
+    F = orderbook->insert_stop_order_async( false, conv(b+2*incr), conv(b+incr), sz,
+                                  callback, AOT_NULL );
+    F.wait();
+
+    orderbook->dump_limits(out);
+    orderbook->dump_buy_limits(out);
+    orderbook->dump_sell_limits(out);
+    orderbook->dump_stops(out);
+    orderbook->dump_buy_stops(out);
+    orderbook->dump_sell_stops(out);
+
+    F = orderbook->insert_market_order_async(false, static_cast<size_t>(sz/2), callback);
+    F.wait();
+    // 100 <- s50.a s50.b
+    // 100 <- s50.b s50.c
+    // 100
+    size_t bs = orderbook->bid_size();
+    size_t tbs = orderbook->total_bid_size();
+    size_t as = orderbook->ask_size();
+
+    orderbook->dump_limits(out);
+    orderbook->dump_stops(out);
+
+    if( bs != sz || tbs != sz || as != static_cast<size_t>(sz*.5) ){
+        return 1;
+    }else if( orderbook->volume() != (2 * sz) ){
+        return 2;
+    }else if( orderbook->last_size() != static_cast<size_t>(.5 * sz) ){
+        return 3;
+    }else if( orderbook->bid_price() != b ){
+        return 4;
+    }else if( orderbook->ask_price() != b+incr ){
+        return 5;
+    }
+
+    return 0;
+}
+
 #endif /* RUN_FUNCTIONAL_TESTS */

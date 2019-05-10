@@ -1375,4 +1375,219 @@ TEST_advanced_AON_13(FullInterface *orderbook, std::ostream& out)
 
 }
 
+int
+TEST_advanced_AON_ASYNC_1(FullInterface *orderbook, std::ostream& out)
+{
+    auto conv = [&](double d){ return orderbook->price_to_tick(d); };
+
+    size_t bs, tbs, as, tas, v, ts;
+
+    double beg = orderbook->min_price();
+    double end = orderbook->max_price();
+    double incr = orderbook->tick_size();
+
+    auto aot = AdvancedOrderTicketAON::build();
+
+    // limit aon limit
+    orderbook->insert_limit_order_async(true, conv(beg), sz, ecb).wait();
+    orderbook->insert_limit_order(true, conv(beg), sz, ecb, aot);
+    id_type id3 = orderbook->insert_limit_order_async(true, conv(beg), sz, ecb).get();
+
+    // beg 100<1> 100aon<2> 100<3>
+
+    orderbook->insert_market_order_async(false, sz*1.5, ecb).wait();
+
+    // beg 100aon<2> 50<3>
+
+    v = orderbook->volume();
+    bs = orderbook->bid_size();
+    tbs = orderbook->total_aon_bid_size();
+    if( v != sz*1.5 || bs != sz/2 || tbs != sz )
+        return 1;
+
+    dump_orders(orderbook,out);
+    orderbook->dump_aon_sell_limits(out);
+    orderbook->dump_aon_buy_limits(out);
+    dynamic_cast<ManagementInterface*>(orderbook)->dump_internal_pointers(out);
+
+    orderbook->wait_for_async_callbacks(); // *** WAIT ***
+    if( !orderbook->pull_order(id3) )
+        return 2;
+
+    // beg 100 aon<2>
+
+    dump_orders(orderbook,out);
+    orderbook->dump_aon_sell_limits(out);
+    orderbook->dump_aon_buy_limits(out);
+    dynamic_cast<ManagementInterface*>(orderbook)->dump_internal_pointers(out);
+
+    bs = orderbook->bid_size();
+    tbs = orderbook->total_aon_bid_size();
+    if(  bs != 0 || tbs != sz )
+        return 3;
+
+    id_type id5 = orderbook->insert_limit_order_async(true, conv(beg+incr), sz, ecb).get();
+    id_type id6 = orderbook->insert_limit_order_async(true, conv(beg+incr), sz, ecb).get();
+    id_type id7 = orderbook->insert_limit_order_async(true, conv(beg+incr), sz, ecb, aot).get();
+
+    // beg + 1    100 <5>     100 <6>    100 aon <7>
+    // beg        100 aon<2>
+
+    orderbook->insert_stop_order_async(false, conv(beg+incr), sz/4, ecb).wait(); // 8
+
+    // beg + 1    100 <5>     100 <6>    100 aon <7>          25S <8>
+    // beg        100 aon<2>
+
+    orderbook->insert_market_order(false, sz/4, ecb); // 9
+
+    // beg + 1    50 <5>     100 <6>    100 aon <7>
+    // beg        100 aon<2>
+
+    // id 10 for stop -> limit
+
+    v = orderbook->volume();
+    tbs = orderbook->total_aon_bid_size();
+    if( v != 2*sz || tbs != 2*sz )
+        return 4;
+
+    bs = orderbook->bid_size();
+    tbs = orderbook->total_bid_size();
+    if( bs != 1.5 * sz || tbs != 1.5 * sz)
+        return 5;
+
+    orderbook->insert_limit_order_async(true, conv(beg+incr), sz, ecb, aot).wait(); // 11
+
+
+    // beg + 1    50 <5>     100 <6>    100 aon <7>   100  aon <11>
+    // beg        100 aon<2>
+
+    dynamic_cast<ManagementInterface*>(orderbook)->dump_internal_pointers(out);
+
+    orderbook->wait_for_async_callbacks(); // *** WAIT ***
+
+    if( !orderbook->pull_order_async(id6).get() )
+        return 7;
+
+    if( !orderbook->pull_order(id5) )
+        return 8;
+
+    if( !orderbook->pull_order_async(id7).get() )
+        return 9;
+
+
+    // beg + 1    100 aon <11>
+    // beg        100 aon<2>
+
+    tbs = orderbook->total_aon_bid_size();
+    ts = orderbook->total_size();
+    if( tbs != 2*sz || ts != 0 )
+        return 10;
+
+    orderbook->insert_limit_order(true, conv(beg+incr*2), sz/2, ecb);
+    id_type id13 = orderbook->insert_limit_order_async(true, conv(beg+incr), sz/2, ecb).get();
+    orderbook->insert_limit_order_async(true, conv(beg+incr), sz/2, ecb, aot).wait();
+    orderbook->insert_limit_order(true, conv(beg), sz/2, ecb); // 15
+
+    // beg + 2    50 <12>
+    // beg + 1    100 aon <11>   50 <13>  50 aon<14>
+    // beg        100 aon<2>  50 <15>
+
+    tbs = orderbook->total_aon_bid_size();
+    if( tbs != 2.5 * sz )
+        return 11;
+
+    bs = orderbook->bid_size();
+    tbs = orderbook->total_bid_size();
+    if( bs != .5 * sz || tbs != 1.5 * sz )
+        return 12;
+
+    orderbook->wait_for_async_callbacks(); // *** WAIT ***
+    if( !orderbook->pull_order(id13) )
+        return 13;
+
+    // beg + 2    50 <12>
+    // beg + 1    100 aon <11>   50 aon<14>
+    // beg        100 aon<2>  50 <15>
+
+    tbs = orderbook->total_aon_bid_size();
+    if( tbs != 2.5 *sz )
+        return 14;
+
+    orderbook->insert_market_order(false, sz/2, ecb); // 16
+
+    // beg + 2
+    // beg + 1    100 aon <11>   50 aon<14>
+    // beg        100 aon<2>  50 <15>
+
+    dump_orders(orderbook,out);
+    orderbook->dump_aon_sell_limits(out);
+    orderbook->dump_aon_buy_limits(out);
+
+    double bp = orderbook->bid_price();
+    bs = orderbook->bid_size();
+    if( bp != beg  || bs != sz/2 )
+        return 15;
+
+    orderbook->insert_limit_order(false, conv(beg+incr), sz/2, ecb); // 17
+
+
+    // beg + 1    100 aon <11>   50 aon<14>   <<<should match>>>  50 <17>
+    // beg        100 aon<2>  50 <15>
+
+    // ...
+
+    // beg + 1    100 aon <11>
+    // beg        100 aon<2>  50 <15>
+
+    bs = orderbook->bid_size();
+    tbs = orderbook->total_aon_bid_size();
+    if( bs != sz/2 || tbs != 2*sz )
+        return 16;
+
+    dump_orders(orderbook,out);
+    orderbook->dump_aon_sell_limits(out);
+    orderbook->dump_aon_buy_limits(out);
+
+    orderbook->insert_limit_order_async(false, conv(beg+incr), sz/2, ecb, aot).get(); // 18
+
+    // beg + 1    100 aon <11>                50 aon <18>
+    // beg        100 aon<2>  50 <15>
+
+    orderbook->insert_limit_order_async(false, conv(beg+incr), sz/4, ecb, aot).get(); // 19
+
+    // beg + 1    100 aon <11>                50 aon <18> 25 aon <19>
+    // beg        100 aon<2>  50 <15>
+
+
+    //
+    // TODO - what about when limit is @ beg and size > sz/4
+    //
+    orderbook->insert_limit_order_async(false, conv(beg+incr), sz/4, ecb, aot).get(); // 20
+
+    // beg + 1    100 aon <11>          << should match >> 50 aon <18> 25 aon <19> 25 <20>
+    // beg        100 aon<2>  50 <15>
+
+    // ...
+
+    // beg + 1
+    // beg        100 aon<2>  50 <15>
+
+    dump_orders(orderbook,out);
+    orderbook->dump_aon_sell_limits(out);
+    orderbook->dump_aon_buy_limits(out);
+
+    bp = orderbook->bid_price();
+    bs = orderbook->bid_size();
+    if( bp != beg || bs != sz/2 )
+        return 17;
+
+    tbs = orderbook->total_aon_bid_size();
+    if( tbs != sz )
+        return 18;
+
+
+    return 0;
+
+}
+
 #endif /* RUN_FUNCTIONAL_TESTS */

@@ -23,31 +23,38 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 #define SOB_CLASS SimpleOrderbook::SimpleOrderbookBase
 
-namespace sob{
+// TODO helper obj/func to limit some of the redundancy in here
 
-id_type
-SOB_CLASS::insert_limit_order( bool buy,
-                               double limit,
-                               size_t size,
-                               order_exec_cb_type exec_cb,
-                               const AdvancedOrderTicket& advanced )
+namespace {
+
+using namespace sob;
+
+/*
+ * anything that needs orderbook state e.g valid price ranges, has to be
+ *  done internally by the dispatcher while _master_mtx is being held
+ */
+
+void
+check_order_params(size_t size)
 {
     if(size == 0)
         throw std::invalid_argument("invalid order size");
-
-    return _push_external_order(order_type::limit, buy, limit, 0, size, exec_cb,
-                                advanced );
 }
 
-
-id_type
-SOB_CLASS::insert_market_order( bool buy,
-                                size_t size,
-                                order_exec_cb_type exec_cb,
-                                const AdvancedOrderTicket& advanced )
+void
+check_order_params(size_t size, id_type id)
 {
-    if(size == 0)
-        throw std::invalid_argument("invalid order size");
+    check_order_params(size);
+
+    if(id == 0)
+        throw std::invalid_argument("invalid order id(0)");
+}
+
+template<typename... Args>
+void
+check_market_order_params(const AdvancedOrderTicket& advanced, Args... args)
+{
+    check_order_params(args...);
 
     if( advanced ){
         switch( advanced.condition() ){
@@ -60,9 +67,79 @@ SOB_CLASS::insert_market_order( bool buy,
         default: break;
        };
     }
+}
 
-    return _push_external_order(order_type::market, buy, 0, 0, size, exec_cb,
-                                advanced );
+template<typename... Args>
+void
+check_stop_order_params(const AdvancedOrderTicket& advanced, Args... args)
+{
+    check_order_params(args...);
+
+    if( advanced ){
+        switch( advanced.condition() ) {
+        case order_condition::fill_or_kill:
+            throw advanced_order_error("FOK invalid for stop order");
+        case order_condition::all_or_nothing:
+            throw advanced_order_error("AON invalid for stop order");
+        default: break;
+        };
+    }
+}
+
+} /* namespace */
+
+
+namespace sob{
+
+id_type
+SOB_CLASS::insert_limit_order( bool buy,
+                               double limit,
+                               size_t size,
+                               order_exec_cb_type exec_cb,
+                               const AdvancedOrderTicket& advanced )
+{
+    check_order_params(size);
+
+    return _push_external_order_sync(order_type::limit, buy, limit, 0, size,
+                                     exec_cb, advanced );
+}
+
+std::future<id_type>
+SOB_CLASS::insert_limit_order_async( bool buy,
+                                     double limit,
+                                     size_t size,
+                                     order_exec_cb_type exec_cb,
+                                     const AdvancedOrderTicket& advanced )
+{
+    check_order_params(size);
+
+    return _push_external_order_async(order_type::limit, buy, limit, 0, size,
+                                     exec_cb, advanced );
+}
+
+
+id_type
+SOB_CLASS::insert_market_order( bool buy,
+                                size_t size,
+                                order_exec_cb_type exec_cb,
+                                const AdvancedOrderTicket& advanced )
+{
+    check_market_order_params(advanced, size);
+
+    return _push_external_order_sync(order_type::market, buy, 0, 0, size,
+                                     exec_cb, advanced);
+}
+
+std::future<id_type>
+SOB_CLASS::insert_market_order_async(bool buy,
+                                     size_t size,
+                                     order_exec_cb_type exec_cb,
+                                     const AdvancedOrderTicket& advanced )
+{
+    check_market_order_params(advanced, size);
+
+    return _push_external_order_async(order_type::market, buy, 0, 0, size,
+                                      exec_cb, advanced);
 }
 
 
@@ -74,54 +151,47 @@ SOB_CLASS::insert_stop_order( bool buy,
                               order_exec_cb_type exec_cb,
                               const AdvancedOrderTicket& advanced )
 {
-    if(size == 0)
-        throw std::invalid_argument("invalid order size");
-
-    if( advanced ){
-         switch( advanced.condition() ) {
-         case order_condition::fill_or_kill:
-             throw advanced_order_error("FOK invalid for stop order");
-         case order_condition::all_or_nothing:
-             throw advanced_order_error("AON invalid for stop order");
-         default: break;
-         };
-    }
+    check_stop_order_params(advanced, size);
 
     order_type ot = limit ? order_type::stop_limit : order_type::stop;
 
-    return _push_external_order(ot, buy, limit, stop, size, exec_cb, advanced);
+    return _push_external_order_sync(ot, buy, limit, stop, size, exec_cb,
+                                     advanced);
 }
 
-
-id_type
-SOB_CLASS::insert_stop_order( bool buy,
-                              double stop,
-                              size_t size,
-                              order_exec_cb_type exec_cb,
-                              const AdvancedOrderTicket& advanced )
+std::future<id_type>
+SOB_CLASS::insert_stop_order_async(bool buy,
+                         double stop,
+                         double limit,
+                         size_t size,
+                         order_exec_cb_type exec_cb,
+                         const AdvancedOrderTicket& advanced )
 {
-    return insert_stop_order(buy, stop, 0, size, exec_cb, advanced);
+    check_stop_order_params(advanced, size);
+
+    order_type ot = limit ? order_type::stop_limit : order_type::stop;
+
+    return _push_external_order_async(ot, buy, limit, stop, size, exec_cb,
+                                      advanced);
 }
 
 
 bool
 SOB_CLASS::pull_order(id_type id)
 {
-    if(id == 0)
-        throw std::invalid_argument("invalid order id(0)");
+    check_order_params(1, id);
 
-    return _push_external_order(order_type::null, false, 0, 0, 0, nullptr,
-                                AdvancedOrderTicket::null, id);
+    return _push_external_order_sync(order_type::null, false, 0, 0, 0, nullptr,
+                                     AdvancedOrderTicket::null, id);
 }
 
-
-order_info
-SOB_CLASS::get_order_info(id_type id) const
+std::future<id_type> // 1 = true, 0 = false
+SOB_CLASS::pull_order_async(id_type id)
 {
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-    return detail::order::as_order_info(this, id);
-    /* --- CRITICAL SECTION --- */
+    check_order_params(1, id);
+
+    return _push_external_order_async(order_type::null, false, 0, 0, 0, nullptr,
+                                     AdvancedOrderTicket::null, id);
 }
 
 
@@ -133,14 +203,24 @@ SOB_CLASS::replace_with_limit_order( id_type id,
                                      order_exec_cb_type exec_cb,
                                      const AdvancedOrderTicket& advanced )
 {
-    if(id == 0)
-        throw std::invalid_argument("invalid order id(0)");
+    check_order_params(size, id);
 
-    if(size == 0)
-        throw std::invalid_argument("invalid order size");
+    return _push_external_order_sync(order_type::limit, buy, limit, 0, size,
+                                     exec_cb, advanced, id);
+}
 
-    return _push_external_order(order_type::limit, buy, limit, 0, size, exec_cb,
-                                advanced, id );
+std::future<id_type>
+SOB_CLASS::replace_with_limit_order_async(id_type id,
+                                          bool buy,
+                                          double limit,
+                                          size_t size,
+                                          order_exec_cb_type exec_cb,
+                                          const AdvancedOrderTicket& advanced )
+{
+    check_order_params(size, id);
+
+    return _push_external_order_async(order_type::limit, buy, limit, 0, size,
+                                     exec_cb, advanced, id);
 }
 
 
@@ -151,26 +231,23 @@ SOB_CLASS::replace_with_market_order( id_type id,
                                       order_exec_cb_type exec_cb,
                                       const AdvancedOrderTicket& advanced )
 {
-    if(id == 0)
-        throw std::invalid_argument("invalid order id(0)");
+    check_market_order_params(advanced, size, id);
 
-    if(size == 0)
-        throw std::invalid_argument("invalid order size");
+    return _push_external_order_sync(order_type::market, buy, 0, 0, size,
+                                     exec_cb, advanced, id );
+}
 
-    if( advanced ){
-        switch( advanced.condition() ){
-        case order_condition::one_cancels_other:
-            throw advanced_order_error("OCO invalid for market order");
-        case order_condition::fill_or_kill:
-            throw advanced_order_error("FOK invalid for market order");
-        case order_condition::all_or_nothing:
-            throw advanced_order_error("AON invalid for market order");
-        default: break;
-       };
-    }
+std::future<id_type>
+SOB_CLASS::replace_with_market_order_async(id_type id,
+                                           bool buy,
+                                           size_t size,
+                                           order_exec_cb_type exec_cb,
+                                           const AdvancedOrderTicket& advanced )
+{
+    check_market_order_params(advanced, size, id);
 
-    return _push_external_order(order_type::market, buy, 0, 0, size, exec_cb,
-                                advanced, id );
+    return _push_external_order_async(order_type::market, buy, 0, 0, size,
+                                     exec_cb, advanced, id );
 }
 
 
@@ -183,39 +260,40 @@ SOB_CLASS::replace_with_stop_order( id_type id,
                                     order_exec_cb_type exec_cb,
                                     const AdvancedOrderTicket& advanced )
 {
-    if(id == 0)
-        throw std::invalid_argument("invalid order id(0)");
-
-    if(size == 0)
-        throw std::invalid_argument("invalid order size");
-
-    if( advanced ){
-         switch( advanced.condition() ) {
-         case order_condition::fill_or_kill:
-             throw advanced_order_error("FOK invalid for stop order");
-         case order_condition::all_or_nothing:
-             throw advanced_order_error("AON invalid for stop order");
-         default: break;
-         };
-    }
+    check_stop_order_params(advanced, size, id);
 
     order_type ot = limit ? order_type::stop_limit : order_type::stop;
 
-    return _push_external_order(ot, buy, limit, stop, size, exec_cb, advanced, id);
+    return _push_external_order_sync(ot, buy, limit, stop, size, exec_cb,
+                                     advanced, id);
 }
 
-
-id_type
-SOB_CLASS::replace_with_stop_order( id_type id,
-                                    bool buy,
-                                    double stop,
-                                    size_t size,
-                                    order_exec_cb_type exec_cb,
-                                    const AdvancedOrderTicket& advanced )
+std::future<id_type>
+SOB_CLASS::replace_with_stop_order_async(id_type id,
+                                         bool buy,
+                                         double stop,
+                                         double limit,
+                                         size_t size,
+                                         order_exec_cb_type exec_cb,
+                                         const AdvancedOrderTicket& advanced )
 {
-    return replace_with_stop_order(id, buy, stop, 0, size, exec_cb, advanced);
+    check_stop_order_params(advanced, size, id);
+
+    order_type ot = limit ? order_type::stop_limit : order_type::stop;
+
+    return _push_external_order_async(ot, buy, limit, stop, size, exec_cb,
+                                      advanced, id);
 }
 
+
+order_info
+SOB_CLASS::get_order_info(id_type id) const
+{
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+    return detail::order::as_order_info(this, id);
+    /* --- CRITICAL SECTION --- */
+}
 
 }; /* sob */
 

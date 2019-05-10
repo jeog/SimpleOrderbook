@@ -154,6 +154,29 @@ public:
 
     virtual bool 
     pull_order(id_type id) = 0;
+
+    virtual std::future<id_type>
+    insert_limit_order_async(bool buy,
+                             double limit,
+                             size_t size,
+                             order_exec_cb_type exec_cb = nullptr,
+                             const AdvancedOrderTicket& advanced
+                                 = AdvancedOrderTicket::null) = 0;
+
+    virtual std::future<id_type>
+    replace_with_limit_order_async(id_type id,
+                                   bool buy,
+                                   double limit,
+                                   size_t size,
+                                   order_exec_cb_type exec_cb = nullptr,
+                                   const AdvancedOrderTicket& advanced
+                                       = AdvancedOrderTicket::null) = 0;
+
+    virtual std::future<id_type> // 1 = true, 0 = false
+    pull_order_async(id_type id) = 0;
+
+    virtual void
+    wait_for_async_callbacks() = 0;
 };
 
 
@@ -215,6 +238,57 @@ public:
                             order_exec_cb_type exec_cb = nullptr,
                             const AdvancedOrderTicket& advanced
                                 = AdvancedOrderTicket::null) = 0;
+
+    virtual std::future<id_type>
+    insert_market_order_async(bool buy,
+                              size_t size,
+                              order_exec_cb_type exec_cb = nullptr,
+                              const AdvancedOrderTicket& advanced
+                                  = AdvancedOrderTicket::null) = 0;
+
+    virtual std::future<id_type>
+    insert_stop_order_async(bool buy,
+                            double stop,
+                            size_t size,
+                            order_exec_cb_type exec_cb = nullptr,
+                            const AdvancedOrderTicket& advanced
+                                = AdvancedOrderTicket::null) = 0;
+
+    virtual std::future<id_type>
+    insert_stop_order_async(bool buy,
+                            double stop,
+                            double limit,
+                            size_t size,
+                            order_exec_cb_type exec_cb = nullptr,
+                            const AdvancedOrderTicket& advanced
+                                = AdvancedOrderTicket::null) = 0;
+
+    virtual std::future<id_type>
+    replace_with_market_order_async(id_type id,
+                                    bool buy,
+                                    size_t size,
+                                    order_exec_cb_type exec_cb = nullptr,
+                                    const AdvancedOrderTicket& advanced
+                                        = AdvancedOrderTicket::null) = 0;
+
+    virtual std::future<id_type>
+    replace_with_stop_order_async(id_type id,
+                                  bool buy,
+                                  double stop,
+                                  size_t size,
+                                  order_exec_cb_type exec_cb = nullptr,
+                                  const AdvancedOrderTicket& advanced
+                                      = AdvancedOrderTicket::null) = 0;
+
+    virtual std::future<id_type>
+    replace_with_stop_order_async(id_type id,
+                                  bool buy,
+                                  double stop,
+                                  double limit,
+                                  size_t size,
+                                  order_exec_cb_type exec_cb = nullptr,
+                                  const AdvancedOrderTicket& advanced
+                                      = AdvancedOrderTicket::null) = 0;
 
     virtual void 
     dump_limits(std::ostream& out = std::cout) const = 0;

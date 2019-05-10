@@ -38,18 +38,18 @@ class OrderParamaters; /* order_paramaters.hpp */
 class AdvancedOrderTicket; /* advanced_order.hpp */
 struct order_info; /* simpleoderbook.hpp */
 
-typedef unsigned long id_type;
+using id_type = unsigned long;
 
-typedef std::ratio<1,4> quarter_tick;
-typedef std::ratio<1,10> tenth_tick;
-typedef std::ratio<1,32> thirty_secondth_tick;
-typedef std::ratio<1,100> hundredth_tick;
-typedef std::ratio<1,1000> thousandth_tick;
-typedef std::ratio<1,10000> ten_thousandth_tick;
+using quarter_tick = std::ratio<1,4>;
+using tenth_tick = std::ratio<1,10>;
+using thirty_second_tick = std::ratio<1,32>;
+using hundredth_tick = std::ratio<1,100>;
+using thousandth_tick = std::ratio<1,1000>;
+using ten_thousandth_tick = std::ratio<1,10000>;
 
-typedef std::chrono::steady_clock clock_type;
+using clock_type = std::chrono::steady_clock;
 
-typedef std::tuple<clock_type::time_point, double, size_t> timesale_entry_type;
+using timesale_entry_type = std::tuple<clock_type::time_point, double, size_t>;
 
 enum class order_type {
     null = 0,
@@ -114,8 +114,9 @@ enum class side_of_trade {
     both = 0
 };
 
-typedef std::function<void(callback_msg,id_type,id_type,double,size_t)>  order_exec_cb_type;
-
+using order_exec_cb_type = std::function<
+    void(callback_msg,id_type,id_type,double,size_t)
+    >;
 
 std::string to_string(const order_type& ot);
 std::string to_string(const callback_msg& cm);

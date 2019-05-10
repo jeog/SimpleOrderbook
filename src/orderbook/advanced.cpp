@@ -133,7 +133,7 @@ SOB_CLASS::_handle_OTO(_order_bndl& bndl, id_type id)
     const OrderParamaters* op1 = bndl.contingent_order;
     assert( op1 );
 
-    _exec_OTO_order(op1, bndl.exec_cb, id);
+    _exec_OTO_order(op1, bndl.cb, id);
 
     delete bndl.contingent_order;
     bndl.contingent_order = nullptr;
@@ -151,7 +151,7 @@ SOB_CLASS::_handle_BRACKET(_order_bndl& bndl, id_type id)
     const OrderParamaters* op2 = &(bndl.price_bracket_orders->second);
     assert( op2->is_limit_order() );
 
-    _exec_BRACKET_order(op1, op2, bndl.exec_cb, bndl.trigger, id);
+    _exec_BRACKET_order(op1, op2, bndl.cb, bndl.trigger, id);
 
     /*
      * delete what bracket_orders points at; the order is now of condition
@@ -172,7 +172,7 @@ SOB_CLASS::_handle_TRAILING_BRACKET(_order_bndl& bndl, id_type id)
     const OrderParamaters* op2 = &(bndl.nticks_bracket_orders->second);
     assert( op2->is_limit_order() );
 
-    _exec_TRAILING_BRACKET_order(op1, op2, bndl.exec_cb, bndl.trigger, id);
+    _exec_TRAILING_BRACKET_order(op1, op2, bndl.cb, bndl.trigger, id);
 
     /*
      * delete what bracket_orders points at; the order is now of condition
@@ -190,7 +190,7 @@ SOB_CLASS::_handle_TRAILING_STOP(_order_bndl& bndl, id_type id)
     const OrderParamaters* op1 = bndl.contingent_order;
     assert( op1 );
 
-    _exec_TRAILING_STOP_order(op1, bndl.exec_cb, bndl.trigger, id);
+    _exec_TRAILING_STOP_order(op1, bndl.cb, bndl.trigger, id);
 
     delete bndl.contingent_order;
     bndl.contingent_order = nullptr;
@@ -230,15 +230,13 @@ SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id)
 
 void
 SOB_CLASS::_exec_OTO_order(const OrderParamaters *op,
-                           const order_exec_cb_type& cb,
+                           const order_exec_cb_bndl& cb,
                            id_type id)
 {
     assert( op->is_by_price() );
 
     id_type id_new  = _generate_id();
-    _deferred_callbacks.emplace_back(
-        callback_msg::trigger_OTO, cb, id, id_new , 0, 0
-        );
+    _push_exec_callback(callback_msg::trigger_OTO, cb, id, id_new , 0, 0);
 
     _push_internal_order( op->get_order_type(), op->is_buy(),
                          op->limit_price(), op->stop_price(), op->size(), cb,
@@ -250,7 +248,7 @@ SOB_CLASS::_exec_OTO_order(const OrderParamaters *op,
 void
 SOB_CLASS::_exec_BRACKET_order(const OrderParamaters *op1,
                                const OrderParamaters *op2,
-                               const order_exec_cb_type& cb,
+                               const order_exec_cb_bndl& cb,
                                condition_trigger trigger,
                                id_type id)
 {
@@ -267,9 +265,8 @@ SOB_CLASS::_exec_BRACKET_order(const OrderParamaters *op1,
     assert( op2->is_by_price() );
 
     id_type id_new = _generate_id();
-    _deferred_callbacks.emplace_back(
-        callback_msg::trigger_BRACKET_open, cb, id, id_new , 0, 0
-        );
+    _push_exec_callback( callback_msg::trigger_BRACKET_open, cb, id, id_new ,
+                         0, 0 );
 
     _push_internal_order( op2->get_order_type(), op2->is_buy(),
                          op2->limit_price(), op2->stop_price(), op2->size(),
@@ -281,7 +278,7 @@ SOB_CLASS::_exec_BRACKET_order(const OrderParamaters *op1,
 void
 SOB_CLASS::_exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
                                         const OrderParamaters *op2,
-                                        const order_exec_cb_type& cb,
+                                        const order_exec_cb_bndl& cb,
                                         condition_trigger trigger,
                                         id_type id)
 {
@@ -290,9 +287,8 @@ SOB_CLASS::_exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
     assert( op2->is_by_nticks() );
 
     id_type id_new = _generate_id();
-    _deferred_callbacks.emplace_back(
-        callback_msg::trigger_BRACKET_open, cb, id, id_new, 0, 0
-        );
+    _push_exec_callback( callback_msg::trigger_BRACKET_open, cb, id, id_new,
+                         0, 0 );
 
     plevel l = _generate_trailing_limit(op2->is_buy(), op2->limit_nticks());
     assert(l);
@@ -306,16 +302,15 @@ SOB_CLASS::_exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
 
 void
 SOB_CLASS::_exec_TRAILING_STOP_order(const OrderParamaters *op,
-                                     const order_exec_cb_type& cb,
+                                     const order_exec_cb_bndl& cb,
                                      condition_trigger trigger,
                                      id_type id)
 {
     assert( op->is_by_nticks() );
 
     id_type id_new = _generate_id();
-    _deferred_callbacks.emplace_back(
-        callback_msg::trigger_trailing_stop, cb, id, id_new, 0, 0
-        );
+    _push_exec_callback( callback_msg::trigger_trailing_stop, cb, id, id_new,
+                         0, 0 );
 
     plevel stop = _generate_trailing_stop(op->is_buy(), op->stop_nticks());
     assert(stop);
@@ -339,7 +334,7 @@ SOB_CLASS::_exec_OCO_order(const T& t,
     callback_msg msg = detail::order::is_OCO(t)
                      ? callback_msg::trigger_OCO
                      : callback_msg::trigger_BRACKET_close;
-    _deferred_callbacks.emplace_back(msg, t.exec_cb, id_old, id_new, 0, 0);
+    _push_exec_callback(msg, t.cb, id_old, id_new, 0, 0);
 
     if( id_pull ){
         assert( price_pull );
@@ -371,7 +366,7 @@ SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
     /* construct a new queue elem from cparams1, with a new ID. */
     id_type id2 = _generate_id();
     order_queue_elem e2( op->get_order_type(), op->is_buy(), op->limit_price(),
-                         op->stop_price(), op->size(), e.exec_cb, id2, e.condition,
+                         op->stop_price(), op->size(), e.cb, id2, e.condition,
                          e.trigger, nullptr, nullptr);
 
     /* if we fill second order immediately, remove first */
@@ -416,7 +411,7 @@ SOB_CLASS::_insert_OTO_order(const order_queue_elem& e)
 
     /* if we fill immediately we need to insert other order from here */
     if( _inject_basic_order(e, detail::order::needs_partial_fill(e)) ){
-        _exec_OTO_order(op, e.exec_cb, e.id);
+        _exec_OTO_order(op, e.cb, e.id);
         /*
          * TODO id replace like OCO ?
          */
@@ -447,7 +442,7 @@ SOB_CLASS::_insert_BRACKET_order(const order_queue_elem& e)
 
     /* if we fill immediately we need to insert other order from here */
     if( _inject_basic_order(e, detail::order::needs_partial_fill(e)) ){
-        _exec_BRACKET_order(op1, op2, e.exec_cb, e.trigger, e.id);
+        _exec_BRACKET_order(op1, op2, e.cb, e.trigger, e.id);
         /*
          * TODO ID replace like OCO ?
          */
@@ -479,7 +474,7 @@ SOB_CLASS::_insert_TRAILING_BRACKET_order(const order_queue_elem& e)
 
     /* if we fill immediately we need to insert other order from here */
     if( _inject_basic_order(e, detail::order::needs_partial_fill(e)) ){
-        _exec_TRAILING_BRACKET_order(op1, op2, e.exec_cb, e.trigger, e.id);
+        _exec_TRAILING_BRACKET_order(op1, op2, e.cb, e.trigger, e.id);
         /*
          * TODO ID replace like OCO ?
          */
@@ -507,7 +502,7 @@ SOB_CLASS::_insert_TRAILING_STOP_order(const order_queue_elem& e)
     assert(op);
 
     if( _inject_basic_order(e, detail::order::needs_partial_fill(e)) ){
-        _exec_TRAILING_STOP_order(op, e.exec_cb, e.trigger, e.id);
+        _exec_TRAILING_STOP_order(op, e.cb, e.trigger, e.id);
         return;
     }
 
@@ -534,10 +529,10 @@ SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e)
     assert(op->get_order_type() != order_type::null);
 
     /* if we fill immediately, no need to enter 2nd order */
-    if( _inject_basic_order(e, order::needs_partial_fill(e)) ){
-       _deferred_callbacks.emplace_back(
-            callback_msg::trigger_BRACKET_close, e.exec_cb, e.id, e.id, 0, 0
-            );
+    if( _inject_basic_order(e, order::needs_partial_fill(e)) )
+    {
+        _push_exec_callback( callback_msg::trigger_BRACKET_close, e.cb,
+                             e.id, e.id, 0, 0 );
         return;
     }
 
@@ -549,8 +544,8 @@ SOB_CLASS::_insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e)
     size_t nticks = op->stop_nticks();
     plevel p = _generate_trailing_stop(op->is_buy(), nticks);
 
-    stop_bndl o2(op->is_buy(), 0, id2, op->size(), e.exec_cb,
-                 order_condition::_trailing_bracket_active,  e.trigger);
+    stop_bndl o2( op->is_buy(), 0, id2, op->size(), e.cb,
+                 order_condition::_trailing_bracket_active, e.trigger);
 
     /* link each order with the other */
     o1->linked_trailer = new linked_trailer_type(
@@ -575,7 +570,7 @@ SOB_CLASS::_insert_TRAILING_STOP_ACTIVE_order(const order_queue_elem& e)
 {
     assert( detail::order::is_active_trailing_stop(e) );
 
-    stop_bndl bndl(e.is_buy, 0, e.id, e.sz, e.exec_cb, e.condition, e.trigger);
+    stop_bndl bndl(e.is_buy, 0, e.id, e.sz, e.cb, e.condition, e.trigger);
 
     const OrderParamaters *op = e.cparams1.get();
     assert(op);
@@ -599,9 +594,7 @@ SOB_CLASS::_insert_FOK_order(const order_queue_elem& e)
         : _limit_is_fillable<false>(p, e.sz, allow_partial ).first;
 
     if( !fillable ){
-        _deferred_callbacks.emplace_back(
-            callback_msg::kill, e.exec_cb, e.id, e.id, e.limit, e.sz
-            );
+        _push_exec_callback(callback_msg::kill, e.cb, e.id, e.id, e.limit, e.sz);
         return;
     }
 
@@ -623,20 +616,23 @@ SOB_CLASS::_insert_ALL_OR_NOTHING_order(const order_queue_elem& e)
 void
 SOB_CLASS::_trailing_stop_insert(id_type id, bool is_buy)
 {
-    (is_buy ? _trailing_buy_stops : _trailing_sell_stops).insert(id);
+    auto& stops = is_buy ? _trailing_buy_stops : _trailing_sell_stops;
+    stops.insert(id);
 }
 
 
 void
 SOB_CLASS::_trailing_stop_erase(id_type id, bool is_buy)
 {
-    (is_buy ? _trailing_buy_stops : _trailing_sell_stops).erase(id);
+    auto& stops = is_buy ? _trailing_buy_stops : _trailing_sell_stops;
+    stops.erase(id);
 }
 
 
 SOB_CLASS::plevel
 SOB_CLASS::_generate_trailing_stop(bool buy_stop, size_t nticks)
 {
+
     return nticks ? (_last + (buy_stop ? nticks : (nticks*-1))) : 0;
 }
 
@@ -651,10 +647,9 @@ SOB_CLASS::_generate_trailing_limit(bool buy_limit, size_t nticks)
 void
 SOB_CLASS::_adjust_trailing_stops(bool buy_stops)
 {
-    auto& ids = buy_stops ? _trailing_buy_stops : _trailing_sell_stops;
-    for( auto id : ids ){
+    auto& stops = buy_stops ? _trailing_buy_stops : _trailing_sell_stops;
+    for( auto id : stops )
         _adjust_trailing_stop(id, buy_stops);
-    }
 }
 
 
@@ -676,9 +671,8 @@ SOB_CLASS::_adjust_trailing_stop(id_type id, bool buy_stop)
     plevel p = _generate_trailing_stop(buy_stop, nticks);
     double price = _itop(p);
 
-    _deferred_callbacks.emplace_back(
-        callback_msg::adjust_trailing_stop, bndl.exec_cb, id, id, price, bndl.sz
-        );
+    _push_exec_callback( callback_msg::adjust_trailing_stop, bndl.cb, id, id,
+                         price, bndl.sz );
 
     /* if bracket, need to let linked order know new location */
     if( order::is_active_trailing_bracket(bndl) )

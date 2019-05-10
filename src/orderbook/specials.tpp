@@ -866,6 +866,33 @@ struct depth<sob::side_of_market::both>  : public sob_types {
     }
 };
 
+
+template<>
+struct promise_helper< std::pair<id_type, sob_types::callback_queue_type> >
+        : public sob_types {    
+    template<typename A>    
+    static constexpr std::pair<id_type, A> 
+    build_value(id_type ret, const A& a) { return {ret, a}; }
+    
+    static constexpr order_exec_cb_bndl::type 
+    callback_type = order_exec_cb_bndl::type::synchronous;
+    
+    static constexpr bool is_synchronous = true;
+};
+
+template<>
+struct promise_helper<id_type>
+        : public sob_types {
+    template<typename A>     
+    static constexpr id_type
+    build_value(id_type ret, const A& a) { return ret; }
+    
+    static constexpr order_exec_cb_bndl::type 
+    callback_type = order_exec_cb_bndl::type::asynchronous;
+    
+    static constexpr bool is_synchronous = false;
+};
+
 }; /* detail */
 
 }; /* sob */

@@ -29,20 +29,20 @@ SimpleOrderbook::SimpleOrderbookBase::stop_bndl::null;
 
 SOB_CLASS::_order_bndl::_order_bndl()
      :
-        _order_bndl(0, 0, nullptr)
+        _order_bndl(0, 0, {nullptr, order_exec_cb_bndl::type::synchronous})
      {
      }
 
 
 SOB_CLASS::_order_bndl::_order_bndl( id_type id,
                                      size_t sz,
-                                     order_exec_cb_type exec_cb,
+                                     const order_exec_cb_bndl& cb,
                                      order_condition cond,
                                      condition_trigger trigger )
     :
         id(id),
         sz(sz),
-        exec_cb(exec_cb),
+        cb(cb),
         cond(cond),
         trigger(trigger),
         nticks(0)
@@ -55,7 +55,7 @@ SOB_CLASS::_order_bndl::_order_bndl(const _order_bndl& bndl)
     :
         id(bndl.id),
         sz(bndl.sz),
-        exec_cb(bndl.exec_cb),
+        cb(bndl.cb),
         cond(bndl.cond),
         trigger(bndl.trigger)
     {
@@ -104,7 +104,7 @@ SOB_CLASS::_order_bndl::_order_bndl(_order_bndl&& bndl)
     :
         id(bndl.id),
         sz(bndl.sz),
-        exec_cb(bndl.exec_cb),
+        cb(bndl.cb),
         cond(bndl.cond),
         trigger(bndl.trigger)
     {
@@ -191,11 +191,11 @@ SOB_CLASS::stop_bndl::stop_bndl( bool is_buy,
                                  double limit,
                                  id_type id,
                                  size_t sz,
-                                 order_exec_cb_type exec_cb,
+                                 const order_exec_cb_bndl& cb,
                                  order_condition cond,
                                  condition_trigger trigger )
    :
-       _order_bndl(id, sz, exec_cb, cond, trigger),
+       _order_bndl(id, sz, cb, cond, trigger),
        is_buy(is_buy),
        limit(limit)
    {
@@ -370,7 +370,7 @@ SOB_CLASS::order_queue_elem_base_::order_queue_elem_base_(
         double limit,
         double stop,
         size_t sz,
-        order_exec_cb_type exec_cb,
+        order_exec_cb_bndl cb,
         id_type id )
     :
         type(ot),
@@ -378,13 +378,13 @@ SOB_CLASS::order_queue_elem_base_::order_queue_elem_base_(
         limit(limit),
         stop(stop),
         sz(sz),
-        exec_cb(exec_cb),
+        cb( cb ),
         id(id)
      {}
 
 SOB_CLASS::order_queue_elem_base_::order_queue_elem_base_()
     :
-        order_queue_elem_base_(order_type::null,false,0,0,0,nullptr,0)
+        order_queue_elem_base_(order_type::null,false,0,0,0,{},0)
     {}
 
 
@@ -394,22 +394,81 @@ SOB_CLASS::external_order_queue_elem::external_order_queue_elem(
         double limit,
         double stop,
         size_t sz,
-        order_exec_cb_type exec_cb,
+        order_exec_cb_bndl cb,
         id_type id,
         const AdvancedOrderTicket &aot,
         std::promise<id_type>&& promise )
     :
-        order_queue_elem_base_(ot, is_buy, limit, stop, sz, exec_cb, id),
+        order_queue_elem_base_(ot, is_buy, limit, stop, sz, cb, id),
         aot(aot),
-        promise( std::move(promise) )
-    {}
+        promise_async( std::move(promise) )
+    {
+        assert( cb.cb_type == order_exec_cb_bndl::type::asynchronous );
+    }
+
+SOB_CLASS::external_order_queue_elem::external_order_queue_elem(
+      order_type ot,
+      bool is_buy,
+      double limit,
+      double stop,
+      size_t sz,
+      order_exec_cb_bndl cb,
+      id_type id,
+      const AdvancedOrderTicket& aot,
+      std::promise<std::pair<id_type, callback_queue_type>>&& promise
+      )
+    :
+        order_queue_elem_base_(ot, is_buy, limit, stop, sz, cb, id),
+        aot(aot),
+        promise_sync( std::move(promise) )
+    {
+        assert( cb.cb_type == order_exec_cb_bndl::type::synchronous );
+    }
 
 SOB_CLASS::external_order_queue_elem::external_order_queue_elem()
     :
         order_queue_elem_base_(),
         aot(),
-        promise()
+        promise_sync()
     {}
+
+SOB_CLASS::external_order_queue_elem&
+SOB_CLASS::external_order_queue_elem::operator=(
+    external_order_queue_elem&& elem
+    )
+{
+    // NOTE - not checking elem != *this (unnecessary)
+
+    order_queue_elem_base_::operator=( std::move(elem) );
+    aot = std::move(elem.aot);
+
+    switch( elem.cb.cb_type ){ // from type
+    case order_exec_cb_bndl::type::synchronous:
+        if( cb.is_asynchronous() ) // to type
+            promise_async.~promise();
+        promise_sync = std::move(elem.promise_sync);
+        break;
+    case order_exec_cb_bndl::type::asynchronous:
+        if( cb.is_synchronous() )
+            promise_sync.~promise();
+        promise_async = std::move( elem.promise_async );
+        break;
+    };
+
+    return *this;
+}
+
+SOB_CLASS::external_order_queue_elem::~external_order_queue_elem()
+    {
+        switch( cb.cb_type ){
+        case order_exec_cb_bndl::type::synchronous:
+            promise_sync.~promise();
+            break;
+        case order_exec_cb_bndl::type::asynchronous:
+            promise_async.~promise();
+            break;
+        };
+    }
 
 
 SOB_CLASS::order_queue_elem::order_queue_elem(
@@ -418,15 +477,14 @@ SOB_CLASS::order_queue_elem::order_queue_elem(
         double limit,
         double stop,
         size_t sz,
-        order_exec_cb_type exec_cb, // TODO
+        order_exec_cb_bndl cb,
         id_type id,
         order_condition condition,
         condition_trigger trigger,
         std::unique_ptr<OrderParamaters>&& cparams1,
         std::unique_ptr<OrderParamaters>&& cparams2 )
     :
-        order_queue_elem_base_(ot, is_buy, limit, stop, sz,
-                               exec_cb, id),
+        order_queue_elem_base_(ot, is_buy, limit, stop, sz, cb, id),
         condition(condition),
         trigger(trigger),
         cparams1( std::move(cparams1) ),
@@ -439,7 +497,7 @@ SOB_CLASS::order_queue_elem::order_queue_elem(
         const SOB_CLASS* sob )
     :
         order_queue_elem_base_(e.type, e.is_buy, e.limit, e.stop,
-                               e.sz, e.exec_cb, e.id),
+                               e.sz, e.cb, e.id),
         condition( e.aot.condition() ),
         trigger( e.aot.trigger() ),
         cparams1(),

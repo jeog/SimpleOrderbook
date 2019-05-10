@@ -44,18 +44,24 @@ int TEST_##name(sob::FullInterface *orderbook, std::ostream& out)
 DECL_TICK_TEST_FUNC(tick_price_1);
 DECL_SOB_TEST_FUNC(grow_1);
 DECL_SOB_TEST_FUNC(grow_2);
+DECL_SOB_TEST_FUNC(grow_ASYNC_1);
 /* basic_orders.cpp */
 DECL_SOB_TEST_FUNC(basic_orders_1);
 DECL_SOB_TEST_FUNC(basic_orders_2);
+DECL_SOB_TEST_FUNC(basic_orders_ASYNC_1);
 /* pull_replace.cpp */
 DECL_SOB_TEST_FUNC(orders_info_pull_1);
+DECL_SOB_TEST_FUNC(orders_info_pull_ASYNC_1);
 DECL_SOB_TEST_FUNC(replace_order_1);
+DECL_SOB_TEST_FUNC(replace_order_ASYNC_1);
 /* advanced_orders/once_cancels_other.cpp */
 DECL_SOB_TEST_FUNC(advanced_OCO_1);
 DECL_SOB_TEST_FUNC(advanced_OCO_2);
 DECL_SOB_TEST_FUNC(advanced_OCO_3);
 DECL_SOB_TEST_FUNC(advanced_OCO_4);
 DECL_SOB_TEST_FUNC(advanced_OCO_5);
+DECL_SOB_TEST_FUNC(advanced_OCO_ASYNC_1);
+DECL_SOB_TEST_FUNC(advanced_OCO_ASYNC_2);
 /* advanced_orders/bracket.cpp */
 DECL_SOB_TEST_FUNC(advanced_BRACKET_1);
 DECL_SOB_TEST_FUNC(advanced_BRACKET_2);
@@ -90,6 +96,7 @@ DECL_SOB_TEST_FUNC(advanced_AON_10);
 DECL_SOB_TEST_FUNC(advanced_AON_11);
 DECL_SOB_TEST_FUNC(advanced_AON_12);
 DECL_SOB_TEST_FUNC(advanced_AON_13);
+DECL_SOB_TEST_FUNC(advanced_AON_ASYNC_1);
 
 void
 callback( sob::callback_msg msg,
