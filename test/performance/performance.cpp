@@ -143,7 +143,15 @@ run_performance_tests(int argc, char* argv[])
         using namespace std::chrono;
         auto now_t = system_clock::to_time_t( system_clock::now() );
         std::string buf(24, '\0');
-        std::strftime( &buf[0], 24, "%Y-%m-%d-%H-%M", localtime(&now_t) );
+        
+#ifdef _WIN32
+        tm t;
+        localtime_s(&t, &now_t);
+        std::strftime( &buf[0], 24, "%Y-%m-%d-%H-%M", &t);
+#else
+        std::strftime( &buf[0], 24, "%Y-%m-%d-%H-%M", localtime(&now_t));
+#endif
+        
         buf.erase( buf.find_first_of('\0') );
         std::ofstream f("perf-test-" + buf);
         f << fixed;

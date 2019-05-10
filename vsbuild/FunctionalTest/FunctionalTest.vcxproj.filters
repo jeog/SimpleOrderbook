@@ -56,5 +56,8 @@
     <ClCompile Include="..\..\test\functional\tests\advanced_orders\trailing_stop.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\test\functional\tests\advanced_orders\all_or_nothing.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

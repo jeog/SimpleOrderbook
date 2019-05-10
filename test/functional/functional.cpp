@@ -97,11 +97,12 @@ tick_price_tests = {
     {"Test_tick_price<1/4>", TEST_tick_price_1}
 };
 
-struct DummyOut : public std::ostream {
+struct DummyOut : public std::ofstream {
     template<typename T>
     DummyOut&
     operator<< (T){ return *this; }
-} dout;
+}dout;
+
 std::ofstream fout;
 std::reference_wrapper<std::ostream> out = cout;
 bool out_is_cout = true;

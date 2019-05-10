@@ -384,8 +384,11 @@ SOB_CLASS::order_queue_elem_base_::order_queue_elem_base_(
 
 SOB_CLASS::order_queue_elem_base_::order_queue_elem_base_()
     :
-        order_queue_elem_base_(order_type::null,false,0,0,0,{},0)
+        order_queue_elem_base_( order_type::null, false, 0, 0, 0,
+                                {nullptr, order_exec_cb_bndl::type::synchronous},
+                                0 )
     {}
+
 
 
 SOB_CLASS::external_order_queue_elem::external_order_queue_elem(
@@ -432,31 +435,35 @@ SOB_CLASS::external_order_queue_elem::external_order_queue_elem()
         promise_sync()
     {}
 
+
 SOB_CLASS::external_order_queue_elem&
 SOB_CLASS::external_order_queue_elem::operator=(
     external_order_queue_elem&& elem
     )
 {
-    // NOTE - not checking elem != *this (unnecessary)
-
-    order_queue_elem_base_::operator=( std::move(elem) );
-    aot = std::move(elem.aot);
+    if( cb.is_asynchronous() )
+        promise_async.~promise();
+    else
+        promise_sync.~promise();
 
     switch( elem.cb.cb_type ){ // from type
     case order_exec_cb_bndl::type::synchronous:
-        if( cb.is_asynchronous() ) // to type
-            promise_async.~promise();
-        promise_sync = std::move(elem.promise_sync);
+        new (&promise_sync)
+            std::promise<std::pair<id_type, callback_queue_type>>(
+                std::move(elem.promise_sync)
+            );
         break;
     case order_exec_cb_bndl::type::asynchronous:
-        if( cb.is_synchronous() )
-            promise_sync.~promise();
-        promise_async = std::move( elem.promise_async );
+        new (&promise_async)
+            std::promise<id_type>(std::move(elem.promise_async));
         break;
     };
 
+    order_queue_elem_base_::operator=( std::move(elem) );
+    aot = std::move(elem.aot);
     return *this;
 }
+
 
 SOB_CLASS::external_order_queue_elem::~external_order_queue_elem()
     {

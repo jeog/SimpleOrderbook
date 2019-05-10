@@ -254,17 +254,19 @@ private:
         : public ManagementInterface{
     protected:
 
-        typedef struct{
+        struct order_exec_cb_bndl{
             enum class type{
                 synchronous = 1,
                 asynchronous = 2
             };
+
             order_exec_cb_type cb_obj;
             type cb_type;
+
             operator bool() const { return cb_obj.operator bool(); }
             bool is_synchronous() const { return cb_type == type::synchronous; }
             bool is_asynchronous() const { return cb_type == type::asynchronous; }
-        }order_exec_cb_bndl;
+        };
 
 #define ORDER_QUEUE_ELEM_BASE_ARGS \
     order_type ot, bool is_buy, double limit, double stop, \

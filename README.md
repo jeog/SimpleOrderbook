@@ -97,8 +97,6 @@ user@host:/usr/local/SimpleOrderbook$ make all #all of the above
 
 ##### Windows
 
-***This has yet to be upgraded for v0.6***
-
 Use the VisualStudio solution in /vsbuild. You only need to build the SimpleOrderbook project but it's recommended to build the entire solution:
 
 1. file -> open -> Project/Solution -> SimpleOrderbook/vsbuild/vsbuild.sln
