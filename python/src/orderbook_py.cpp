@@ -416,7 +416,7 @@ template<sob::side_of_market Side>
 PyObject*
 SOB_market_depth(pySOB *self, PyObject *args, PyObject *kwds)
 {
-    static char* kwlist[] = {NULL};
+    static char* kwlist[] = {Strings::depth, NULL};
 
     long depth = 0;
     if( !MethodArgs::parse(args, kwds, "|l", kwlist, &depth) ){
