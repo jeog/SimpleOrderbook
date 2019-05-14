@@ -95,6 +95,11 @@ struct pyAOT_TrailingStop_Active
         : public pyAOT {
 };
 
+/* all or nothing */
+struct pyAOT_AON
+        : public pyAOT{
+};
+
 #define BUILD_AOT_METHOD_DEF(m, f, doc) \
 {m, (PyCFunction)f, (METH_VARARGS | METH_KEYWORDS | METH_CLASS), doc}
 
@@ -111,6 +116,7 @@ extern PyTypeObject pyAOT_TrailingBracket_type;
 extern PyTypeObject pyAOT_BRACKET_Active_type;
 extern PyTypeObject pyAOT_TrailingStop_Active_type;
 extern PyTypeObject pyAOT_TrailingBracket_Active_type;
+extern PyTypeObject pyAOT_AON_type;
 
 #define BUILD_AOT_DERIVED_TYPE_OBJ_EX(obj, flags, meths, mmbrs, cnstr, base, name, doc) \
 PyTypeObject obj ## _type = { \
@@ -161,6 +167,7 @@ pyAOT_type_obj()
     : std::is_same<T, pyAOT_BRACKET>::value ? &pyAOT_BRACKET_type
     : std::is_same<T, pyAOT_TrailingStop>::value ? &pyAOT_TrailingStop_type
     : std::is_same<T, pyAOT_TrailingBracket>::value ? &pyAOT_TrailingBracket_type
+    : std::is_same<T, pyAOT_AON>::value ? &pyAOT_AON_type
     : throw std::runtime_error("invalid pyAOT type");
 }
 

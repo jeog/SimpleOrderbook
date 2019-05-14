@@ -88,12 +88,14 @@ ORDER_CONDITIONS = {
     {static_cast<int>(sob::order_condition::_bracket_active), "CONDITION_BRACKET_ACTIVE"},
     {static_cast<int>(sob::order_condition::_trailing_bracket_active), "CONDITION_TRAILING_BRACKET_ACTIVE"},
     {static_cast<int>(sob::order_condition::_trailing_stop_active), "CONDITION_TRAILING_STOP_ACTIVE"},
+    {static_cast<int>(sob::order_condition::all_or_nothing), "CONDITION_AON"}
 };
 
 const std::map<int, std::string>
 CONDITION_TRIGGERS = {
     {static_cast<int>(sob::condition_trigger::fill_partial), "TRIGGER_FILL_PARTIAL"},
-    {static_cast<int>(sob::condition_trigger::fill_full), "TRIGGER_FILL_FULL"}
+    {static_cast<int>(sob::condition_trigger::fill_full), "TRIGGER_FILL_FULL"},
+    {static_cast<int>(sob::condition_trigger::none), "TRIGGER_NONE"}
 };
 
 
@@ -340,7 +342,8 @@ PyInit_simpleorderbook(void)
         || PyType_Ready(&pyAOT_TrailingBracket_type) < 0
         || PyType_Ready(&pyAOT_BRACKET_Active_type) < 0
         || PyType_Ready(&pyAOT_TrailingBracket_Active_type) < 0
-        || PyType_Ready(&pyAOT_TrailingStop_Active_type) < 0 )
+        || PyType_Ready(&pyAOT_TrailingStop_Active_type) < 0
+        || PyType_Ready(&pyAOT_AON_type) < 0 )
     {
         return NULL;
     }
@@ -379,6 +382,9 @@ PyInit_simpleorderbook(void)
     Py_INCREF(&pyAOT_TrailingBracket_type);
     PyModule_AddObject(mod, "AdvancedOrderTicketTrailingBracket",
             (PyObject*)&pyAOT_TrailingBracket_type);
+
+    Py_INCREF(&pyAOT_AON_type);
+    PyModule_AddObject(mod, "AdvancedOrderTicketAON", (PyObject*)&pyAOT_AON_type);
 
     set_const_attributes(mod, SOB_TYPES);
     set_const_attributes(mod, ORDER_TYPES);

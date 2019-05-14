@@ -1036,12 +1036,20 @@ private:
         size_t
         _total_depth() const;
 
+        template<side_of_market Side>
+        size_t
+        _aon_total_depth() const;
+
         template<typename ChainTy>
         void
         _dump_orders(std::ostream& out,
                      plevel l,
                      plevel h,
                      side_of_trade sot) const;
+
+        template<side_of_market Side>
+        void
+        _dump_aon_orders(std::ostream& out) const;
 
         /* called from grow book to reset invalidated pointers */
         void
@@ -1363,22 +1371,28 @@ private:
         aon_market_depth() const;
 
         size_t
-        total_aon_bid_size() const;
+        total_aon_bid_size() const
+        { return _total_depth<side_of_market::bid, aon_chain_type>(); }
 
         size_t
-        total_aon_ask_size() const;
+        total_aon_ask_size() const
+        { return _total_depth<side_of_market::ask, aon_chain_type>(); }
 
         size_t
-        total_aon_size() const;
+        total_aon_size() const
+        { return _total_depth<side_of_market::both, aon_chain_type>(); }
 
         void
-        dump_aon_buy_limits(std::ostream& out = std::cout) const;
+        dump_aon_buy_limits(std::ostream& out = std::cout) const
+        { _dump_aon_orders<side_of_market::bid>(out); }
 
         void
-        dump_aon_sell_limits(std::ostream& out = std::cout) const;
+        dump_aon_sell_limits(std::ostream& out = std::cout) const
+        { _dump_aon_orders<side_of_market::ask>(out); }
 
         void
-        dump_aon_limits(std::ostream& out = std::cout) const;
+        dump_aon_limits(std::ostream& out = std::cout) const
+        { _dump_aon_orders<side_of_market::both>(out); }
     };
 
     /* (non-inline) definitions in tpp/orderbook/impl.tpp */

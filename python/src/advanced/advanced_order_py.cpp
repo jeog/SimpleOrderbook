@@ -119,6 +119,8 @@ py_to_native_aot<PyObject>(PyObject* obj)
         return py_to_native_aot(reinterpret_cast<pyAOT_TrailingStop*>(obj));
     }else if( addr == reinterpret_cast<uintptr_t>(&pyAOT_TrailingBracket_type) ){
         return py_to_native_aot(reinterpret_cast<pyAOT_TrailingBracket*>(obj));
+    }else if( addr == reinterpret_cast<uintptr_t>(&pyAOT_AON_type) ){
+        return py_to_native_aot(reinterpret_cast<pyAOT_AON*>(obj));
     }else{
         throw std::runtime_error("invalid pyAOT type");
     }
@@ -163,6 +165,8 @@ native_aot_to_py(const sob::AdvancedOrderTicket& aot)
     case sob::order_condition::_trailing_stop_active:
         obj = pyAOT_new<pyAOT_TrailingStop_Active>();
         break;
+    case sob::order_condition::all_or_nothing:
+        obj = native_aot_to_py<pyAOT_AON>(aot);
     default:
         return nullptr;
     };

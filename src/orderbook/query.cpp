@@ -241,18 +241,17 @@ SOB_CLASS::_market_depth(size_t depth) const
     using CHAIN = detail::chain<ChainTy>;
     using RANGE = detail::range<Side>;
 
-    plevel h;
-    plevel l;
+    plevel h, l;
     std::map<double, typename DEPTH::mapped_type> md;
 
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
-    RANGE::template get<ChainTy>(this,&h,&l,depth);
+    std::tie(l,h) = RANGE::template get<ChainTy>(this,depth);
     for( ; h >= l; --h)
     {
         if( CHAIN::is_limit && h->limit_chain_is_empty() )
             continue;
-        if( !CHAIN::is_limit && h->stop_chain_is_empty() )
+        if( CHAIN::is_stop && h->stop_chain_is_empty() )
             continue;
 
         size_t sz = CHAIN::size_if(h, detail::order::is_not_AON);
@@ -279,22 +278,42 @@ SOB_CLASS::_total_depth() const
 {
     using namespace detail;
 
-    plevel h;
-    plevel l;
+    plevel h, l;
     size_t tot = 0;
+
+    constexpr bool AON = chain<ChainTy>::is_aon;
+    using FirstChain =
+        typename std::conditional<AON, limit_chain_type, ChainTy>::type;
+
+    auto pred = AON  ? [](const limit_bndl& b){ return order::is_AON(b); }
+                     : [](const limit_bndl& b){ return order::is_not_AON(b); };
 
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
-    range<Side>::template get<ChainTy>(this,&h,&l);
+    std::tie(l,h) = range<Side>::template get<FirstChain>(this);
     for( ; h >= l; --h){
-        tot += chain<ChainTy>::size_if( h, order::is_not_AON );
+        tot += chain<FirstChain>::size_if(h, pred );
     }
+
+    if( AON ){
+        std::tie(l,h) = range<Side>::template get<aon_chain_type>(this);
+        for( ; h >= l; --h){
+            tot += chain<aon_chain_type>::size<Side>( h );
+        }
+    }
+
     return tot;
   /* --- CRITICAL SECTION --- */
 }
 template size_t SOB_CLASS::_total_depth<side_of_market::both>() const;
 template size_t SOB_CLASS::_total_depth<side_of_market::bid>() const;
 template size_t SOB_CLASS::_total_depth<side_of_market::ask>() const;
+template size_t
+SOB_CLASS::_total_depth<side_of_market::both, SOB_CLASS::aon_chain_type>() const;
+template size_t
+SOB_CLASS::_total_depth<side_of_market::bid, SOB_CLASS::aon_chain_type>() const;
+template size_t
+SOB_CLASS::_total_depth<side_of_market::ask, SOB_CLASS::aon_chain_type>() const;
 // no stop_chain instantiations
 
 
@@ -334,7 +353,69 @@ template void SOB_CLASS::_dump_orders<SOB_CLASS::stop_chain_type>(
         std::ostream&, plevel, plevel, side_of_trade) const;
 
 
-// TODO make ranges more efficient
+
+template<side_of_market Side>
+void
+SOB_CLASS::_dump_aon_orders(std::ostream& out) const
+{
+    using namespace detail;
+
+    out << "*** (AON " << Side << " limits) ***" << std::endl;
+
+    std::lock_guard<std::mutex> lock(_master_mtx);
+    /* --- CRITICAL SECTION --- */
+
+    plevel l, h;
+    std::tie(l,h) = range<Side>::template
+        get<limit_chain_type, aon_chain_type>(this);
+
+    for( ; h >= l; --h ){
+        std::stringstream ss;
+
+        // bid/buy side first
+        if( Side != side_of_market::ask ){
+            // aon chains first
+            auto c = h->get_aon_chain<true>();
+            if( c ){
+                for( const auto& elem : *c )
+                    order::dump(ss, elem, true);
+            }
+            if( exec::limit<true>::is_tradable(this,h) ){
+                limit_chain_type *lc = h->get_limit_chain();
+                for( auto& elem : *lc ){
+                    if( order::is_AON(elem) )
+                        order::dump(ss, elem, true);
+                }
+            }
+        }
+
+        if( Side != side_of_market::bid ){
+            // aon chains first
+            auto c = h->get_aon_chain<false>();
+            if( c ){
+                for( const auto& elem : *c )
+                    order::dump(ss, elem, false);
+            }
+            if( exec::limit<false>::is_tradable(this,h) ){
+                limit_chain_type *lc = h->get_limit_chain();
+                for( auto& elem : *lc ){
+                    if( order::is_AON(elem) )
+                        order::dump(ss, elem, false);
+                }
+            }
+        }
+
+        if( !ss.str().empty() )
+            out << _itop(h) << ss.str() << std::endl;
+    }
+    /* --- CRITICAL SECTION --- */
+
+}
+template void SOB_CLASS::_dump_aon_orders<side_of_market::bid>(std::ostream&) const;
+template void SOB_CLASS::_dump_aon_orders<side_of_market::ask>(std::ostream&) const;
+template void SOB_CLASS::_dump_aon_orders<side_of_market::both>(std::ostream&) const;
+
+
 std::map<double, std::pair<size_t,size_t>>
 SOB_CLASS::aon_market_depth() const
 {
@@ -343,252 +424,29 @@ SOB_CLASS::aon_market_depth() const
     using AC = chain<aon_chain_type>;
 
     auto pred = [](const limit_bndl& b){ return order::is_AON(b); };
-
     std::map<double, std::pair<size_t, size_t>> md;
 
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */
 
-    plevel l = std::min(exec::core<true>::end(this),
-                        exec::core<false>::begin(this));
-
-    plevel h = std::max(exec::core<false>::end(this),
-                        exec::core<true>::begin(this));
-
+    plevel l, h;
+    std::tie(l,h) = range<>::template get<limit_chain_type, aon_chain_type>(this);
     for( ; l <= h; ++l ){
         size_t buy_sz = 0, sell_sz = 0;
 
-        if( l <= _bid ) // buy limits
+        if( exec::limit<true>::is_tradable(this,l) )
             buy_sz += LC::size_if(l, pred );
-        else if( l >= _ask ) // sell limits
+        else if( exec::limit<false>::is_tradable(this,l) )
             sell_sz += LC::size_if(l, pred );
 
-        aon_chain_type *abc = l->get_aon_chain<true>();
-        if( abc )
-            buy_sz += AC::size<true>(l);
-
-        aon_chain_type *asc = l->get_aon_chain<false>();
-        if( asc )
-            sell_sz += AC::size<false>(l);
+        buy_sz += AC::size<true>(l);
+        sell_sz += AC::size<false>(l);
 
         if( buy_sz || sell_sz )
             md[_itop(l)] = {buy_sz, sell_sz};
     }
-
     return md;
     /* --- CRITICAL SECTION --- */
-}
-
-
-
-size_t
-SOB_CLASS::total_aon_bid_size() const
-{
-    using namespace detail;
-
-    auto pred = [](const limit_bndl& b){ return order::is_AON(b); };
-
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-
-    size_t tot = 0;
-    for( plevel l = _low_buy_limit; l <= _bid; ++l )
-        tot += chain<limit_chain_type>::size_if(l, pred );
-
-    for( plevel l = _low_buy_aon; l <= _high_buy_aon; ++l ){
-        aon_chain_type *abc = l->get_aon_chain<true>();
-        if( abc )
-            tot += chain<aon_chain_type>::size<true>(l);
-    }
-
-    return tot;
-    /* --- CRITICAL SECTION --- */
-}
-
-
-size_t
-SOB_CLASS::total_aon_ask_size() const
-{
-    using namespace detail;
-
-    auto pred = [](const limit_bndl& b){ return order::is_AON(b); };
-
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-
-    size_t tot = 0;
-    for( plevel h = _high_sell_limit; h >= _ask; --h )
-        tot += chain<limit_chain_type>::size_if(h, pred );
-
-    for( plevel h = _high_sell_aon; h >= _low_sell_aon; --h ){
-        aon_chain_type *asc = h->get_aon_chain<false>();
-        if( asc )
-            tot += chain<aon_chain_type>::size<false>(h);
-    }
-
-    return tot;
-    /* --- CRITICAL SECTION --- */
-}
-
-
-size_t
-SOB_CLASS::total_aon_size() const
-{
-    using namespace detail;
-
-    auto pred = [](const limit_bndl& b){ return order::is_AON(b); };
-
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-
-    size_t tot = 0;
-    for( plevel l = _low_buy_limit; l <= _bid; ++l )
-        tot += chain<limit_chain_type>::size_if(l, pred );
-    for( plevel h = _high_sell_limit; h >= _ask; --h )
-        tot += chain<limit_chain_type>::size_if(h, pred );
-
-    for( plevel l = _low_buy_aon; l <= _high_buy_aon; ++l ){
-        aon_chain_type *abc = l->get_aon_chain<true>();
-        if( abc )
-            tot += chain<aon_chain_type>::size<true>(l);
-    }
-    for( plevel h = _high_sell_aon; h >= _low_sell_aon; --h ){
-        aon_chain_type *asc = h->get_aon_chain<false>();
-        if( asc )
-            tot += chain<aon_chain_type>::size<false>(h);
-    }
-
-    return tot;
-    /* --- CRITICAL SECTION --- */
-}
-
-
-void
-SOB_CLASS::dump_aon_buy_limits(std::ostream& out) const
-{
-    using namespace detail;
-
-    out << "*** (AON buy limits) ***" << std::endl;
-
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-
-    plevel h = exec::core<true>::begin(this);
-    plevel l = exec::core<true>::end(this);
-    for( ; h >= l; --h ){
-        std::stringstream ss;
-
-        // aon chains first
-        auto c = h->get_aon_chain<true>();
-        if( c ){
-            for( const auto& elem : *c )
-                order::dump(ss, elem, true);
-        }
-
-        if( exec::limit<true>::is_tradable(this,h) ){
-            limit_chain_type *lc = h->get_limit_chain();
-            for( auto& elem : *lc ){
-                if( order::is_AON(elem) )
-                    order::dump(ss, elem, true);
-            }
-        }
-
-        if( !ss.str().empty() )
-            out << _itop(h) << ss.str() << std::endl;
-    }
-    /* --- CRITICAL SECTION --- */
-}
-
-
-void
-SOB_CLASS::dump_aon_sell_limits(std::ostream& out) const
-{
-    using namespace detail;
-
-    out << "*** (AON sell limits) ***" << std::endl;
-
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-
-    plevel h = exec::core<false>::end(this);
-    plevel l = exec::core<false>::begin(this);
-    for( ; h >= l; --h ){
-        std::stringstream ss;
-
-        // aon chains first
-        auto c = h->get_aon_chain<false>();
-        if( c ){
-            for( const auto& elem : *c )
-                order::dump(ss, elem, false);
-        }
-
-        if( exec::limit<false>::is_tradable(this,h) ){
-            limit_chain_type *lc = h->get_limit_chain();
-            for( auto& elem : *lc ){
-                if( order::is_AON(elem) )
-                    order::dump(ss, elem, false);
-            }
-        }
-
-        if( !ss.str().empty() )
-            out << _itop(h) << ss.str() << std::endl;
-    }
-    /* --- CRITICAL SECTION --- */
-
-}
-
-void
-SOB_CLASS::dump_aon_limits(std::ostream& out) const
-{
-    using namespace detail;
-
-    out << "*** (AON limits) ***" << std::endl;
-
-    std::lock_guard<std::mutex> lock(_master_mtx);
-    /* --- CRITICAL SECTION --- */
-
-    plevel h = exec::core<false>::end(this);
-    plevel l = exec::core<true>::end(this);
-    for( ; h >= l; --h ){
-        std::stringstream ss;
-
-        // aon buy chain first
-        aon_chain_type *c = h->get_aon_chain<true>();
-        if( c ){
-            for( const auto& elem : *c )
-                order::dump(ss, elem, true);
-        }
-
-        limit_chain_type *lc = h->get_limit_chain();
-
-        // limit/aon chain buys
-        if( exec::limit<true>::is_tradable(this, h) ){
-            for( auto& elem : *lc ){
-                if( order::is_AON(elem) )
-                    order::dump(ss, elem, false);
-            }
-        }
-
-        // then aon sell chains
-        c = h->get_aon_chain<false>();
-        if( c ){
-            for( const auto& elem : *c )
-                order::dump(ss, elem, false);
-        }
-
-        // limit/aon chain sells
-        if( exec::limit<false>::is_tradable(this,h) ){
-            for( auto& elem : *lc ){
-                if( order::is_AON(elem) )
-                    order::dump(ss, elem, false);
-            }
-        }
-
-        if( !ss.str().empty() )
-            out << _itop(h) << ss.str() << std::endl;
-    }
-    /* --- CRITICAL SECTION --- */
-
 }
 
 } /* sob */

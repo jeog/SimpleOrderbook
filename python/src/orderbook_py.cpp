@@ -71,6 +71,9 @@ CALLDOWN_FOR_STATE_ULONG( bid_size )
 CALLDOWN_FOR_STATE_ULONG( total_ask_size )
 CALLDOWN_FOR_STATE_ULONG( total_bid_size )
 CALLDOWN_FOR_STATE_ULONG( total_size )
+CALLDOWN_FOR_STATE_ULONG( total_aon_bid_size )
+CALLDOWN_FOR_STATE_ULONG( total_aon_ask_size )
+CALLDOWN_FOR_STATE_ULONG( total_aon_size )
 CALLDOWN_FOR_STATE_ULONG( last_size )
 CALLDOWN_FOR_STATE_ULONGLONG( volume )
 
@@ -90,8 +93,13 @@ CALLDOWN_FOR_STATE_ULONGLONG( volume )
 
 CALLDOWN_TO_DUMP( dump_buy_limits )
 CALLDOWN_TO_DUMP( dump_sell_limits )
+CALLDOWN_TO_DUMP( dump_limits )
 CALLDOWN_TO_DUMP( dump_buy_stops )
 CALLDOWN_TO_DUMP( dump_sell_stops )
+CALLDOWN_TO_DUMP( dump_stops )
+CALLDOWN_TO_DUMP( dump_aon_buy_limits )
+CALLDOWN_TO_DUMP( dump_aon_sell_limits )
+CALLDOWN_TO_DUMP( dump_aon_limits )
 
 #undef CALLDOWN_FOR_STATE
 #undef CALLDOWN_FOR_STATE_DOUBLE
@@ -408,7 +416,7 @@ template<sob::side_of_market Side>
 PyObject*
 SOB_market_depth(pySOB *self, PyObject *args, PyObject *kwds)
 {
-    static char* kwlist[] = {Strings::depth, NULL};
+    static char* kwlist[] = {NULL};
 
     long depth = 0;
     if( !MethodArgs::parse(args, kwds, "|l", kwlist, &depth) ){
@@ -432,6 +440,53 @@ SOB_market_depth(pySOB *self, PyObject *args, PyObject *kwds)
         Py_UNBLOCK_THREADS
     }catch(std::exception& e){
         Py_BLOCK_THREADS
+        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
+        Py_UNBLOCK_THREADS
+    }
+    Py_END_ALLOW_THREADS
+
+    return dict;
+}
+
+
+PyObject*
+SOB_aon_market_depth(pySOB *self)
+{
+    PyObject *dict = 0;
+    Py_BEGIN_ALLOW_THREADS
+    try{
+        sob::FullInterface *ob = self->interface;
+        auto md = ob->aon_market_depth();
+
+        PyObject *key = 0, *bsz = 0, *asz = 0, *val = 0;
+
+        Py_BLOCK_THREADS
+        dict = PyDict_New();
+        try{
+            for(auto& level : md){
+                bsz = PyLong_FromSize_t(level.second.first);
+                asz = PyLong_FromSize_t(level.second.second);
+                val = PyTuple_Pack(2, bsz, asz);
+                Py_DECREF(bsz);
+                Py_DECREF(asz);
+                key = PyFloat_FromDouble(level.first);
+                PyDict_SetItem(dict, key, val);
+                Py_DECREF(key);
+                Py_DECREF(val);
+            }
+        }catch(std::exception& e){
+            Py_XDECREF(dict);
+            Py_XDECREF(key);
+            Py_XDECREF(bsz);
+            Py_XDECREF(asz);
+            Py_XDECREF(val);
+            CONVERT_AND_THROW_NATIVE_EXCEPTION(e); // set err, return NULL
+        }
+        Py_UNBLOCK_THREADS
+
+    }catch(std::exception& e){
+        Py_BLOCK_THREADS
+        Py_XDECREF(dict);
         CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
         Py_UNBLOCK_THREADS
     }
@@ -547,40 +602,6 @@ SOB_ticks_in_range(pySOB *self, PyObject *args, PyObject *kwds)
     return PyLong_FromLongLong(ticks);
 }
 
-/*
-PyObject*
-SOB_tick_memory_required(pySOB *self, PyObject *args, PyObject *kwds)
-{
-    static char* kwlist[] = { Strings::lower, Strings::upper, NULL };
-
-    double lower = -1. * std::numeric_limits<double>::max();
-    double upper = -1. * std::numeric_limits<double>::max();
-
-    if( !MethodArgs::parse(args, kwds, "|dd", kwlist, &lower, &upper) ){
-        return NULL;
-    }
-
-    unsigned long long mem = 0;
-    try{
-        sob::FullInterface *ob = self->interface;
-        // doesn't check for bad single arg
-        if( lower == upper && upper == (-1. * std::numeric_limits<double>::max())){
-            mem = ob->tick_memory_required();
-        }else if( !ob->is_valid_price(lower) || !ob->is_valid_price(upper) ){
-            PyErr_SetString(PyExc_ValueError, "invalid price");
-            return NULL;
-        }else if( lower > upper ){
-            PyErr_SetString(PyExc_ValueError, "lower > upper");
-            return NULL;
-        }else{
-            mem = ob->tick_memory_required(lower, upper);
-        }
-    }catch(std::exception& e){
-        CONVERT_AND_THROW_NATIVE_EXCEPTION(e);
-    }
-    return PyLong_FromUnsignedLongLong(mem);
-}
-*/
 
 PyObject*
 pySOB_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
@@ -681,6 +702,9 @@ PyMethodDef pySOB_methods[] = {
     MDef::NoArgs("total_bid_size", SOB_total_bid_size, "size of all bids (0 if none)"),
     MDef::NoArgs("total_ask_size", SOB_total_ask_size, "size of all asks (0 if none)"),
     MDef::NoArgs("total_size", SOB_total_size, "size of all (limit) orders (0 if none)"),
+    MDef::NoArgs("total_aon_bid_size", SOB_total_aon_bid_size, "size of all AON bids (0 if none)"),
+    MDef::NoArgs("total_aon_ask_size", SOB_total_aon_ask_size, "size of all AON asks (0 if none)"),
+    MDef::NoArgs("total_aon_size", SOB_total_aon_size, "size of all AON orders (0 if none)"),
     MDef::NoArgs("last_size", SOB_last_size, "last size traded (0 if none)"),
     MDef::NoArgs("volume", SOB_volume, "total volume traded"),
 
@@ -688,10 +712,21 @@ PyMethodDef pySOB_methods[] = {
                  "print all active buy limit orders to stdout "),
     MDef::NoArgs("dump_sell_limits", SOB_dump_sell_limits,
                  "print all active sell limit orders to stdout "),
+    MDef::NoArgs("dump_limits", SOB_dump_limits,
+                  "print all active limit orders to stdout "),
     MDef::NoArgs("dump_buy_stops", SOB_dump_buy_stops,
                  "print all active buy stop orders to stdout "),
     MDef::NoArgs("dump_sell_stops", SOB_dump_sell_stops,
                  "print all active sell stop orders to stdout "),
+    MDef::NoArgs("dump_stops", SOB_dump_stops,
+                  "print all active stop orders to stdout "),
+
+    MDef::NoArgs("dump_aon_buy_limits", SOB_dump_aon_buy_limits,
+                 "print all active AON buy limit orders to stdout"),
+    MDef::NoArgs("dump_aon_sell_limits", SOB_dump_aon_sell_limits,
+                 "print all active AON sell limit orders to stdout"),
+    MDef::NoArgs("dump_aon_limits", SOB_dump_aon_limits,
+                 "print all active AON limit orders to stdout"),
 
     MDef::KeyArgs("grow_book_above", SOB_grow_book<true>,
                   "increase the size of the orderbook from above \n\n"
@@ -721,16 +756,7 @@ PyMethodDef pySOB_methods[] = {
                   "    lower :: float :: lower price \n"
                   "    upper :: float :: upper price \n\n"
                   "    returns -> int \n"),
-/*
-    MDef::KeyArgs("tick_memory_required", SOB_tick_memory_required,
-                  "bytes of memory pre-allocated by orderbook internals. "
-                  "THIS IS NOT TOTAL MEMORY BEING USED! \n\n"
-                  "    def tick_memory_required(lower=min_price(), upper=max_price()) "
-                  "-> number of bytes \n\n"
-                  "    lower :: float :: lower price \n"
-                  "    upper :: float :: upper price \n\n"
-                  "    returns -> int \n"),
-*/
+
 #define DOCS_MARKET_DEPTH(arg1) \
 " get total outstanding order size at each " arg1 " price level \n\n" \
 "    def " arg1 "_depth(depth) -> {price:size, price:size ...} \n\n" \
@@ -745,6 +771,10 @@ PyMethodDef pySOB_methods[] = {
 
     MDef::KeyArgs("market_depth",SOB_market_depth<sob::side_of_market::both>,
         DOCS_MARKET_DEPTH("market")),
+
+    MDef::NoArgs("aon_market_depth", SOB_aon_market_depth,
+                 "get total AON order size at each price level \n\n"
+                 "    def aon_market_depth() -> {float:(long,long), ...} \n\n" ),
 
 #define DOCS_TRADE_MARKET(arg1) \
 " insert " arg1 " market order \n\n" \

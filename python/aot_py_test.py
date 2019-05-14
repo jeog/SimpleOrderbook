@@ -32,6 +32,142 @@ def check_val(val1, val2, tag):
     if val1 != val2:
         raise Exception("*** ERROR - %s - (%i,%i) ***" % (tag,val1,val2))
                 
+def test_AON():
+    aot = sob.AdvancedOrderTicketAON.build()
+    check_val(aot.condition, sob.CONDITION_AON, "AON.condition")
+    check_val(aot.trigger, sob.TRIGGER_NONE, "AON.trigger")
+    
+    book = sob.SimpleOrderbook(TICK_TYPE, BOOK_MIN, BOOK_MAX)
+    
+    def cb(msg,id1, id2, price, size):
+        pass #print("AON callback: ", msg, id1, id2, price, size) 
+
+    o1 = book.sell_limit(BOOK_MID + BOOK_INCR, SZ, cb)
+    o2 = book.buy_limit(BOOK_MID + BOOK_INCR, SZ, cb)
+    o3 = book.sell_limit(BOOK_MID + BOOK_INCR, SZ, cb)
+    o4 = book.sell_limit(BOOK_MID + BOOK_INCR*2, SZ, cb)
+    o5 = book.buy_limit(BOOK_MID + BOOK_INCR*2, SZ*2, cb, advanced = aot)
+
+    if book.bid_size() != 0:
+        raise Exception("*** ERROR bid size(%i) != %i ***" % (book.bid_size(), 0))
+
+    if book.ask_size() != 0:
+        raise Exception("*** ERROR ask size(%i) != %i ***" % (book.ask_size(), 0))
+
+    if book.volume() != SZ*3:
+        raise Exception("*** ERROR volume(%i) != %i ***" % (book.volume(), SZ*3))
+
+    #book.dump_buy_limits()
+    #book.dump_sell_limits()
+    #book.dump_aon_buy_limits()
+    #book.dump_aon_sell_limits()
+
+    o6 = book.sell_limit(BOOK_MID + BOOK_INCR, SZ, cb)
+    o7 = book.sell_limit(BOOK_MID + BOOK_INCR*2, SZ, cb)
+    o8 = book.buy_limit(BOOK_MID + BOOK_INCR*2, int(SZ *1.5), cb, advanced=aot)
+
+    #book.dump_limits()
+    #book.dump_stops()
+    #book.dump_aon_limits()
+
+    if book.volume() != SZ * 4.5:
+        raise Exception("*** ERROR volume(%i) != %i ***" % (book.volume(), SZ*4.5))
+
+    oi = book.get_order_info(o7)
+    if oi.limit != BOOK_MID + BOOK_INCR*2:
+        raise Exception("*** ERROR order_info.limit(%f) != %f ***" % (oi.limit, BOOK_MID + BOOK_INCR*2))
+    if oi.size != SZ*.5:
+        raise Exception("*** ERROR order_info.size(%i) != %i ***" % (oi.size, SZ*.5))
+
+    if not book.pull_order(o7):
+        raise Exception("*** ERROR failed to remove order 'o7', id: %i" % o7)
+
+    oi = book.get_order_info(o8)
+    if oi:
+        raise Exception("*** ERROR order_info should be None ***")
+ 
+    if book.pull_order(o8):
+        raise Exception("*** ERROR successfully to removed order 'o8', id: %i" % o8)
+  
+    #book.dump_aon_buy_limits()
+    #book.dump_aon_sell_limits()
+
+    book = sob.SimpleOrderbook(TICK_TYPE, BOOK_MIN, BOOK_MAX)
+    book.sell_limit( BOOK_MID + BOOK_INCR, SZ, cb, aot)
+    book.sell_limit( BOOK_MID + BOOK_INCR*2, SZ, cb, aot)
+ 
+    tabs = book.total_aon_bid_size()
+    taas = book.total_aon_ask_size()
+    tas = book.total_aon_size()
+    if tabs != 0:
+        raise Exception("*** ERROR total_aon_bid_size(%i) != %i ***" % (tabs,0))
+
+    if taas != 2*SZ:
+        raise Exception("*** ERROR total_aon_ask_size(%i) != %i ***" % (taas, 2*SZ))
+
+    if tas != 2*SZ:
+        raise Exception("*** ERROR total_aon_size(%i) != %i ***" % (tas, 2*SZ))
+
+    #book.dump_aon_buy_limits()
+    #book.dump_aon_sell_limits()
+    #book.dump_aon_limits()
+
+    o9 = book.buy_limit( BOOK_MIN, 1, advanced=aot)
+    md = book.aon_market_depth()
+ 
+    if len(md) != 3:
+        raise Exception("*** ERROR len(aon_market_depth)(%i) != %i ***" % (len(md),3))
+
+    if BOOK_MIN not in md:
+        raise Exception("*** ERROR level(%f) not in aon_market_depth) ***" % BOOK_MIN)
+
+    buysz = md[BOOK_MIN][0]
+    if buysz != 1:
+        raise Exception("*** ERROR aon buy size @ %f(%i) != %i ***" % (BOOK_MIN, buysz, 1))
+    
+    o10 = book.replace_with_buy_limit(o9, BOOK_MIN + BOOK_INCR, SZ, cb)
+    if not o10:
+        raise Exception("*** ERROR failed to replace order %i ***" % o9)
+
+    if not book.pull_order(o10):
+        raise Exception("*** ERROR failed to pull order %i ***" % o10)
+
+    md = book.aon_market_depth()
+    if len(md) != 2:
+        raise Exception("*** ERROR len(aon_market_depth)(%i) != %i ***" % (len(md),2))
+
+    if BOOK_MID + BOOK_INCR not in md:
+        raise Exception("*** ERROR level(%f) not in aon_market_depth) ***" % BOOK_MID+BOOK_INCR)
+
+    if BOOK_MID + BOOK_INCR*2 not in md:
+        raise Exception("*** ERROR level(%f) not in aon_market_depth) ***" % BOOK_MID+BOOK_INCR*2)
+
+    book.buy_limit( BOOK_MID + BOOK_INCR*2, int(SZ*2.5), cb)
+
+    bs = book.bid_size()
+    tbs = book.total_bid_size()
+    ts = book.total_size()
+    if bs != SZ/2:
+        raise Exception("*** ERROR bid_size(%i) != %i ***" % (bs,SZ/2))
+
+    if tbs != SZ/2:
+        raise Exception("*** ERROR tota_bid_size(%i) != %i ***" % (tbs, SZ/2))
+
+    if ts != SZ/2:
+        raise Exception("*** ERROR total_size(%i) != %i ***" % (ts, SZ/2))
+
+    tabs = book.total_aon_bid_size()
+    tas = book.total_aon_size()
+    if tabs != 0:
+        raise Exception("*** ERROR total_aon_bid_size(%i) != %i ***" % (tabs,0))
+
+    if tas != 0:
+        raise Exception("*** ERROR total_aon_size(%i) != %i ***" % (tas, 0))
+   
+    md = book.aon_market_depth()
+    if len(md) != 0:
+        raise Exception("*** ERROR len(aon_market_depth)(%i) != %i ***" % (len(md),0))
+
 def test_OCO():
     DEF_TRIGGER = sob.TRIGGER_FILL_PARTIAL
     def check_aot(aot, cond, trigger, is_buy, sz, limit, stop, tag):
@@ -377,6 +513,8 @@ def test_all():
     print("*** TrailingStop - SUCCESS ***")
     test_TrailingBracket()
     print("*** TrailingBracket - SUCCESS ***")
+    test_AON()
+    print("*** AON - SUCCESS ***")
     print("*** SUCCESS ****")
 
 
