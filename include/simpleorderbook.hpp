@@ -139,7 +139,7 @@ namespace detail {
      */
     struct sob_types;
     struct order;
-    template<sob::side_of_market Side> struct range;
+    template<sob::side_of_trade Side> struct range;
     template<sob::side_of_market Side> struct depth;
     template<typename ChainTy, bool BaseOnly> struct chain;
     namespace exec{
@@ -643,7 +643,7 @@ private:
          *           various chain/order types and sides of market. Optional
          *           'depth' arg adjusts by some scalar index around bid/ask.
          */
-        template<side_of_market Side> friend struct detail::range;
+        template<side_of_trade Side> friend struct detail::range;
 
         /*
          * order utilities
@@ -1021,33 +1021,23 @@ private:
         _generate_id()
         { return ++_last_id; }
 
-        /* 
-        * calculate chain_size of orders at each price level
-        * use depth ticks on each side of last
-        */
-        template<side_of_market Side, typename ChainTy = limit_chain_type>
-        std::map<double, typename std::conditional<Side == side_of_market::both,
-                         std::pair<size_t, side_of_market>, size_t>::type >
-        _market_depth(size_t depth) const;
+        template<side_of_market Side>
+        std::map< double,
+                  typename std::conditional<Side == side_of_market::both,
+                                            std::pair<size_t, side_of_market>,
+                                            size_t>::type >
+        _limit_depth(size_t depth) const;
 
-
-        /* total size of bid or ask limits */
-        template<side_of_market Side, typename ChainTy = limit_chain_type>
+        /* total size of bid or ask limits/stops/aons */
+        template<side_of_trade Side, typename ChainTy>
         size_t
         _total_depth() const;
 
-        template<side_of_market Side>
-        size_t
-        _aon_total_depth() const;
-
-        template<typename ChainTy>
+        template<side_of_trade Side, typename ChainTy>
         void
-        _dump_orders(std::ostream& out,
-                     plevel l,
-                     plevel h,
-                     side_of_trade sot) const;
+        _dump_orders(std::ostream& out) const;
 
-        template<side_of_market Side>
+        template<side_of_trade Side>
         void
         _dump_aon_orders(std::ostream& out) const;
 
@@ -1279,47 +1269,56 @@ private:
 
         void
         dump_limits(std::ostream& out = std::cout) const
-        { _dump_orders<limit_chain_type>(
-               out, std::min(_low_buy_limit, _ask),
-               std::max(_high_sell_limit, _bid), side_of_trade::both); }
+        { _dump_orders<side_of_trade::both, limit_chain_type>(out); }
 
         void
         dump_buy_limits(std::ostream& out = std::cout) const
-        { _dump_orders<limit_chain_type>(
-               out, _low_buy_limit, _bid, side_of_trade::buy); }
+        { _dump_orders<side_of_trade::buy, limit_chain_type>(out); }
 
         void
         dump_sell_limits(std::ostream& out = std::cout) const
-        { _dump_orders<limit_chain_type>(
-               out, _ask, _high_sell_limit, side_of_trade::sell); }
+        { _dump_orders<side_of_trade::sell, limit_chain_type>(out); }
 
         void
         dump_stops(std::ostream& out = std::cout) const
-        { _dump_orders<stop_chain_type>(
-               out, std::min(_low_buy_stop, _low_sell_stop),
-               std::max(_high_buy_stop, _high_sell_stop), side_of_trade::both); }
+        { _dump_orders<side_of_trade::both, stop_chain_type>(out); }
 
         void
         dump_buy_stops(std::ostream& out = std::cout) const
-        { _dump_orders<stop_chain_type>(
-               out, _low_buy_stop , _high_buy_stop, side_of_trade::buy); }
+        { _dump_orders<side_of_trade::buy, stop_chain_type>(out); }
 
         void
         dump_sell_stops(std::ostream& out = std::cout) const
-        { _dump_orders<stop_chain_type>(
-               out, _low_sell_stop, _high_sell_stop, side_of_trade::sell); }
+        { _dump_orders<side_of_trade::sell, stop_chain_type>(out); }
+
+        void
+        dump_aon_buy_limits(std::ostream& out = std::cout) const
+        { _dump_aon_orders<side_of_trade::buy>(out); }
+
+        void
+        dump_aon_sell_limits(std::ostream& out = std::cout) const
+        { _dump_aon_orders<side_of_trade::sell>(out); }
+
+        void
+        dump_aon_limits(std::ostream& out = std::cout) const
+        { _dump_aon_orders<side_of_trade::both>(out); }
 
         std::map<double, size_t>
         bid_depth(size_t depth=8) const
-        { return _market_depth<side_of_market::bid>(depth); }
+        { return _limit_depth<side_of_market::bid>(depth); }
 
         std::map<double,size_t>
         ask_depth(size_t depth=8) const
-        { return _market_depth<side_of_market::ask>(depth); }
+        { return _limit_depth<side_of_market::ask>(depth); }
 
         std::map<double,std::pair<size_t, side_of_market>>
         market_depth(size_t depth=8) const
-        { return _market_depth<side_of_market::both>(depth); }
+        { return _limit_depth<side_of_market::both>(depth); }
+
+        std::map<double, std::pair<size_t,size_t>>
+        aon_market_depth() const;
+
+        // TODO stop market depth
 
         double
         bid_price() const;
@@ -1344,15 +1343,29 @@ private:
 
         size_t
         total_bid_size() const
-        { return _total_depth<side_of_market::bid>(); }
+        { return _total_depth<side_of_trade::buy, limit_chain_type>(); }
 
         size_t
         total_ask_size() const
-        { return _total_depth<side_of_market::ask>(); }
+        { return _total_depth<side_of_trade::sell, limit_chain_type>(); }
 
         size_t
         total_size() const
-        { return _total_depth<side_of_market::both>(); }
+        { return _total_depth<side_of_trade::both, limit_chain_type>(); }
+
+        size_t
+        total_aon_bid_size() const
+        { return _total_depth<side_of_trade::buy, aon_chain_type>(); }
+
+        size_t
+        total_aon_ask_size() const
+        { return _total_depth<side_of_trade::sell, aon_chain_type>(); }
+
+        size_t
+        total_aon_size() const
+        { return _total_depth<side_of_trade::both, aon_chain_type>(); }
+
+        // TODO total stop sizes
 
         size_t
         last_size() const;
@@ -1366,33 +1379,6 @@ private:
         const std::vector<timesale_entry_type>&
         time_and_sales() const;
 
-        /* NEW - AON orders */
-        std::map<double, std::pair<size_t,size_t>>
-        aon_market_depth() const;
-
-        size_t
-        total_aon_bid_size() const
-        { return _total_depth<side_of_market::bid, aon_chain_type>(); }
-
-        size_t
-        total_aon_ask_size() const
-        { return _total_depth<side_of_market::ask, aon_chain_type>(); }
-
-        size_t
-        total_aon_size() const
-        { return _total_depth<side_of_market::both, aon_chain_type>(); }
-
-        void
-        dump_aon_buy_limits(std::ostream& out = std::cout) const
-        { _dump_aon_orders<side_of_market::bid>(out); }
-
-        void
-        dump_aon_sell_limits(std::ostream& out = std::cout) const
-        { _dump_aon_orders<side_of_market::ask>(out); }
-
-        void
-        dump_aon_limits(std::ostream& out = std::cout) const
-        { _dump_aon_orders<side_of_market::both>(out); }
     };
 
     /* (non-inline) definitions in tpp/orderbook/impl.tpp */

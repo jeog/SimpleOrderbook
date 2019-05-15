@@ -517,7 +517,7 @@ protected:
 public:
     static constexpr size_t
     size(plevel p)
-    { return size(derived_type::get(p) ); }         
+    { return size( derived_type::get(p) ); }
         
     template<typename FuncTy>
     static constexpr size_t
@@ -529,6 +529,9 @@ public:
     atleast_if(plevel p, size_t sz, FuncTy pred)
     { return atleast_if( derived_type::get(p), sz, pred ); }
 
+    static constexpr sob::order_type
+    as_order_type()
+    { return sob::order_type::limit; }
 };
 
 
@@ -607,17 +610,10 @@ public:
          
         return bndl;
     }
-    
 
     static limit_chain_type*
     get(plevel p)
     { return p->get_limit_chain(); }
-
-    static constexpr sob::order_type
-    as_order_type()
-    { return sob::order_type::limit; }
-
-    
 };
 
 
@@ -628,8 +624,7 @@ struct chain<typename sob_types::aon_chain_type, false>
         : public chain<typename sob_types::aon_chain_type, true>{
     typedef chain<aon_chain_type, true> base_type;
     typedef aon_bndl bndl_type;   
-    
-   
+
     template<bool BuyLimit>
     static void
     push(sob_class *sob, plevel p, aon_bndl&& bndl )
@@ -680,21 +675,17 @@ struct chain<typename sob_types::aon_chain_type, false>
     static constexpr aon_chain_type*
     get(plevel p)
     { return p->get_aon_chain<BuyChain>(); }
-
-    static constexpr sob::order_type
-    as_order_type()
-    { return sob::order_type::limit; }
     
     template<bool BuyChain>
     static constexpr size_t
     size(plevel p)
     { return base_type::size( get<BuyChain>(p) ); }
 
-    template<side_of_market Side>
+    template<side_of_trade Side>
     static constexpr size_t
     size(plevel p)
-    { return (Side == side_of_market::both) ? size<true>(p) + size<false>(p)
-            : size<Side == side_of_market::bid>(p); }
+    { return (Side == side_of_trade::both) ? size<true>(p) + size<false>(p)
+            : size<Side == side_of_trade::buy>(p); }
 
 };
 
@@ -709,7 +700,7 @@ struct chain<typename sob_types::stop_chain_type, false>
     static void
     push(sob_class *sob, plevel p, stop_bndl&& bndl)
     {        
-        bool is_buy = bndl.is_buy;        
+        bool is_buy = bndl.is_buy;
         base_type::push(sob, p, std::move(bndl) );        
         is_buy ? exec::stop<true>::adjust_state_after_insert(sob, p)
                : exec::stop<false>::adjust_state_after_insert(sob, p);
@@ -747,12 +738,13 @@ struct chain<typename sob_types::stop_chain_type, false>
 };
 
 
-template<sob::side_of_market Side = sob::side_of_market::both>
+template<sob::side_of_trade Side = sob::side_of_trade::both>
 struct range
         : public sob_types{
     template<typename ChainTy>
     static std::pair<plevel, plevel>
     get(const sob_class* sob, size_t depth ) {
+        static_assert(chain<ChainTy>::is_limit, "currently only for limits");
         auto p = _helper<ChainTy>::get(sob);
         return {std::max(sob->_bid - depth + 1, p.first),
                 std::min(sob->_ask + depth - 1, p.second)};
@@ -763,7 +755,7 @@ struct range
     get(const sob_class* sob )
     { return _helper<ChainTy>::get(sob); }
 
-    template<typename ChainTy1, typename ChainTy2, side_of_market S=Side>
+    template<typename ChainTy1, typename ChainTy2, side_of_trade S=Side>
     static inline std::pair<plevel, plevel>
     get(const sob_class *sob)
     {
@@ -801,13 +793,14 @@ private:
 
 
 template<>
-struct range<sob::side_of_market::bid>
-        : public range<sob::side_of_market::both> {
-    using base_type = range<sob::side_of_market::both>;
+struct range<sob::side_of_trade::buy>
+        : public range<sob::side_of_trade::both> {
+    using base_type = range<sob::side_of_trade::both>;
 
     template<typename ChainTy>
     static std::pair<plevel, plevel>
     get(const sob_class* sob, size_t depth) {
+        static_assert(chain<ChainTy>::is_limit, "currently only for limits");
         auto p =_helper<ChainTy>::get(sob);
         return {std::max(sob->_bid - depth +1, p.first), sob->_bid};
     }
@@ -820,7 +813,7 @@ struct range<sob::side_of_market::bid>
     template<typename ChainTy1, typename ChainTy2>
     static inline std::pair<plevel, plevel>
     get(const sob_class *sob)
-    { return base_type::get<ChainTy1, ChainTy2, side_of_market::bid>(sob); }
+    { return base_type::get<ChainTy1, ChainTy2, side_of_trade::buy>(sob); }
 
 private:
     template<typename DummyChainTY, typename Dummy=void>
@@ -834,7 +827,7 @@ private:
     struct _helper<stop_chain_type, Dummy>{
         static inline std::pair<plevel, plevel>
         get(const sob_class* sob)
-        { return base_type::template get<stop_chain_type>(sob); }
+        { return {sob->_low_buy_stop, sob->_high_buy_stop}; }
     };
 
     // just aon orders in aon chain
@@ -848,13 +841,14 @@ private:
 
 
 template<>
-struct range<sob::side_of_market::ask>
-        : public range<sob::side_of_market::both> {
-    using base_type = range<sob::side_of_market::both>;
+struct range<sob::side_of_trade::sell>
+        : public range<sob::side_of_trade::both> {
+    using base_type = range<sob::side_of_trade::both>;
 
     template<typename ChainTy>
     static std::pair<plevel, plevel>
     get(const sob_class* sob, size_t depth) {
+        static_assert(chain<ChainTy>::is_limit, "currently only for limits");
         auto p = _helper<ChainTy>::get(sob);
         return {sob->_ask, std::min(sob->_ask + depth - 1, p.second)};
     }
@@ -867,7 +861,7 @@ struct range<sob::side_of_market::ask>
     template<typename ChainTy1, typename ChainTy2>
     static inline std::pair<plevel, plevel>
     get(const sob_class *sob)
-    { return base_type::get<ChainTy1, ChainTy2, side_of_market::ask>(sob); }
+    { return base_type::get<ChainTy1, ChainTy2, side_of_trade::sell>(sob); }
 
 private:
     template<typename DummyChainTY, typename Dummy=void>
@@ -881,8 +875,7 @@ private:
     struct _helper<stop_chain_type, Dummy>{
         static inline std::pair<plevel, plevel>
         get(const sob_class* sob)
-        { return range<sob::side_of_market::both>::template
-                get<stop_chain_type>(sob); }
+        { return {sob->_low_sell_stop, sob->_high_sell_stop}; }
     };
 
     // just aon orders in aon chain
@@ -899,6 +892,9 @@ template<sob::side_of_market Side>
 struct depth  : public sob_types {
     typedef size_t mapped_type;
 
+    static constexpr side_of_trade SIDE_OF_TRADE =
+        (Side == side_of_market::bid) ? side_of_trade::buy : side_of_trade::sell;
+
     static inline size_t
     build_value(const sob_class* sob, plevel p, size_t d)
     { return d; }
@@ -908,12 +904,13 @@ template<>
 struct depth<sob::side_of_market::both>  : public sob_types {
     typedef std::pair<size_t, sob::side_of_market> mapped_type;
 
+    static constexpr side_of_trade SIDE_OF_TRADE = side_of_trade::both;
+
     static inline mapped_type
     build_value(const sob_class* sob, plevel p, size_t d)
     {
-        auto s = (p >= sob->_ask) 
-            ? sob::side_of_market::ask 
-            : sob::side_of_market::bid;
+        auto s = (p >= sob->_ask) ? sob::side_of_market::ask
+                                  : sob::side_of_market::bid;
         return std::make_pair(d,s);
     }
 };
