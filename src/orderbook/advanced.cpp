@@ -352,6 +352,7 @@ SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
     assert( e.cparams1 );
     assert( e.cparams1->get_order_type() != order_type::market );
     assert( e.cparams1->get_order_type() != order_type::null );
+    assert( e.cparams1->is_by_price() );
 
     /* if we fill immediately, no need to enter 2nd order */
     if( _inject_basic_order(e, order::needs_partial_fill(e)) )
@@ -362,10 +363,8 @@ SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
 
     /* construct a new queue elem from cparams1, with a new ID. */
     id_type id2 = _generate_id();
-    order_queue_elem e2( e.cparams1->get_order_type(), e.cparams1->is_buy(),
-                         e.cparams1->limit_price(), e.cparams1->stop_price(),
-                         e.cparams1->size(), e.cb, id2, e.condition,
-                         e.trigger, nullptr, nullptr );
+    order_queue_elem e2( reinterpret_cast<OrderParamatersByPrice&>(*e.cparams1),
+                         e.cb, id2, e.condition, e.trigger, nullptr, nullptr );
 
     /* if we fill second order immediately, remove first */
     if( _inject_basic_order(e2, order::needs_partial_fill(e)) )

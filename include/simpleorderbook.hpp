@@ -326,10 +326,20 @@ private:
 
             order_queue_elem(
                 ORDER_QUEUE_ELEM_BASE_ARGS,
-                order_condition cond,
-                condition_trigger trigger,
-                std::unique_ptr<OrderParamaters>&& cparams1,
-                std::unique_ptr<OrderParamaters>&& cparams2
+                order_condition condition = order_condition::none,
+                condition_trigger trigger = condition_trigger::none,
+                std::unique_ptr<OrderParamaters>&& cparams1 = nullptr,
+                std::unique_ptr<OrderParamaters>&& cparams2 = nullptr
+                );
+
+            order_queue_elem(
+                const OrderParamatersByPrice& cparams,
+                order_exec_cb_bndl cb,
+                id_type id,
+                order_condition condition = order_condition::none,
+                condition_trigger trigger = condition_trigger::none,
+                std::unique_ptr<OrderParamaters>&& cparams1 = nullptr,
+                std::unique_ptr<OrderParamaters>&& cparams2 = nullptr
                 );
 
             order_queue_elem(const external_order_queue_elem& e,

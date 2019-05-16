@@ -507,6 +507,23 @@ SOB_CLASS::order_queue_elem::order_queue_elem(
 
 
 SOB_CLASS::order_queue_elem::order_queue_elem(
+         const OrderParamatersByPrice& cparams,
+         order_exec_cb_bndl cb,
+         id_type id,
+         order_condition condition,
+         condition_trigger trigger,
+         std::unique_ptr<OrderParamaters>&& cparams1,
+         std::unique_ptr<OrderParamaters>&& cparams2
+         )
+    :
+        order_queue_elem(cparams.get_order_type(), cparams.is_buy(),
+                         cparams.limit_price(), cparams.stop_price(),
+                         cparams.size(), cb, id, condition, trigger,
+                         std::move(cparams1), std::move(cparams2) )
+    {}
+
+
+SOB_CLASS::order_queue_elem::order_queue_elem(
         const external_order_queue_elem& e,
         const SOB_CLASS* sob )
     :
