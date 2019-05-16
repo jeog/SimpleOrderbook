@@ -345,7 +345,7 @@ SOB_CLASS::_trade( plevel plev,
      * trailing_stop we must have had an initial trade
      */
     if( old_last != _last )
-        _adjust_trailing_stops(_last < old_last);
+        _trailing_stops_adjust(_last < old_last);
 
     if( _need_check_for_stops )
         _look_for_triggered_stops();

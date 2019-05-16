@@ -433,7 +433,8 @@ private:
             id_type id;
             bool is_primary;
             order_location(const order_queue_elem& elem, bool is_primary);
-            order_location(bool is_limit, double price, id_type id, bool is_primary);
+            order_location(bool is_limit, double price, id_type id,
+                           bool is_primary);
         };
 
         /* info held for each exec callback in the deferred callback vector*/
@@ -812,26 +813,26 @@ private:
         _handle_TRAILING_STOP(_order_bndl& bndl, id_type id);
 
         void
-        _exec_OTO_order(const OrderParamaters *op,
+        _exec_OTO_order(const OrderParamaters& op,
                         const order_exec_cb_bndl& cb,
                         id_type id);
 
         void
-        _exec_BRACKET_order(const OrderParamaters *op1,
-                            const OrderParamaters *op2,
+        _exec_BRACKET_order(const OrderParamaters& op1,
+                            const OrderParamaters& op2,
                             const order_exec_cb_bndl& cb,
                             condition_trigger trigger,
                             id_type id);
 
         void
-        _exec_TRAILING_BRACKET_order(const OrderParamaters *op1,
-                                     const OrderParamaters *op2,
+        _exec_TRAILING_BRACKET_order(const OrderParamaters& op1,
+                                     const OrderParamaters& op2,
                                      const order_exec_cb_bndl& cb,
                                      condition_trigger trigger,
                                      id_type id);
 
         void
-        _exec_TRAILING_STOP_order(const OrderParamaters *op,
+        _exec_TRAILING_STOP_order(const OrderParamaters& op,
                                   const order_exec_cb_bndl& cb,
                                   condition_trigger trigger,
                                   id_type id);
@@ -842,8 +843,7 @@ private:
                         id_type id_old,
                         id_type id_new,
                         id_type id_pull,
-                        double price_pull,
-                        bool is_limit);
+                        double price_pull);
 
         void
         _insert_OCO_order(order_queue_elem& e);
@@ -913,10 +913,10 @@ private:
         _handle_triggered_stop_chain(plevel plev);
 
         void
-        _adjust_trailing_stops(bool buy_stops);
+        _trailing_stops_adjust(bool buy_stops);
 
         void
-        _adjust_trailing_stop(id_type id, bool buy_stop);
+        _trailing_stop_adjust(id_type id, bool buy_stop);
 
         void
         _trailing_stop_insert(id_type id, bool is_buy);
@@ -925,10 +925,14 @@ private:
         _trailing_stop_erase(id_type id, bool is_buy);
 
         plevel
-        _generate_trailing_stop(bool buy_stop, size_t nticks);
+        _trailing_stop_plevel(bool buy_stop, size_t nticks);
 
         plevel
-        _generate_trailing_limit(bool buy_limit, size_t nticks);
+        _trailing_limit_plevel(bool buy_limit, size_t nticks);
+
+        template<typename... Args>
+        linked_trailer_type*
+        _new_linked_trailer(size_t nticks, Args&&... args) const;
 
         /* push order onto the external queue, BLOCK */
         id_type

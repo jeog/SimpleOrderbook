@@ -402,16 +402,16 @@ book size  10000     | 0.010047  0.094908  0.980188  9.829115
             /* increase the size of the orderbook */
             dynamic_cast<ManagementInterface*>(orderbook)->grow_book_above(150);
 
-            if( orderbook->min_price() == .25 
-                && orderbook->max_price() == 150.00
-                && orderbook->tick_size() == .25
-                && orderbook->price_to_tick(150.12) == 150.00
-                && orderbook->price_to_tick(150.13) == 150.25
-                && orderbook->is_valid_price(150.13) == false
-                && orderbook->ticks_in_range(.25, 150) == 599 
-                && orderbook->tick_memory_required(.25, 150) == orderbook->tick_memory_required() )
+            if( orderbook->min_price() != .25 
+                || orderbook->max_price() != 150.00
+                || orderbook->tick_size() != .25
+                || orderbook->price_to_tick(150.12) != 150.00
+                || orderbook->price_to_tick(150.13) != 150.25
+                || orderbook->is_valid_price(150.13) != false
+                || orderbook->ticks_in_range(.25, 150) != 599 )
             {
-                std::cout<< "good orderbook" << std::endl;
+                std::cerr<< "bad orderbook" << std::endl;
+                return 1;
             }
 
             /* use advanced orders (IN DEVELOPEMENT) */
