@@ -13,7 +13,7 @@ SimpleOrderbook is a C++(11) financial market orderbook and matching engine with
     - bracket
     - trailing stop 
     - bracket /w trailing stop
-    - all-or-none (AON) ***(NEW, C++ interface added in V0.6, not stable)***
+    - all-or-none (AON) ***(NEW in V0.6, not stable)***
 - advanced condition triggers:
     - fill-partial 
     - fill-full 

@@ -289,7 +289,7 @@ TEST_replace_order_1(FullInterface *orderbook, std::ostream& out)
                                                        ecb, aot2 );
 
     ids[id11] = id11;
-    id_type id12 = orderbook->insert_limit_order(true, beg, sz, ecb);
+    orderbook->insert_limit_order(true, beg, sz, ecb);
 
     // beg + 3
     // beg + 2  S 100(A)        L 100
@@ -297,7 +297,7 @@ TEST_replace_order_1(FullInterface *orderbook, std::ostream& out)
     // beg + 0 L 100
     dump_orders(orderbook, out);
 
-    id_type id13 = orderbook->insert_market_order(true, static_cast<int>(sz/2));
+    orderbook->insert_market_order(true, static_cast<int>(sz/2));
     tvol += sz;
     // beg + 3 L 50
     // beg + 2
@@ -306,7 +306,7 @@ TEST_replace_order_1(FullInterface *orderbook, std::ostream& out)
 
 
     auto aot3 = AdvancedOrderTicketOCO::build_limit(false, beg, sz);
-    id_type id14 = orderbook->replace_with_limit_order( ids[id11], false, conv(beg+3*incr),
+    orderbook->replace_with_limit_order( ids[id11], false, conv(beg+3*incr),
                                          sz, ecb, aot3 );
     tvol += sz;
     // beg + 4
@@ -593,7 +593,7 @@ TEST_replace_order_ASYNC_1(FullInterface *orderbook, std::ostream& out)
                                                        ecb, aot2 ).get();
     ids[id11] = id11;
 
-    id_type id12 = orderbook->insert_limit_order(true, beg, sz, ecb);
+    orderbook->insert_limit_order(true, beg, sz, ecb);
 
     // beg + 3
     // beg + 2  S 100(A)        L 100
@@ -601,7 +601,7 @@ TEST_replace_order_ASYNC_1(FullInterface *orderbook, std::ostream& out)
     // beg + 0 L 100
     dump_orders(orderbook, out);
 
-    id_type id13 = orderbook->insert_market_order_async(true, static_cast<int>(sz/2)).get();
+    orderbook->insert_market_order_async(true, static_cast<int>(sz/2)).get();
     tvol += sz;
     // beg + 3 L 50
     // beg + 2
@@ -611,7 +611,7 @@ TEST_replace_order_ASYNC_1(FullInterface *orderbook, std::ostream& out)
 
     auto aot3 = AdvancedOrderTicketOCO::build_limit(false, beg, sz);
     orderbook->wait_for_async_callbacks(); // *** WAIT ***
-    id_type id14 = orderbook->replace_with_limit_order_async( ids[id11], false, conv(beg+3*incr),
+    orderbook->replace_with_limit_order_async( ids[id11], false, conv(beg+3*incr),
                                          sz, ecb, aot3 ).get();
     tvol += sz;
     // beg + 4

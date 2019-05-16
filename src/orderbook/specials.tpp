@@ -554,10 +554,8 @@ protected:
          *  (WE DONT REMOVE IT FROM THE LIMIT CHAIN)
          */        
         auto& iwrap = sob->_from_cache(iter->id);
-        p->push_aon_bndl<BuyLimit>( *iter );
-        iwrap.a_iter = p->get_aon_chain<BuyLimit>()->end();
-        --(iwrap.a_iter);
-        iwrap.type = chain_iter_wrap::aon_itype<BuyLimit>::value;
+        auto aiter = p->push_aon_bndl<BuyLimit>( *iter );
+        iwrap.switch_iter<BuyLimit>( aiter );
         exec::aon<BuyLimit>::adjust_state_after_insert(sob, p);        
     }
     
@@ -629,12 +627,11 @@ struct chain<typename sob_types::aon_chain_type, false>
     static void
     push(sob_class *sob, plevel p, aon_bndl&& bndl )
     {
-        p->push_aon_bndl<BuyLimit>( std::move(bndl) );
-        auto e = p->get_aon_chain<BuyLimit>()->end();
+        auto aiter = p->push_aon_bndl<BuyLimit>( std::move(bndl) );
         sob->_id_cache.emplace(
             std::piecewise_construct,
             std::forward_as_tuple(bndl.id),
-            std::forward_as_tuple(--e, p, BuyLimit)
+            std::forward_as_tuple(aiter, p, BuyLimit)
         );        
          exec::aon<BuyLimit>::adjust_state_after_insert(sob, p);
     }

@@ -347,7 +347,7 @@ TEST_advanced_AON_4(FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
-    size_t bs, tbs, as, tas, v, ts;
+    size_t bs, tbs, tas, v, ts;
 
     double beg = orderbook->min_price();
     double end = orderbook->max_price();
@@ -480,10 +480,9 @@ TEST_advanced_AON_5(FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
-    size_t bs, tbs, as, tas, v, ts;
+    size_t bs, tbs, v, ts;
 
     double beg = orderbook->min_price();
-    double end = orderbook->max_price();
     double incr = orderbook->tick_size();
 
     auto aot = AdvancedOrderTicketAON::build();
@@ -1380,10 +1379,9 @@ TEST_advanced_AON_ASYNC_1(FullInterface *orderbook, std::ostream& out)
 {
     auto conv = [&](double d){ return orderbook->price_to_tick(d); };
 
-    size_t bs, tbs, as, tas, v, ts;
+    size_t bs, tbs, v, ts;
 
     double beg = orderbook->min_price();
-    double end = orderbook->max_price();
     double incr = orderbook->tick_size();
 
     auto aot = AdvancedOrderTicketAON::build();

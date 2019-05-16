@@ -167,6 +167,7 @@ native_aot_to_py(const sob::AdvancedOrderTicket& aot)
         break;
     case sob::order_condition::all_or_nothing:
         obj = native_aot_to_py<pyAOT_AON>(aot);
+        break;
     default:
         return nullptr;
     };

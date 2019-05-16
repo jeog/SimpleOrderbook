@@ -501,7 +501,8 @@ private:
             template<bool BuyChain> bool aon_chain_is_empty() const;
             template<bool BuyChain> void create_aon_chain();
             template<bool BuyChain> void destroy_aon_chain();
-            template<bool BuyChain> void push_aon_bndl(aon_bndl&& bndl);
+            template<bool BuyChain> aon_chain_type::iterator
+            push_aon_bndl(aon_bndl&& bndl);
         };
         using plevel = level*;
 
@@ -539,17 +540,9 @@ private:
             _order_bndl& _get_base_bndl() const;
 
         public:
-            enum class itype {
-                limit, stop, aon_buy, aon_sell
-            };
+            enum class itype { limit, stop, aon_buy, aon_sell };
 
-            template<bool IsBuy>
-            struct aon_itype{
-                static constexpr itype value = IsBuy
-                    ? itype::aon_buy : itype::aon_sell;
-            };
-
-            union{
+            union{ /* assumes trivial types */
                 limit_chain_type::iterator l_iter;
                 stop_chain_type::iterator s_iter;
                 aon_chain_type::iterator a_iter;
@@ -560,6 +553,16 @@ private:
             chain_iter_wrap(limit_chain_type::iterator iter, plevel p);
             chain_iter_wrap(stop_chain_type::iterator iter, plevel p);
             chain_iter_wrap(aon_chain_type::iterator iter, plevel p, bool is_buy);
+            chain_iter_wrap(const chain_iter_wrap&) = delete;
+            chain_iter_wrap& operator=(const chain_iter_wrap&) = delete;
+            chain_iter_wrap(chain_iter_wrap&&) = delete;
+            chain_iter_wrap& operator=(chain_iter_wrap&&) = delete;
+
+            template<bool IsBuy>
+            void switch_iter(aon_chain_type::iterator iter){
+                a_iter = iter;
+                type = IsBuy ? itype::aon_buy : itype::aon_sell;
+            }
 
             bool is_limit() const { return type == itype::limit; }
             bool is_stop() const { return type == itype::stop; }
@@ -571,6 +574,8 @@ private:
 
             _order_bndl& operator*() { return _get_base_bndl(); }
             _order_bndl* operator->() { return &_get_base_bndl(); }
+
+
         };
 
         class OrderNotInCache

@@ -91,6 +91,7 @@ SOB_CLASS::_order_bndl::_order_bndl(const _order_bndl& bndl)
                            : nullptr;
             break;
         case order_condition::all_or_nothing: /* no break */
+        case order_condition::fill_or_kill: /* no break */
         case order_condition::none:
             break;
         default:
@@ -135,6 +136,7 @@ SOB_CLASS::_order_bndl::_order_bndl(_order_bndl&& bndl)
             bndl.linked_trailer = nullptr;
             break;
         case order_condition::all_or_nothing: /* no break */
+        case order_condition::fill_or_kill: /* no break */
         case order_condition::none:
             break;
         default:
@@ -170,10 +172,11 @@ SOB_CLASS::_order_bndl::~_order_bndl()
            break;
        case order_condition::_trailing_stop_active: /* no break */
        case order_condition::all_or_nothing: /* no break */
+       case order_condition::fill_or_kill: /* no break */
        case order_condition::none:
            break;
        default:
-           throw std::runtime_error("invalid order condition");
+           std::cerr<< "invalid order condition in ~_order_bndl()" << std::endl;
        }
    }
 
@@ -303,16 +306,19 @@ template void SOB_CLASS::level::destroy_aon_chain<false>();
 
 
 template<bool BuyChain>
-void
+SOB_CLASS::aon_chain_type::iterator
 SOB_CLASS::level::push_aon_bndl(aon_bndl&& bndl)
 {
     auto& uptr = BuyChain ? _aon_b_chain : _aon_s_chain;
     if( !uptr )
         create_aon_chain<BuyChain>();
     uptr->push_back( std::move(bndl) );
+    return --(uptr->end());
 }
-template void SOB_CLASS::level::push_aon_bndl<true>(aon_bndl&& );
-template void SOB_CLASS::level::push_aon_bndl<false>(aon_bndl&& );
+template SOB_CLASS::aon_chain_type::iterator
+SOB_CLASS::level::push_aon_bndl<true>(aon_bndl&& );
+template SOB_CLASS::aon_chain_type::iterator
+SOB_CLASS::level::push_aon_bndl<false>(aon_bndl&& );
 
 
 SOB_CLASS::chain_iter_wrap::chain_iter_wrap(
@@ -356,6 +362,7 @@ SOB_CLASS::chain_iter_wrap::_get_base_bndl() const
         throw std::runtime_error("invalid chain_iter_wrap.itype");
     }
 }
+
 
 SOB_CLASS::OrderNotInCache::OrderNotInCache(id_type id)
     :
