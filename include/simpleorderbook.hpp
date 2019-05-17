@@ -509,7 +509,6 @@ private:
 
             template<bool BuyChain> aon_chain_type* get_aon_chain() const;
             template<bool BuyChain> bool aon_chain_is_empty() const;
-            template<bool BuyChain> void create_aon_chain();
             template<bool BuyChain> void destroy_aon_chain();
             template<bool BuyChain> aon_chain_type::iterator
             push_aon_bndl(aon_bndl&& bndl);

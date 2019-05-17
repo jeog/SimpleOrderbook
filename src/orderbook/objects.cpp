@@ -280,19 +280,6 @@ SOB_CLASS::level::aon_chain_is_empty() const
 template bool SOB_CLASS::level::aon_chain_is_empty<true>() const;
 template bool SOB_CLASS::level::aon_chain_is_empty<false>() const;
 
-
-template<bool BuyChain>
-void
-SOB_CLASS::level::create_aon_chain()
-{
-    auto& uptr = BuyChain ? _aon_b_chain : _aon_s_chain;
-    assert( !uptr );
-    uptr.reset( new aon_chain_type() );
-}
-template void SOB_CLASS::level::create_aon_chain<true>();
-template void SOB_CLASS::level::create_aon_chain<false>();
-
-
 template<bool BuyChain>
 void
 SOB_CLASS::level::destroy_aon_chain()
@@ -310,8 +297,9 @@ SOB_CLASS::aon_chain_type::iterator
 SOB_CLASS::level::push_aon_bndl(aon_bndl&& bndl)
 {
     auto& uptr = BuyChain ? _aon_b_chain : _aon_s_chain;
-    if( !uptr )
-        create_aon_chain<BuyChain>();
+    if( !uptr ){
+        uptr.reset( new aon_chain_type() );
+    }
     uptr->push_back( std::move(bndl) );
     return --(uptr->end());
 }
