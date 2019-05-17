@@ -46,6 +46,7 @@ const vector< pair<string, int(*)(FullInterface*, std::ostream&)>>
 orderbook_tests = {
       {"TEST_basic_orders_1", TEST_basic_orders_1},
       {"TEST_basic_orders_2", TEST_basic_orders_2},
+      {"TEST_stop_orders_1", TEST_stop_orders_1},
       {"TEST_basic_orders_ASYNC_1", TEST_basic_orders_ASYNC_1},
       {"TEST_orders_info_pull_1", TEST_orders_info_pull_1},
       {"TEST_orders_info_pull_ASYNC_1", TEST_orders_info_pull_ASYNC_1},

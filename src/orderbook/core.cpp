@@ -320,11 +320,11 @@ SOB_CLASS::_trade( plevel plev,
     {
         if( AON::in_window(this, p) ){
             /* first, match against the AON chain */
-            aon_chain_type *ac = p->get_aon_chain<BidSide>();
+            aon_chain_type *ac = p->aon_chain<BidSide>().get();
             if( ac ){
                 std::tie(size, all) = _hit_aon_chain(ac, p, id, size, cb);
                 if( all ){
-                    p->destroy_aon_chain<BidSide>();
+                    p->aon_chain<BidSide>().free();
                     AON::adjust_state_after_pull(this, p);
                 }
             }
@@ -332,9 +332,14 @@ SOB_CLASS::_trade( plevel plev,
 
         if( LIMIT::in_window(this, p) ){
             /* then, match against the limit chain (which CAN have AON orders) */
-            std::tie(size, all) = _hit_chain( p, id, size, cb );
-            if( all )
-                CORE::find_new_best_inside(this);
+            limit_chain_type *lc = p->limits.get();
+            if( lc ){
+                std::tie(size, all) = _hit_chain( lc, p, id, size, cb );
+                if( all ){
+                    p->limits.free();
+                    CORE::find_new_best_inside(this);
+                }
+            }
         }
 
         p = CORE::next_or_jump(this, p);
@@ -360,19 +365,20 @@ SOB_CLASS::_trade( plevel plev,
  *  first order can only be limit_bndl )
  */
 std::pair<size_t, bool>
-SOB_CLASS::_hit_chain( plevel plev,
+SOB_CLASS::_hit_chain( limit_chain_type *lchain,
+                       plevel plev,
                        id_type id,
                        size_t size,
                        const order_exec_cb_bndl& cb )
 {
     using namespace detail;
 
-    limit_chain_type *pchain = plev->get_limit_chain();
+    assert( lchain && !lchain->empty() );
 
-    auto pos = pchain->begin();
-    assert( pchain->empty() || order::is_limit(*pos) );
+    auto pos = lchain->begin();
+    assert( order::is_limit(*pos) );
 
-    for( ; pos != pchain->end() && size > 0; ++pos )
+    for( ; pos != lchain->end() && size > 0; ++pos )
     {
         /* if AON need to make sure enough size  */
         if( order::is_AON(*pos) ){
@@ -413,8 +419,8 @@ SOB_CLASS::_hit_chain( plevel plev,
 
     /* backup to see if last order was completely filled, if so re-incr */
     --pos;
-    auto r = pchain->erase( pchain->begin(), (pos->sz ? pos : ++pos) );
-    return std::make_pair(size, r == pchain->end());
+    auto r = lchain->erase( lchain->begin(), (pos->sz ? pos : ++pos) );
+    return std::make_pair(size, r == lchain->end());
 }
 
 
@@ -430,7 +436,8 @@ SOB_CLASS::_hit_aon_chain( aon_chain_type *achain,
                            size_t size,
                            const order_exec_cb_bndl& cb_bndl )
 {
-    assert( !achain->empty() );
+    assert( achain && !achain->empty() );
+
     for( auto pos = achain->begin(); pos != achain->end() && size > 0; )
     {
         if( size >= pos->sz ){
@@ -594,8 +601,7 @@ SOB_CLASS::_insert_limit_order(const order_queue_elem& e, bool pass_conditions)
         return fill_type::immediate_full;
 
     if( order::is_AON(e)
-        && ( exec::limit<!BuyLimit>::is_tradable(this,p)
-             || p->limit_chain_is_empty() ) )
+        && ( exec::limit<!BuyLimit>::is_tradable(this,p) || p->limits.empty()) )
     {
         /*
         *  if 'is_tradable' we have an opposing order at this plevel so
@@ -835,9 +841,11 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
      *
      * TODO this move is still somewhat expensive, consider other approaches
      */
-    stop_chain_type *pchain = plev->get_stop_chain();
-    stop_chain_type cchain = std::move( *pchain );
-    pchain->clear();
+    stop_chain_type cchain;
+    if( !plev->stops.empty() ){
+        cchain = std::move( *(plev->stops) );
+        plev->stops.free();
+    }
 
     exec::stop<BuyStops>::adjust_state_after_trigger(this, plev);
 
@@ -1073,9 +1081,11 @@ SOB_CLASS::_limit_is_fillable( plevel p, size_t sz, bool allow_partial )
         // then check the limit chain, if tradable (can have aons as well)
         if( LIMIT::in_window(this,b) ){
             auto *lc = chain<limit_chain_type>::get(b);
-            for( auto& elem : *lc ) {
-                if( check_elem( elem.sz, order::is_AON(elem)) )
-                    return {true, tot};
+            if( lc) {
+                for( auto& elem : *lc ) {
+                    if( check_elem( elem.sz, order::is_AON(elem)) )
+                        return {true, tot};
+                }
             }
         }
     }

@@ -246,76 +246,14 @@ SOB_CLASS::order_location::order_location(bool is_limit,
     {
     }
 
-
-SOB_CLASS::level::level()
-    :
-        _l_chain(new limit_chain_type()),
-        _s_chain(new stop_chain_type()),
-        _aon_b_chain(nullptr),
-        _aon_s_chain(nullptr)
-    {}
-
-
-template<bool BuyChain>
-SOB_CLASS::aon_chain_type*
-SOB_CLASS::level::get_aon_chain() const
-{
-    return BuyChain ? _aon_b_chain.get() : _aon_s_chain.get();
-}
-template SOB_CLASS::aon_chain_type* SOB_CLASS::level::get_aon_chain<true>() const;
-template SOB_CLASS::aon_chain_type* SOB_CLASS::level::get_aon_chain<false>() const;
-
-
-template<bool BuyChain>
-bool
-SOB_CLASS::level::aon_chain_is_empty() const
-{
-    auto& uptr = BuyChain ? _aon_b_chain : _aon_s_chain;
-    if( !uptr )
-        return true;
-
-    assert( !uptr->empty() );  // if empty should be null
-    return false;
-}
-template bool SOB_CLASS::level::aon_chain_is_empty<true>() const;
-template bool SOB_CLASS::level::aon_chain_is_empty<false>() const;
-
-template<bool BuyChain>
-void
-SOB_CLASS::level::destroy_aon_chain()
-{
-    auto& uptr = BuyChain ? _aon_b_chain : _aon_s_chain;
-    assert( uptr );
-    uptr.reset();
-}
-template void SOB_CLASS::level::destroy_aon_chain<true>();
-template void SOB_CLASS::level::destroy_aon_chain<false>();
-
-
-template<bool BuyChain>
-SOB_CLASS::aon_chain_type::iterator
-SOB_CLASS::level::push_aon_bndl(aon_bndl&& bndl)
-{
-    auto& uptr = BuyChain ? _aon_b_chain : _aon_s_chain;
-    if( !uptr ){
-        uptr.reset( new aon_chain_type() );
-    }
-    uptr->push_back( std::move(bndl) );
-    return --(uptr->end());
-}
-template SOB_CLASS::aon_chain_type::iterator
-SOB_CLASS::level::push_aon_bndl<true>(aon_bndl&& );
-template SOB_CLASS::aon_chain_type::iterator
-SOB_CLASS::level::push_aon_bndl<false>(aon_bndl&& );
-
-
 SOB_CLASS::chain_iter_wrap::chain_iter_wrap(
         limit_chain_type::iterator iter,
         plevel p
         )
     :
         l_iter(iter),
-        type(itype::limit), p(p)
+        type(itype::limit),
+        p(p)
     {}
 
 SOB_CLASS::chain_iter_wrap::chain_iter_wrap(
@@ -324,7 +262,8 @@ SOB_CLASS::chain_iter_wrap::chain_iter_wrap(
         )
     :
         s_iter(iter),
-        type(itype::stop), p(p)
+        type(itype::stop),
+        p(p)
     {}
 
 SOB_CLASS::chain_iter_wrap::chain_iter_wrap(
@@ -350,6 +289,70 @@ SOB_CLASS::chain_iter_wrap::_get_base_bndl() const
         throw std::runtime_error("invalid chain_iter_wrap.itype");
     }
 }
+
+
+template<typename T>
+bool
+SOB_CLASS::chain_manager<T>::empty() const
+{
+    if( !_chain )
+        return true;
+    assert( !_chain->empty() );
+    return false;
+}
+template bool
+SOB_CLASS::chain_manager<SOB_CLASS::limit_chain_type>::empty() const;
+
+template bool
+SOB_CLASS::chain_manager<SOB_CLASS::stop_chain_type>::empty() const;
+
+template bool
+SOB_CLASS::chain_manager<SOB_CLASS::aon_chain_type>::empty() const;
+
+
+template<typename T>
+template<typename B>
+typename T::iterator
+SOB_CLASS::chain_manager<T>::push( B&& elem )
+{
+    if( empty() )
+        _chain.reset( new T() );
+    _chain->push_back( std::move(elem) );
+    return --(_chain->end());
+}
+template typename SOB_CLASS::limit_chain_type::iterator
+SOB_CLASS::chain_manager<SOB_CLASS::limit_chain_type>
+    ::push( SOB_CLASS::limit_bndl&& elem);
+
+template typename SOB_CLASS::stop_chain_type::iterator
+SOB_CLASS::chain_manager<SOB_CLASS::stop_chain_type>
+    ::push( SOB_CLASS::stop_bndl&& elem);
+
+template typename SOB_CLASS::aon_chain_type::iterator
+SOB_CLASS::chain_manager<SOB_CLASS::aon_chain_type>
+    ::push( SOB_CLASS::aon_bndl&& elem);
+
+
+template<typename T>
+void
+SOB_CLASS::chain_manager<T>::erase( typename T::iterator iter )
+{
+    assert( !empty() );
+    _chain->erase( iter );
+    if( _chain->empty() )
+        free();
+}
+template void
+SOB_CLASS::chain_manager<SOB_CLASS::limit_chain_type>
+    ::erase( typename SOB_CLASS::limit_chain_type::iterator);
+
+template void
+SOB_CLASS::chain_manager<SOB_CLASS::stop_chain_type>
+    ::erase( typename SOB_CLASS::stop_chain_type::iterator);
+
+template void
+SOB_CLASS::chain_manager<SOB_CLASS::aon_chain_type>
+    ::erase( typename SOB_CLASS::aon_chain_type::iterator);
 
 
 SOB_CLASS::OrderNotInCache::OrderNotInCache(id_type id)

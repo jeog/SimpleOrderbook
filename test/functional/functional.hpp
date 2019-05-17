@@ -48,6 +48,7 @@ DECL_SOB_TEST_FUNC(grow_ASYNC_1);
 /* basic_orders.cpp */
 DECL_SOB_TEST_FUNC(basic_orders_1);
 DECL_SOB_TEST_FUNC(basic_orders_2);
+DECL_SOB_TEST_FUNC(stop_orders_1);
 DECL_SOB_TEST_FUNC(basic_orders_ASYNC_1);
 /* pull_replace.cpp */
 DECL_SOB_TEST_FUNC(orders_info_pull_1);

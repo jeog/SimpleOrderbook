@@ -117,6 +117,179 @@ TEST_basic_orders_2(FullInterface *orderbook, std::ostream& out)
 }
 
 int
+TEST_stop_orders_1(FullInterface *orderbook, std::ostream& out)
+{
+    static const AdvancedOrderTicket AOT_NULL = AdvancedOrderTicket::null;
+
+    auto conv = [&](double d){ return orderbook->price_to_tick(d); };
+
+    double beg = orderbook->min_price();
+    double end = orderbook->max_price();
+    double incr = orderbook->tick_size();
+    double mid = conv((beg + end) / 2);
+
+    size_t bs, as, ts, vol, tot = 0, exp_vol=0;
+    double ap;
+    int c = 0;
+
+
+    for(double i = mid -incr; i >= beg; i-= incr, ++c){
+        orderbook->insert_stop_order(false, conv(i), sz);
+        tot += sz;
+    }
+
+    orderbook->insert_limit_order(true, beg, tot+sz);
+    orderbook->insert_market_order(false, sz);
+    exp_vol = tot + sz;
+
+    vol = orderbook->volume();
+    bs = orderbook->bid_size();
+    ts = orderbook->total_size();
+
+    if( vol != exp_vol )
+        return 2;
+
+    if( ts != 0 )
+        return 3;
+
+    tot = 0;
+    c = 0;
+    for(double i = mid -incr; i >= beg; i-= incr, ++c){
+        if( c % 2 == 0 ){
+            for( int ii = 0; ii < 3; ++ii){
+                orderbook->insert_stop_order(false, conv(i), sz);
+                tot += sz;
+            }
+        }
+    }
+
+    orderbook->insert_limit_order(true, beg, tot+sz);
+    orderbook->insert_market_order(false, sz);
+    exp_vol += (tot + sz);
+
+    vol = orderbook->volume();
+    bs = orderbook->bid_size();
+    ts = orderbook->total_size();
+    if( vol != exp_vol )
+        return 4;
+
+    if( ts != 0 )
+        return 5;
+
+    tot = 0;
+    c = 0;
+    for(double i = mid -incr; i >= beg; i-= incr, ++c){
+        if( c % 3 == 0 ){
+            for( int ii = 0; ii < 3; ++ii){
+                orderbook->insert_stop_order(false, conv(i), conv(beg), sz);
+                tot += sz;
+            }
+        }else if( c %2 == 0){
+            orderbook->insert_stop_order(false, conv(i), conv(beg), sz*2);
+            tot += sz*2;
+        }
+    }
+
+    orderbook->insert_limit_order(true, conv(mid-2*incr), sz);
+    orderbook->insert_limit_order(true, conv(beg), tot);
+    orderbook->insert_limit_order(false, conv(mid-4*incr), sz);
+    exp_vol += (tot+sz);
+
+    vol = orderbook->volume();
+    bs = orderbook->bid_size();
+    ts = orderbook->total_size();
+    if( vol != exp_vol )
+        return 6;
+
+    if( ts != 0 )
+        return 7;
+
+    tot = 0;
+    c = 0;
+    for(double i = mid -incr; i >= beg; i-= incr, ++c){
+        if( c % 3 == 0 ){
+            for( int ii = 0; ii < 3; ++ii){
+                orderbook->insert_stop_order(false, conv(i), conv(beg), sz);
+                tot += sz;
+            }
+        }else if( c %2 == 0){
+            orderbook->insert_stop_order(false, conv(i), conv(beg), sz*2);
+            tot += sz*2;
+        }
+    }
+
+    orderbook->insert_limit_order(true, conv(beg), sz);
+    orderbook->insert_limit_order(false, conv(beg), sz);
+    exp_vol += sz;
+
+    vol = orderbook->volume();
+    bs = orderbook->bid_size();
+    ts = orderbook->total_size();
+    as = orderbook->ask_size();
+    ap = orderbook->ask_price();
+    orderbook->dump_limits(out);
+    orderbook->dump_stops(out);
+    if( vol != exp_vol )
+        return 8;
+
+    if( bs != 0)
+        return 9;
+
+    if( ts != tot || as != tot)
+        return 10;
+
+    if( ap != beg )
+        return 11;
+
+    // beg                S limit tot
+
+    orderbook->insert_stop_order(true, conv(beg), sz);
+    orderbook->insert_stop_order(true, conv(beg+incr), sz);
+    orderbook->insert_stop_order(true, conv(beg+incr), sz);
+    orderbook->insert_stop_order(true, conv(beg+incr*4), sz);
+    orderbook->insert_stop_order(true, conv(beg+incr*4), sz*2);
+    orderbook->insert_stop_order(true, conv(beg+incr*4), sz*3);
+    orderbook->insert_stop_order(true, conv(beg+incr*5), 1 );
+    // sz*9 + 1
+
+    // beg + 5  B stop 1
+    // beg + 4  B stop 6*sz
+    // beg + 3
+    // beg + 2
+    // beg + 1  B stop 2*sz
+    // beg      B stop sz             S limit tot
+
+    orderbook->insert_limit_order(false, conv(beg+incr*5), sz*10+2 );
+
+
+    // beg + 5  B stop 1             S limit sz*10 + 2
+    // beg + 4  B stop 6*sz
+    // beg + 3
+    // beg + 2
+    // beg + 1  B stop 2*sz
+    // beg      B stop sz             S limit tot
+
+    orderbook->dump_limits(out);
+    orderbook->dump_stops(out);
+    orderbook->insert_limit_order(true, conv(beg+incr*5), tot + sz);
+    exp_vol += (tot + sz*10 + 1);
+
+    vol = orderbook->volume();
+    ts = orderbook->total_size();
+    ap = orderbook->ask_price();
+    if( vol != exp_vol || ts != 1 )
+        return 12;
+
+    orderbook->dump_limits(out);
+    orderbook->dump_stops(out);
+    ap = orderbook->ask_price();
+    if( ap != conv(beg+incr*5) )
+        return 13;
+
+    return 0;
+}
+
+int
 TEST_basic_orders_ASYNC_1(FullInterface *orderbook, std::ostream& out)
 {
     static const AdvancedOrderTicket AOT_NULL = AdvancedOrderTicket::null;

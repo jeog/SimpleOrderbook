@@ -240,7 +240,7 @@ SOB_CLASS::_limit_depth(size_t depth) const
     /* --- CRITICAL SECTION --- */
     std::tie(l,h) = RANGE::template get<limit_chain_type>(this,depth);
     for( ; h >= l; --h){
-        if( !h->limit_chain_is_empty() ){
+        if( !h->limits.empty() ){
             size_t sz = chain<limit_chain_type>::size_if(h, order::is_not_AON);
             md.emplace( _itop(h), DEPTH::build_value(this, h, sz) );
         }
@@ -357,7 +357,7 @@ SOB_CLASS::_dump_orders(std::ostream& out) const
     std::tie(l,h) = range<Side>::template get<ChainTy>(this);
     for( ; h >= l; --h){
         auto c = chain<ChainTy>::get(h);
-        if( !c->empty() ){
+        if( c && !c->empty() ){
             std::stringstream ss;
             for( const auto& e : *c ){
                 if ( order::is_not_AON(e) )
@@ -404,32 +404,36 @@ SOB_CLASS::_dump_aon_orders(std::ostream& out) const
         // bid/buy side first
         if( Side != side_of_trade::sell ){
             // aon chains first
-            auto c = h->get_aon_chain<true>();
+            auto c = h->aon_buys.get();
             if( c ){
                 for( const auto& elem : *c )
                     order::dump(ss, elem, true);
             }
             if( exec::limit<true>::is_tradable(this,h) ){
-                limit_chain_type *lc = h->get_limit_chain();
-                for( auto& elem : *lc ){
-                    if( order::is_AON(elem) )
-                        order::dump(ss, elem, true);
+                limit_chain_type *lc = h->limits.get();
+                if( lc ){
+                    for( auto& elem : *lc ){
+                        if( order::is_AON(elem) )
+                            order::dump(ss, elem, true);
+                    }
                 }
             }
         }
 
         if( Side != side_of_trade::buy ){
             // aon chains first
-            auto c = h->get_aon_chain<false>();
+            auto c = h->aon_sells.get();
             if( c ){
                 for( const auto& elem : *c )
                     order::dump(ss, elem, false);
             }
             if( exec::limit<false>::is_tradable(this,h) ){
-                limit_chain_type *lc = h->get_limit_chain();
-                for( auto& elem : *lc ){
-                    if( order::is_AON(elem) )
-                        order::dump(ss, elem, false);
+                limit_chain_type *lc = h->limits.get();
+                if( lc ){
+                    for( auto& elem : *lc ){
+                        if( order::is_AON(elem) )
+                            order::dump(ss, elem, false);
+                    }
                 }
             }
         }

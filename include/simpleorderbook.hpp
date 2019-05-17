@@ -141,9 +141,9 @@ namespace detail {
     struct order;
     template<sob::side_of_trade Side> struct range;
     template<sob::side_of_market Side> struct depth;
-    template<typename ChainTy, bool BaseOnly> struct chain;
+    template<typename ChainTy, bool IsBase=false> struct chain;
     namespace exec{
-        template<bool BidSide, bool Redirect> struct core;
+        template<bool BidSide, bool Redirect=BidSide> struct core;
         template<bool BidSide> struct aon;
         template<bool BidSide> struct limit;
         template<bool BuyStop> struct stop;
@@ -476,6 +476,35 @@ private:
         /* holds all buy AND sell aon orders at a price */
         using aon_chain_type = std::list<aon_bndl>;
 
+        template<typename T>
+        class chain_manager{
+            std::unique_ptr<T> _chain;
+        public:
+            T*
+            get() const { return _chain.get(); }
+
+            bool
+            empty() const;
+
+            template<typename B>
+            typename T::iterator
+            push( B&& elem );
+
+            void
+            erase( typename T::iterator iter );
+
+            void
+            free(){ _chain.reset(); }
+
+            T&
+            operator *(){ return *_chain; }
+
+            chain_manager() = default;
+            chain_manager( const chain_manager& ) = delete;
+            chain_manager& operator=( const chain_manager& ) = delete;
+            chain_manager( chain_manager&& ) = default;
+            chain_manager& operator=( chain_manager&& ) = default;
+        };
 
         class level {
             /*
@@ -488,30 +517,31 @@ private:
              *   resize requires a new allocation/initialization
              *
              *   * TODO store chain info to limit chain traversals
+             *
+             * *UPDATE* (MAY 17 2019)
+             *
+             *   * access chain ptr via chain_manager<T>
+             *   * only allocate list when needed
+             *   * free list when last bndl is erased
+             *
+             *   * NOTE - _trade()/_hit_chain() bypasses the erase method
+             *            so bulk ops can be done more efficiently
              */
-            std::unique_ptr<limit_chain_type> _l_chain;
-            std::unique_ptr<stop_chain_type> _s_chain;
-            std::unique_ptr<aon_chain_type> _aon_b_chain;
-            std::unique_ptr<aon_chain_type> _aon_s_chain;
-
         public:
-            level();
+            chain_manager<limit_chain_type> limits;
+            chain_manager<stop_chain_type> stops;
+            chain_manager<aon_chain_type> aon_buys;
+            chain_manager<aon_chain_type> aon_sells;
+
+            level() = default;
             level( const level& ) = delete;
             level& operator=( const level& ) = delete;
-            level( level&& l ) = default;
-            level& operator=( level&& l ) = default ;
-            
-            limit_chain_type* get_limit_chain() const { return _l_chain.get(); }
-            stop_chain_type* get_stop_chain() const { return _s_chain.get(); }
+            level( level&& ) = default;
+            level& operator=( level&& ) = default;
 
-            bool limit_chain_is_empty() const { return _l_chain->empty(); }
-            bool stop_chain_is_empty() const { return _s_chain->empty(); }
-
-            template<bool BuyChain> aon_chain_type* get_aon_chain() const;
-            template<bool BuyChain> bool aon_chain_is_empty() const;
-            template<bool BuyChain> void destroy_aon_chain();
-            template<bool BuyChain> aon_chain_type::iterator
-            push_aon_bndl(aon_bndl&& bndl);
+            template<bool Buys>
+            chain_manager<aon_chain_type>&
+            aon_chain(){ return Buys ? aon_buys : aon_sells; }
         };
         using plevel = level*;
 
@@ -680,7 +710,7 @@ private:
          *   ::size : get size of chain
          *   ::as_order_type : get order_type (e.g order_type::limit) of chain
          */
-        template<typename ChainTy, bool BaseOnly> friend struct detail::chain;
+        template<typename ChainTy, bool IsBase=false> friend struct detail::chain;
 
         /*
          * market depth utilites
@@ -699,7 +729,7 @@ private:
          *   ::is_tradable : arg is outside 'begin'
          *                            best bids/asks after trade activity
          */
-        template<bool Bidside, bool Redirect> friend struct detail::exec::core;
+        template<bool BidSide, bool Redirect=BidSide> friend struct detail::exec::core;
 
         /*
          * aon order execution helpers
@@ -776,7 +806,8 @@ private:
                const order_exec_cb_bndl& exec_cb);
 
         std::pair<size_t, bool>
-        _hit_chain(plevel plev,
+        _hit_chain(limit_chain_type *lchain,
+                   plevel plev,
                    id_type id,
                    size_t size,
                    const order_exec_cb_bndl& exec_cb);
@@ -1544,6 +1575,7 @@ namespace detail{
 struct sob_types {
     using sob_class = SimpleOrderbook::SimpleOrderbookBase;
     using plevel = sob_class::plevel;
+    template<typename T> using chain_manager = sob_class::chain_manager<T>;
     using limit_chain_type = sob_class::limit_chain_type;
     using stop_chain_type = sob_class::stop_chain_type;
     using aon_chain_type = sob_class::aon_chain_type;

@@ -28,7 +28,7 @@ namespace detail{
 
 namespace exec{
 
-template<bool BidSide, bool Redirect=BidSide> /* SELL, hit bids */
+template<bool BidSide, bool Redirect> /* SELL, hit bids */
 struct core
         : public sob_types {    
     static constexpr plevel
@@ -77,7 +77,7 @@ private:
     _jump_to_nonempty_chain(sob_class* sob)
     {
         for( ;
-             (sob->_bid >= sob->_beg) && sob->_bid->limit_chain_is_empty();
+             (sob->_bid >= sob->_beg) && sob->_bid->limits.empty();
              --sob->_bid ) // BUG FIX Apr 27 2019 - reverse order of conditions
            {
            }
@@ -140,7 +140,7 @@ private:
     _jump_to_nonempty_chain(sob_class *sob)
     {
         for( ;
-             (sob->_ask < sob->_end) && sob->_ask->limit_chain_is_empty();
+             (sob->_ask < sob->_end) && sob->_ask->limits.empty();
              ++sob->_ask ) // BUG FIX Apr 27 2019 - reverse order of conditions
             {
             }
@@ -179,14 +179,14 @@ struct aon
          if( p == sob->_high_buy_aon ){
              for( ;
                   (sob->_high_buy_aon >= sob->_low_buy_aon )
-                      && sob->_high_buy_aon->aon_chain_is_empty<true>();
+                      && sob->_high_buy_aon->aon_buys.empty();
                   --(sob->_high_buy_aon) )
              {
              }
          }else if( p == sob->_low_buy_aon ){
              for( ;
                   ( sob->_low_buy_aon <= sob->_high_sell_aon )                      
-                      && sob->_low_buy_aon->aon_chain_is_empty<true>();
+                      && sob->_low_buy_aon->aon_buys.empty();
                   ++(sob->_low_buy_aon) )
              {
              }
@@ -213,7 +213,7 @@ struct aon
          std::vector<std::pair<plevel,std::reference_wrapper<aon_bndl>>> tmp;
          // lowest first          
          for( ; p <= sob->_high_buy_aon; ++p ){
-             aon_chain_type *ac = p->get_aon_chain<true>();
+             aon_chain_type *ac = p->aon_buys.get();
              if( ac ){
                  for( auto& elem : *ac )
                      tmp.emplace_back( p, elem );                          
@@ -238,14 +238,14 @@ struct aon<false>
         if( p == sob->_low_sell_aon ){
             for( ;
                  (sob->_low_sell_aon <= sob->_high_sell_aon )
-                     && sob->_low_sell_aon->aon_chain_is_empty<false>();
+                     && sob->_low_sell_aon->aon_sells.empty();
                  ++(sob->_low_sell_aon) )
             {
             }
         }else if( p == sob->_high_sell_aon ){
             for( ;
                  (sob->_high_sell_aon >= sob->_low_sell_aon )
-                     && sob->_high_sell_aon->aon_chain_is_empty<false>();
+                     && sob->_high_sell_aon->aon_sells.empty();
                  --(sob->_high_sell_aon) )
             {
             }
@@ -271,7 +271,7 @@ struct aon<false>
         std::vector<std::pair<plevel,std::reference_wrapper<aon_bndl>>> tmp;
         // highest first
         for( ; p >= sob->_low_sell_aon; --p ){
-            aon_chain_type *ac = p->get_aon_chain<false>();
+            aon_chain_type *ac = p->aon_sells.get();
             if( ac ){
                 for( auto& elem : *ac )
                     tmp.emplace_back( p, elem );                         
@@ -450,7 +450,7 @@ struct stop<false>
 
 
 // base clase
-template<typename ChainTy, bool IsBase=false>
+template<typename ChainTy, bool IsBase>
 struct chain
         : public sob_types {
     static constexpr bool is_limit = std::is_same<ChainTy, limit_chain_type>::value;
@@ -500,17 +500,17 @@ protected:
         }
         return false;
     }
-    
-    template<typename BndlTy>
+
+    template<typename B, typename... Args>
     static void
-    push(sob_class *sob, plevel p, BndlTy&& bndl){      
-        ChainTy *c = chain<ChainTy, false>::get(p);
-        c->push_back( std::move(bndl) ); 
+    push( sob_class *sob, chain_manager<ChainTy>& cm, B&& bndl, Args... args )
+    {
+        auto iter = cm.push( std::move(bndl) );
         /* moved bndl but id is still valid (see bndl.cpp)*/         
         sob->_id_cache.emplace(
              std::piecewise_construct,
              std::forward_as_tuple(bndl.id),
-             std::forward_as_tuple(--(c->end()), p)
+             std::forward_as_tuple(iter, args...)
          );       
     }
     
@@ -554,7 +554,7 @@ protected:
          *  (WE DONT REMOVE IT FROM THE LIMIT CHAIN)
          */        
         auto& iwrap = sob->_from_cache(iter->id);
-        auto aiter = p->push_aon_bndl<BuyLimit>( *iter );
+        auto aiter = p->aon_buys.push( aon_bndl(*iter) );
         iwrap.switch_iter<BuyLimit>( aiter );
         exec::aon<BuyLimit>::adjust_state_after_insert(sob, p);        
     }
@@ -572,7 +572,7 @@ public:
     static void
     push(sob_class *sob, plevel p, limit_bndl&& bndl)
     {       
-        base_type::push(sob, p, std::move(bndl) );   
+        base_type::push(sob, p->limits, std::move(bndl), p);
         exec::limit<BuyLimit>::adjust_state_after_insert(sob, p);
     }
 
@@ -584,19 +584,20 @@ public:
                 
         limit_bndl bndl = *(iwrap.l_iter); // copy
         plevel p = iwrap.p;
-        limit_chain_type *c = p->get_limit_chain();
-              
-        c->erase(iwrap.l_iter); // first        
+
+        erase(p, iwrap.l_iter); // first
         sob->_id_cache.erase(id);  // second
                              
         /* if an aon is now at the front we need to move to aon chain */
-        while( !c->empty() && order::is_AON( c->front() ) ){       
-            auto b = c->begin();
+        while( !empty(p) ){
+            auto b = p->limits.get()->begin();
+            if( !order::is_AON( *b ) )
+                break;
             copy_bndl_to_aon_chain( sob, p, b );                   
-            c->erase( b );
+            p->limits.erase(b);
         }
     
-        if( c->empty() ){               
+        if( empty(p) ){
             /*
              * we can compare vs bid because if we get here and the order
              * is a buy it must be <= the best bid, otherwise its a sell             
@@ -611,7 +612,15 @@ public:
 
     static limit_chain_type*
     get(plevel p)
-    { return p->get_limit_chain(); }
+    { return p->limits.get(); }
+
+    static void
+    erase( plevel p, limit_chain_type::iterator iter )
+    { p->limits.erase(iter); }
+
+    static bool
+    empty( plevel p )
+    { return p->limits.empty(); }
 };
 
 
@@ -627,13 +636,9 @@ struct chain<typename sob_types::aon_chain_type, false>
     static void
     push(sob_class *sob, plevel p, aon_bndl&& bndl )
     {
-        auto aiter = p->push_aon_bndl<BuyLimit>( std::move(bndl) );
-        sob->_id_cache.emplace(
-            std::piecewise_construct,
-            std::forward_as_tuple(bndl.id),
-            std::forward_as_tuple(aiter, p, BuyLimit)
-        );        
-         exec::aon<BuyLimit>::adjust_state_after_insert(sob, p);
+        base_type::push(sob, p->aon_chain<BuyLimit>(), std::move(bndl), p,
+                        BuyLimit);
+        exec::aon<BuyLimit>::adjust_state_after_insert(sob, p);
     }
   
 
@@ -651,19 +656,12 @@ struct chain<typename sob_types::aon_chain_type, false>
         plevel p = iwrap.p;
         bool is_buy = iwrap.is_aon_buy();
         
-        aon_chain_type *c = is_buy ? p->get_aon_chain<true>()
-                                   : p->get_aon_chain<false>();        
-        c->erase( iwrap.a_iter ); // first                           
+        erase(p, iwrap.a_iter, is_buy); //first
         sob->_id_cache.erase(id);  // second
          
-        if( c->empty() ){
-            if( is_buy ){
-                p->destroy_aon_chain<true>(); // first
-                exec::aon<true>::adjust_state_after_pull(sob, p); // second
-            }else{
-                p->destroy_aon_chain<false>();
-                exec::aon<false>::adjust_state_after_pull(sob, p);
-            }
+        if( empty(p, is_buy) ){
+            is_buy ? exec::aon<true>::adjust_state_after_pull(sob, p)
+                   : exec::aon<false>::adjust_state_after_pull(sob, p);
         }
         return bndl;
     }  
@@ -671,8 +669,8 @@ struct chain<typename sob_types::aon_chain_type, false>
     template<bool BuyChain>
     static constexpr aon_chain_type*
     get(plevel p)
-    { return p->get_aon_chain<BuyChain>(); }
-    
+    { return BuyChain ? p->aon_buys.get() : p->aon_sells.get(); }
+
     template<bool BuyChain>
     static constexpr size_t
     size(plevel p)
@@ -684,6 +682,23 @@ struct chain<typename sob_types::aon_chain_type, false>
     { return (Side == side_of_trade::both) ? size<true>(p) + size<false>(p)
             : size<Side == side_of_trade::buy>(p); }
 
+    template<bool BuyChain>
+    static constexpr void
+    erase( plevel p, aon_chain_type::iterator iter )
+    { p->aon_chain<BuyChain>().erase(iter); }
+
+    static void
+    erase( plevel p, aon_chain_type::iterator iter, bool is_buy )
+    { is_buy ? erase<true>(p,iter) : erase<false>(p,iter); }
+
+    template<bool BuyChain>
+    static bool
+    empty( plevel p )
+    { return p->aon_chain<BuyChain>().empty(); }
+
+    static bool
+    empty( plevel p, bool is_buy )
+    { return is_buy ? empty<true>(p) : empty<false>(p); }
 };
 
 
@@ -698,7 +713,7 @@ struct chain<typename sob_types::stop_chain_type, false>
     push(sob_class *sob, plevel p, stop_bndl&& bndl)
     {        
         bool is_buy = bndl.is_buy;
-        base_type::push(sob, p, std::move(bndl) );        
+        base_type::push(sob,p->stops, std::move(bndl), p);
         is_buy ? exec::stop<true>::adjust_state_after_insert(sob, p)
                : exec::stop<false>::adjust_state_after_insert(sob, p);
     }
@@ -711,12 +726,11 @@ struct chain<typename sob_types::stop_chain_type, false>
         
         stop_bndl bndl = *(iwrap.s_iter); // copy
         plevel p = iwrap.p;
-        stop_chain_type *c = p->get_stop_chain();       
         
-        c->erase(iwrap.s_iter); // first
+        erase(p, iwrap.s_iter); // first
         sob->_id_cache.erase(id); // second 
      
-        if( c->empty() ){
+        if( empty(p) ){
             bndl.is_buy ? exec::stop<true>::adjust_state_after_pull(sob, p)
                         : exec::stop<false>::adjust_state_after_pull(sob, p);            
         }
@@ -726,12 +740,20 @@ struct chain<typename sob_types::stop_chain_type, false>
 
     static stop_chain_type*
     get(plevel p)
-    { return p->get_stop_chain(); }
+    { return p->stops.get(); }
 
     /* doesn't differentiate between stop & stop/limit */
     static constexpr sob::order_type
     as_order_type()
     { return sob::order_type::stop; }
+
+    static void
+    erase( plevel p, stop_chain_type::iterator iter )
+    { p->stops.erase(iter); }
+
+    static  bool
+    empty( plevel p )
+    { return p->stops.empty(); }
 };
 
 
