@@ -787,8 +787,7 @@ SOB_CLASS::wait_for_async_callbacks()
             lock,
             [this]{ return _async_callbacks_done && _callbacks_async.empty(); }
         );
-    }else
-        lock.unlock();
+    }
 }
 
 /*
