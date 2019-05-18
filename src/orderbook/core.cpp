@@ -594,11 +594,10 @@ SOB_CLASS::_insert_limit_order(const order_queue_elem& e, bool pass_conditions)
             // pass ref to callback functor, we'll copy later if necessary
             // return what we couldn't fill
             rmndr = _trade<!BuyLimit>(p, e.id, rmndr, e.cb);
+            if( rmndr == 0)
+                return fill_type::immediate_full;
         }
     }
-
-    if( rmndr == 0)
-        return fill_type::immediate_full;
 
     if( order::is_AON(e)
         && ( exec::limit<!BuyLimit>::is_tradable(this,p) || p->limits.empty()) )
