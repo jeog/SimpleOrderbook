@@ -29,13 +29,11 @@ along with this program. If not, see http://www.gnu.org/licenses.
 //        done implicitly. If (later) called from outside core.cpp
 //        need to add them.
 
-// TODO pre-post AON checks in market insert
 // TODO price-mediation in gapped fills (user input ?)
-// TODO cache the aon levels in a list to avoid gaps in 'window'
-//
+// TODO cache the aon levels in a list to avoid gaps in 'window' ??
+
 
 namespace sob{
-
 
 /***************************************************************
               *** our ersatz iterator approach ****
@@ -349,7 +347,7 @@ SOB_CLASS::_trade( plevel plev,
         /*
          * NEW May 23 2019 - look for intra-trade new last range
          *
-         * TOD - a more clever approach can avoid this checks
+         * TODO - a more clever approach can avoid these checks
          */
         if( _last > high_last )
             high_last = _last;

@@ -1407,17 +1407,3 @@ TEST_advanced_TRAILING_BRACKET_10(sob::FullInterface *orderbook, std::ostream& o
 #endif /* RUN_FUNCTIONAL_TESTS */
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-

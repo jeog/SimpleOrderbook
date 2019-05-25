@@ -1017,19 +1017,17 @@ private:
         void
         _trailing_stop_erase(id_type id, bool is_buy);
 
+        template<bool IsStop>
         plevel
-        _trailing_stop_plevel(bool buy_stop, size_t nticks, plevel p);
+        _plevel_offset(bool buy, size_t nticks, plevel from) const;
 
         plevel
-        _trailing_limit_plevel(bool buy_limit, size_t nticks, plevel p);
+        _trailing_stop_plevel(bool buy_stop, size_t nticks) const
+        { return _plevel_offset<true>(buy_stop, nticks, _last); }
 
         plevel
-        _trailing_stop_plevel(bool buy_stop, size_t nticks)
-        { return _trailing_stop_plevel(buy_stop, nticks, _last); }
-
-        plevel
-        _trailing_limit_plevel(bool buy_limit, size_t nticks)
-        { return _trailing_limit_plevel(buy_limit, nticks, _last); }
+        _trailing_limit_plevel(bool buy_limit, size_t nticks) const
+        { return _plevel_offset<false>(buy_limit, nticks, _last); }
 
         template<typename... Args>
         linked_trailer_type*

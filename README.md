@@ -38,7 +38,7 @@ The 'spine' of the orderbook is a vector which allows random access using simple
 
 The vector is initialized to user-requested size when the book is created but can be grown manually. We simply let the STL implementation do its thing, get the new base address, and adjust the internal pointers by the offset.
 
-The vector contains pairs of doubly-linked lists (stop and limit 'chains') so order insert/execution is O(1) for limit/market orders (see below).
+The vector's elements are objects containing doubly-linked lists (stop, limit, and aon 'chains') so order insert/execution is O(1) for limit/market orders (see below).
 
 Orders are referenced by ID #s that are generated sequentially and cached - with their respective price level and chain iterator - in a hash table, allowing for collision-free O(1) lookup from the cache to pull and replace orders.
 
@@ -84,7 +84,32 @@ The implementation currently caches range bounds and iterates naively; it requir
 
 ##### Dynamic Brackets & Trailing Stops
 
-Recently added functionality allows bracket, trailing bracket, and trailing stop orders to be triggered on partial or full fills; and to adjust order sizes dynamically. For instance, a limit order to buy 1000 - with an attached bracket triggered on a partial fill - that only fills 500, will issue target and stop orders, for 500 each. If the market moves up and fills 100 at the target the stop will adjust to 400. If the market then moves back down and fills the remaining 500 of the entry the target and stops will adjust to 900 each. A number of callback msg types were included to signal these internal actions and related order IDs. Canceling one of the exit bracket orders will automatically cancel the other. Canceling the entry order will leave both exit orders, if active.
+Recently added functionality allows bracket, trailing bracket, and trailing stop orders to be triggered on partial or full fills; and to adjust order sizes dynamically. For instance, a limit order to buy 1000 - with an attached bracket triggered on a partial fill - that only fills 400, will issue target and stop orders, for 400 each. If the market moves up and fills 100 at the target the stop will adjust to 300. If the market then moves back down and fills the remaining 600 of the entry the target and stops will adjust to 900 each. A number of callback msg types were included to signal these internal actions and related order IDs. Canceling one of the exit bracket orders will automatically cancel the other. Canceling the entry order will leave both exit orders, if active.
+
+##### Callback Messages
+ 
+Orders generally receive a combination of callback messages to indicate state, price/size information, and new or changed ID numbers.
+
+C++ (sob::callback_msg)           |     Python                            |    Description
+----------------------------------|---------------------------------------|---------------------------------------------------
+::cancel                          |  MSG_CANCEL                           | Order was successfully canceled
+::fill                            |  MSG_FILL                             | Order receieved a (partial or full) fill
+::stop_to_limit                   |  MSG_STOP_TO_LIMIT                    | Stop was triggered and entered as a limit order
+::stop_to_market                  |  MSG_STOP_TO_MARKET                   | Stop was triggered and entered as a market order
+::trigger_OCO                     |  MSG_TRIGGER_OCO                      | One-Cancels-Other order was triggered, canceling other order
+::trigger_OTO                     |  MSG_TRIGGER_OTO                      | One-Triggers-Other order was triggered, entering other order
+::trigger_BRACKET_open            |  MSG_TRIGGER_BRACKET_OPEN             | Bracket was triggered, id1 is of the entry order, id2 is of the (not-yet-entered) target
+::trigger_BRACKET_open_target     |  MSG_TRIGGER_BRACKET_OPEN_TARGET      | Bracket target exit order was entered, id1 is of the entry, id2 is of the target
+::trigger_BRACKET_open_loss       |  MSG_TRIGGER_BRACKET_OPEN_LOSS        | Bracket stop/loss exit order was entered, id1 is of the entry, id2 is of the stop/loss
+::trigger_BRACKET_adj_target      |  MSG_TRIGGER_BRACKET_ADJ_TARGET       | Bracket target exit order size or price(trailing bracket) was changed
+::trigger_BRACKET_adj_loss        |  MSG_TRIGGER_BRACKET_ADJ_LOSS         | Bracket target stop/loss order size or price(trailing brakcet) was changed
+::trigger_BRACKET_close           |  MSG_TRIGGER_BRACKET_CLOSE            | Bracket orders were closed (manually or from fill)
+::trigger_TRAILING_STOP_open      |  MSG_TRIGGER_TRAILING_STOP_OPEN       | Trailing stop was triggered, id1 is of the entry order, id2 is of the (not-yet-entered) stop/loss
+::trigger_TRAILING_STOP_open_loss |  MSG_TRIGGER_TRAILING_STOP_OPEN_LOSS  | Trailing stop/loss exit order was entered, id1 is of the entry, id2 is of the stop/loss
+::trigger_TRAILING_STOP_adj_loss  |  MSG_TRIGGER_TRAILING_STOP_ADJ_LOSS   | Trailing stop/loss exit order size or price was changed
+::trigger_TRAILING_STOP_close     |  MSG_TRIGGER_TRAILING_STOP_CLOSE      | Trailing stop/loss exit order was closed (manually or from fill)
+::kill                            |  MSG_KILL                             | Fill-Or-Kill order was killed before it could be filled
+
 
 ##### Price-Mediation
 

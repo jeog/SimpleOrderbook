@@ -788,51 +788,28 @@ SOB_CLASS::_trailing_stop_erase(id_type id, bool is_buy)
 }
 
 
+template<bool IsStop>
 SOB_CLASS::plevel
-SOB_CLASS::_trailing_stop_plevel(bool buy_stop, size_t nticks, plevel p)
+SOB_CLASS::_plevel_offset(bool buy, size_t nticks, plevel from) const
 {
-    assert( nticks );
-    assert( p );
+    assert( nticks > 0 );
+    _assert_plevel( from );
 
-    if( buy_stop ){
-        if( nticks > static_cast<size_t>(_end - 1 - _last) ){
+    if( IsStop ? buy : !buy ){
+        if( nticks > static_cast<size_t>(_end - 1 - from) ){
             std::stringstream ss;
-            ss << nticks << " ticks from " << _last << " is > " << _itop(_end - 1);
+            ss << nticks << " ticks from " << from << " is > " << _itop(_end - 1);
             throw derived_price_exception(ss.str());
         }
-        return p + nticks;
-    }
-
-    if( nticks > static_cast<size_t>(_last - _beg) ){
-        std::stringstream ss;
-        ss << nticks << " ticks from " << _last << " is < " << _itop(_beg);
-        throw derived_price_exception(ss.str());
-    }
-    return p + (nticks*-1);
-}
-
-
-SOB_CLASS::plevel
-SOB_CLASS::_trailing_limit_plevel(bool buy_limit, size_t nticks, plevel p)
-{
-    assert( nticks );
-    assert( p );
-
-    if( buy_limit ){
-        if( nticks > static_cast<size_t>(_last - _beg) ){
+        return from + nticks;
+    }else{
+        if( nticks > static_cast<size_t>(from - _beg) ){
             std::stringstream ss;
-            ss << nticks << " ticks from " << _last << " is <" << _itop(_beg);
+            ss << nticks << " ticks from " << from << " is < " << _itop(_beg);
             throw derived_price_exception(ss.str());
         }
-        return p + (nticks * -1);
+        return from + (nticks*-1);
     }
-
-    if( nticks > static_cast<size_t>(_end - 1 - _last) ){
-         std::stringstream ss;
-         ss << nticks << " ticks from " << _last << " is > " << _itop(_end - 1);
-         throw derived_price_exception(ss.str());
-    }
-    return p + nticks;
 }
 
 
@@ -861,7 +838,7 @@ SOB_CLASS::_trailing_stop_adjust(id_type id, bool buy_stop, plevel p)
     assert( is_ats || is_atb );
 
     size_t nticks = is_ats ? bndl.nticks : bndl.linked_trailer->first;
-    plevel p_adj = _trailing_stop_plevel(buy_stop, nticks, p);
+    plevel p_adj = _plevel_offset<true>(buy_stop, nticks, p);
     double price = _itop(p_adj);
 
     auto msg = is_ats ? callback_msg::trigger_TRAILING_STOP_adj_loss
