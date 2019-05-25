@@ -165,7 +165,7 @@ native_aot_to_py(const sob::AdvancedOrderTicket& aot)
     case sob::order_condition::_trailing_stop_active:
         obj = pyAOT_new<pyAOT_TrailingStop_Active>();
         break;
-    case sob::order_condition::all_or_nothing:
+    case sob::order_condition::all_or_none:
         obj = native_aot_to_py<pyAOT_AON>(aot);
         break;
     default:

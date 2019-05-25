@@ -32,11 +32,11 @@ get_args(pyAOT_BRACKET *obj,  PyObject *args, PyObject *kwds, PyObject **is_buy)
 {
     static char* kwlist[] = {Strings::is_buy, Strings::loss_stop,
                              Strings::loss_limit, Strings::target_limit,
-                             Strings::size, Strings::trigger, NULL};
+                             Strings::trigger, NULL};
 
-    return MethodArgs::parse(args, kwds, "Odddk|i", kwlist, is_buy,
+    return MethodArgs::parse(args, kwds, "Oddd|i", kwlist, is_buy,
                              &obj->loss_stop, &obj->loss_limit,
-                             &obj->target_limit, &obj->size, &obj->trigger);
+                             &obj->target_limit, &obj->trigger);
 }
 
 template<>
@@ -44,12 +44,10 @@ bool
 get_args<3>(pyAOT_BRACKET *obj,  PyObject *args, PyObject *kwds, PyObject **is_buy)
 {
     static char* kwlist[] = {Strings::loss_stop, Strings::loss_limit,
-                             Strings::target_limit, Strings::size,
-                             Strings::trigger, NULL};
+                             Strings::target_limit, Strings::trigger, NULL};
 
-    return MethodArgs::parse(args, kwds, "dddk|i", kwlist, &obj->loss_stop,
-                             &obj->loss_limit, &obj->target_limit,
-                             &obj->size, &obj->trigger);
+    return MethodArgs::parse(args, kwds, "ddd|i", kwlist, &obj->loss_stop,
+                             &obj->loss_limit, &obj->target_limit,&obj->trigger);
 }
 
 
@@ -58,10 +56,10 @@ bool
 get_args<2>(pyAOT_BRACKET *obj, PyObject *args, PyObject *kwds, PyObject **is_buy)
 {
     static char* kwlist[] = {Strings::loss_stop, Strings::target_limit,
-                             Strings::size, Strings::trigger,  NULL};
+                             Strings::trigger,  NULL};
 
-    return MethodArgs::parse(args, kwds, "ddk|i", kwlist, &obj->loss_stop,
-                             &obj->target_limit, &obj->size, &obj->trigger);
+    return MethodArgs::parse(args, kwds, "dd|i", kwlist, &obj->loss_stop,
+                             &obj->target_limit, &obj->trigger);
 }
 
 /* CONSTRUCTOR */
@@ -121,7 +119,6 @@ PyMethodDef methods[] = {
 
 PyMemberDef members[] = {
     BUILD_PY_OBJ_MEMBER_DEF(is_buy, T_BOOL, pyAOT_BRACKET),
-    BUILD_PY_OBJ_MEMBER_DEF(size, T_ULONG, pyAOT_BRACKET),
     BUILD_PY_OBJ_MEMBER_DEF(loss_limit, T_DOUBLE, pyAOT_BRACKET),
     BUILD_PY_OBJ_MEMBER_DEF(loss_stop, T_DOUBLE, pyAOT_BRACKET),
     BUILD_PY_OBJ_MEMBER_DEF(target_limit, T_DOUBLE, pyAOT_BRACKET),
@@ -136,19 +133,18 @@ py_to_native_aot<pyAOT_BRACKET>(pyAOT_BRACKET* obj)
 {
     double stop = obj->loss_stop;
     double target = obj->target_limit;
-    size_t sz = obj->size;
     auto trigger = static_cast<sob::condition_trigger>(obj->trigger);
 
     if( obj->loss_limit ){
         auto func = obj->is_buy
                   ? sob::AdvancedOrderTicketBRACKET::build_buy_stop_limit
                   : sob::AdvancedOrderTicketBRACKET::build_sell_stop_limit;
-        return func(stop, obj->loss_limit, target, sz, trigger);
+        return func(stop, obj->loss_limit, target, trigger);
     }
     auto func = obj->is_buy
               ? sob::AdvancedOrderTicketBRACKET::build_buy_stop
               : sob::AdvancedOrderTicketBRACKET::build_sell_stop;
-    return func(stop, target, sz, trigger);
+    return func(stop, target, trigger);
 }
 
 template<>
@@ -163,7 +159,6 @@ native_aot_to_py(const sob::AdvancedOrderTicket& aot)
 
     const sob::OrderParamaters* order1 = aot.order1();
     obj->is_buy = order1->is_buy();
-    obj->size = order1->size();
     obj->loss_limit = order1->limit_price();
     obj->loss_stop = order1->stop_price();
     obj->target_limit = aot.order2()->limit_price();

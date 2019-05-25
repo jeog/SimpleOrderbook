@@ -239,21 +239,23 @@ SOB_CLASS::_insert_order(order_queue_elem& e)
 
 
 bool
-SOB_CLASS::_inject_basic_order(const order_queue_elem& e, bool partial_ok)
+SOB_CLASS::_inject_basic_order(const order_queue_elem& e,
+                               bool partial_ok,
+                               bool pass_conditions)
 {
-    switch( _route_basic_order<>(e) ){
-    case fill_type::immediate_full: return true;
-    case fill_type::immediate_partial: return partial_ok;
-    default: return false;
-    }
+    size_t filled = _route_basic_order<>(e, pass_conditions);
+    if( filled == 0 )
+        return false;
+
+    return (filled == e.sz) || partial_ok;
 }
 
 
 template<side_of_trade side>
-fill_type
+size_t
 SOB_CLASS::_route_basic_order(const order_queue_elem& e, bool pass_conditions)
 {
-    constexpr bool IsBuy = side == side_of_trade::buy;
+    constexpr bool IsBuy = (side == side_of_trade::buy);
 
     if( side == side_of_trade::both ){
         return e.is_buy
@@ -266,23 +268,23 @@ SOB_CLASS::_route_basic_order(const order_queue_elem& e, bool pass_conditions)
         return _insert_limit_order<IsBuy>(e,pass_conditions);
     case order_type::market:
         _insert_market_order<IsBuy>(e);
-        return fill_type::immediate_full;
+        return e.sz;
     case order_type::stop: /* no break */
     case order_type::stop_limit:
         _insert_stop_order<IsBuy>(e, pass_conditions);
-        return fill_type::none;
+        return 0;
     default:
         throw std::runtime_error("invalid order type in order_queue");
     }
 }
 
-template fill_type
+template size_t
 SOB_CLASS::_route_basic_order<side_of_trade::both>(const order_queue_elem&, bool);
 
-template fill_type
+template size_t
 SOB_CLASS::_route_basic_order<side_of_trade::buy>(const order_queue_elem&, bool);
 
-template fill_type
+template size_t
 SOB_CLASS::_route_basic_order<side_of_trade::sell>(const order_queue_elem&, bool);
 
 
@@ -311,6 +313,8 @@ SOB_CLASS::_trade( plevel plev,
 
     bool all;
     plevel old_last = _last;
+    plevel high_last = _last;
+    plevel low_last = _last;
     plevel p = CORE::begin(this);
     plevel end = CORE::end(this); // ALL orders must go thru queue
 
@@ -342,15 +346,33 @@ SOB_CLASS::_trade( plevel plev,
             }
         }
 
+        /*
+         * NEW May 23 2019 - look for intra-trade new last range
+         *
+         * TOD - a more clever approach can avoid this checks
+         */
+        if( _last > high_last )
+            high_last = _last;
+        else if( _last < low_last )
+            low_last = _last;
+
         p = CORE::next_or_jump(this, p);
     }
 
     /*
      * dont need to check that old != 0; in order to have an active
      * trailing_stop we must have had an initial trade
+     *
+     * *this* trade takes priority so we wait until outside of main loop
+     * before adjusting stops
+     *
+     * TODO - check if trailing stops 'cross' inside we get expected behavior
      */
-    if( old_last != _last )
-        _trailing_stops_adjust(_last < old_last);
+    if( high_last > old_last )
+        _trailing_stops_adjust(false, high_last);
+
+    if( low_last < old_last )
+        _trailing_stops_adjust(true, low_last);
 
     if( _need_check_for_stops )
         _look_for_triggered_stops();
@@ -401,12 +423,12 @@ SOB_CLASS::_hit_chain( limit_chain_type *lchain,
         if( order::is_advanced(*pos) && order::has_condition_trigger(*pos) )
         {
             /* check if trigger condition is met */
-            if( !order::needs_full_fill(*pos) || (pos->sz == amount) )
-            {
+            if( !order::needs_full_fill(*pos) || amount == pos->sz ){
                 // note - pos->sz hasn't been updated yet!
-                _handle_advanced_order_cancel(*pos, pos->id)
-                    || _handle_advanced_order_trigger(*pos, pos->id);
+                _handle_advanced_order_cancel(*pos, pos->id, amount)
+                    || _handle_advanced_order_trigger(*pos, pos->id, amount);
             }
+
         }
 
         /* remaining (adjust after we handle advanced conditions) */
@@ -569,7 +591,7 @@ SOB_CLASS::_match_aon_orders_POST_trade(const order_queue_elem& e, plevel p)
 
 
 template<bool BuyLimit>
-sob::fill_type
+size_t
 SOB_CLASS::_insert_limit_order(const order_queue_elem& e, bool pass_conditions)
 {
     using namespace detail;
@@ -580,7 +602,7 @@ SOB_CLASS::_insert_limit_order(const order_queue_elem& e, bool pass_conditions)
     /* execute any AONs that are valid w/ this order now available */
     size_t rmndr = _match_aon_orders_PRE_trade<BuyLimit>(e, p);
     if( rmndr == 0)
-        return fill_type::immediate_full;
+        return e.sz;
 
     /* If there are matching orders on the other side ... */
     if( exec::core<!BuyLimit>::is_tradable(this, p) ){
@@ -595,7 +617,7 @@ SOB_CLASS::_insert_limit_order(const order_queue_elem& e, bool pass_conditions)
             // return what we couldn't fill
             rmndr = _trade<!BuyLimit>(p, e.id, rmndr, e.cb);
             if( rmndr == 0)
-                return fill_type::immediate_full;
+                return e.sz;
         }
     }
 
@@ -635,13 +657,13 @@ SOB_CLASS::_insert_limit_order(const order_queue_elem& e, bool pass_conditions)
         auto& iwrap = _from_cache(e.id);
         assert( !iwrap.is_stop() );
         if( iwrap->sz != e.sz )
-            return fill_type::immediate_partial;
-    }catch( OrderNotInCache& e ){
-        return fill_type::immediate_full;
+            return e.sz - iwrap->sz;
+    }catch( OrderNotInCache& ){
+        return e.sz;
     }
 
     /* we're still in the cache AND have the original size so... */
-    return fill_type::none;
+    return 0;
 }
 
 
@@ -859,7 +881,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
         /* first we handle any (cancel) advanced conditions */
         if( order::is_advanced(e) ){
             assert(e.trigger != condition_trigger::none);
-            _handle_advanced_order_cancel(e, id);
+            _handle_advanced_order_cancel(e, id, sz);
         }
 
        /* UPDATE! we are creating new id for new exec_cb type (Jan 18) */
@@ -873,28 +895,30 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
 
         order_type ot = limit ? order_type::limit : order_type::market;
 
+
         if( detail::order::is_trailing_stop(e) )
         {
-            assert( e.contingent_order->is_by_nticks() );
-            _push_internal_order( ot, e.is_buy, limit, 0, sz, cb, e.cond,
-                                 e.trigger, e.contingent_order->copy_new(),
-                                 nullptr, id_new );
+            assert( e.contingent_nticks_order->params.is_by_nticks() );
+            _push_internal_order( ot, e.is_buy, limit, 0, sz, cb, e.condition,
+                                 e.trigger,
+                                 e.contingent_nticks_order->params.copy_new(),
+                                 nullptr, id_new, id );
         }
         else if( detail::order::is_trailing_bracket(e) )
         {
             assert( e.nticks_bracket_orders->first.is_by_nticks() );
             assert( e.nticks_bracket_orders->second.is_by_nticks() );
-            _push_internal_order( ot, e.is_buy, limit, 0, sz, cb, e.cond,
+            _push_internal_order( ot, e.is_buy, limit, 0, sz, cb, e.condition,
                                  e.trigger,
                                  e.nticks_bracket_orders->first.copy_new(),
                                  e.nticks_bracket_orders->second.copy_new(),
-                                 id_new );
+                                 id_new, id );
         }
         else
         {
             _push_internal_order( ot, e.is_buy, limit, 0, sz, cb,
                                  order_condition::none, condition_trigger::none,
-                                 nullptr, nullptr, id_new );
+                                 nullptr, nullptr, id_new, id );
         }
 
         /*
@@ -908,7 +932,7 @@ SOB_CLASS::_handle_triggered_stop_chain(plevel plev)
             && !order::is_trailing_bracket(e) )
         {
             assert(e.trigger != condition_trigger::none);
-            _handle_advanced_order_trigger(e, id);
+            _handle_advanced_order_trigger(e, id, sz);
         }
 
         /* BUG FIX Feb 23 2018 - remove old ID from cache */
@@ -1025,11 +1049,12 @@ SOB_CLASS::_push_internal_order( order_type oty,
                                  condition_trigger cond_trigger,
                                  std::unique_ptr<OrderParamaters>&& cparams1,
                                  std::unique_ptr<OrderParamaters>&& cparams2,
-                                 id_type id )
+                                 id_type id,
+                                 id_type parent_id)
 {
     _internal_order_queue.emplace(oty, buy, limit, stop, size, cb, id, cond,
                                   cond_trigger, std::move(cparams1),
-                                  std::move(cparams2));
+                                  std::move(cparams2), parent_id);
 }
 
 
@@ -1173,14 +1198,23 @@ template<typename ChainTy>
 void
 SOB_CLASS::_pull_linked_order(typename ChainTy::value_type& bndl)
 {
-    order_location *loc = bndl.linked_order;
-    if( loc && detail::order::is_OCO(bndl) ){
-        /* false to pull_linked; this side in process of being pulled */
-        if( loc->is_limit_chain )
-            _pull_order<limit_chain_type>(loc->id, false);
-        else
-            _pull_order<stop_chain_type>(loc->id, false);
+    if( !detail::order::should_pull_linked(bndl) )
+        return;
+
+    order_location *loc;
+    if( detail::order::is_active_trailing_bracket(bndl) ){
+        assert( bndl.linked_trailer );
+        loc = &(bndl.linked_trailer->second);
+    }else{
+        assert( bndl.linked_order );
+        loc = bndl.linked_order;
     }
+    if( !loc )
+        return;
+
+    /* false to pull_linked; this side in process of being pulled */
+    loc->is_limit_chain ? _pull_order<limit_chain_type>(loc->id, false)
+                        : _pull_order<stop_chain_type>(loc->id, false);
 }
 
 

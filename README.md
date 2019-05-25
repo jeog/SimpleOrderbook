@@ -5,7 +5,11 @@ SimpleOrderbook is a C++(11) financial market orderbook and matching engine with
 
 #### Features 
 
-- market, limit, stop-market, and stop-limit order types
+- standard order types
+    - market
+    - limit
+    - stop-market
+    - stop-limit 
 - advanced orders/conditions: 
     - one-cancels-other (OCO) 
     - one-triggers-other (OTO)
@@ -13,16 +17,16 @@ SimpleOrderbook is a C++(11) financial market orderbook and matching engine with
     - bracket
     - trailing stop 
     - bracket /w trailing stop
-    - all-or-none (AON) ***(NEW in V0.6, not stable)***
+    - all-or-none (AON) ***\* NEW in V0.6 (not stable) \****
 - advanced condition triggers:
     - fill-partial 
     - fill-full 
-    - fill-n-percent ***(not available yet)***
 - cancel/replace orders by ID
 - callbacks on order execution/cancelation/advanced triggers etc.
-- synchronous & asynchronous order insertion/callback ***NEW***
+- synchronous & asynchronous order insertion/callback ***\* NEW in v0.6 \****
+- bracket, trailing bracket, and trailing stop order sizes adjust automatically ***\* NEW in v0.6 \****
 - query market state(bid size, volume etc.), dump orders to stdout, view Time & Sales 
-- extensible backend resource management(global and type-specific) via factory proxies 
+- extensible backend resource management(global and type-specific) via factories
 - tick sizing/rounding/math handled implicity by TickPrice\<std::ratio\> objects
 - pre-allocation of (some) internals during construction to reduce runtime overhead
 - (manually) grow orderbooks as necessary
@@ -76,6 +80,11 @@ Recently added 'all-or-none' orders use a combination of traditional limit chain
 The implementation currently caches range bounds and iterates naively; it requires a fair amount of 'look-ahead' for both new and old orders; and re-checking of outstaning AON orders on each new entry - all of which will cause performance issues if these order types are used extensively.
 
 *To avoid the performance and stability issues with AON orders you can revert to v0.5 which can be found on the appropriately named branch.*
+
+
+##### Dynamic Brackets & Trailing Stops
+
+Recently added functionality allows bracket, trailing bracket, and trailing stop orders to be triggered on partial or full fills; and to adjust order sizes dynamically. For instance, a limit order to buy 1000 - with an attached bracket triggered on a partial fill - that only fills 500, will issue target and stop orders, for 500 each. If the market moves up and fills 100 at the target the stop will adjust to 400. If the market then moves back down and fills the remaining 500 of the entry the target and stops will adjust to 900 each. A number of callback msg types were included to signal these internal actions and related order IDs. Canceling one of the exit bracket orders will automatically cancel the other. Canceling the entry order will leave both exit orders, if active.
 
 ##### Price-Mediation
 

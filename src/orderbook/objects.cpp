@@ -37,13 +37,13 @@ SOB_CLASS::_order_bndl::_order_bndl()
 SOB_CLASS::_order_bndl::_order_bndl( id_type id,
                                      size_t sz,
                                      const order_exec_cb_bndl& cb,
-                                     order_condition cond,
+                                     order_condition condition,
                                      condition_trigger trigger )
     :
         id(id),
         sz(sz),
         cb(cb),
-        cond(cond),
+        condition(condition),
         trigger(trigger),
         nticks(0)
     {
@@ -56,41 +56,45 @@ SOB_CLASS::_order_bndl::_order_bndl(const _order_bndl& bndl)
         id(bndl.id),
         sz(bndl.sz),
         cb(bndl.cb),
-        cond(bndl.cond),
+        condition(bndl.condition),
         trigger(bndl.trigger)
     {
-        switch(cond){
+        switch(condition){
         case order_condition::_bracket_active: /* no break */
         case order_condition::one_cancels_other:
             linked_order = bndl.linked_order
-                         ? new order_location(*bndl.linked_order)
-                         : nullptr;
+                 ? new order_location(*bndl.linked_order)
+                 : nullptr;
             break;
-        case order_condition::trailing_stop: /* no break */
+        case order_condition::trailing_stop:
+            contingent_nticks_order = bndl.contingent_nticks_order
+                ? new contingent_nticks_order_type(*bndl.contingent_nticks_order)
+                : nullptr;
+            break;
         case order_condition::one_triggers_other:
-            contingent_order = bndl.contingent_order
-                             ? bndl.contingent_order->copy_new().release() // TODO
-                             : nullptr;
+            contingent_price_order = bndl.contingent_price_order
+                 ? new contingent_price_order_type(*bndl.contingent_price_order)
+                 : nullptr;
             break;
         case order_condition::trailing_bracket:
             nticks_bracket_orders = bndl.nticks_bracket_orders
-                          ? new nticks_bracket_type(*bndl.nticks_bracket_orders)
-                          : nullptr;
+                  ? new nticks_bracket_type(*bndl.nticks_bracket_orders)
+                  : nullptr;
             break;
         case order_condition::bracket:
             price_bracket_orders = bndl.price_bracket_orders
-                          ? new price_bracket_type(*bndl.price_bracket_orders)
-                          : nullptr;
+                  ? new price_bracket_type(*bndl.price_bracket_orders)
+                  : nullptr;
             break;
         case order_condition::_trailing_stop_active:
             nticks = bndl.nticks;
             break;
         case order_condition::_trailing_bracket_active:
             linked_trailer = bndl.linked_trailer
-                           ? new linked_trailer_type(*bndl.linked_trailer)
-                           : nullptr;
+                   ? new linked_trailer_type(*bndl.linked_trailer)
+                   : nullptr;
             break;
-        case order_condition::all_or_nothing: /* no break */
+        case order_condition::all_or_none: /* no break */
         case order_condition::fill_or_kill: /* no break */
         case order_condition::none:
             break;
@@ -106,19 +110,22 @@ SOB_CLASS::_order_bndl::_order_bndl(_order_bndl&& bndl)
         id(bndl.id),
         sz(bndl.sz),
         cb(bndl.cb),
-        cond(bndl.cond),
+        condition(bndl.condition),
         trigger(bndl.trigger)
     {
-        switch(cond){
+        switch(condition){
         case order_condition::_bracket_active: /* break */
         case order_condition::one_cancels_other:
             linked_order = bndl.linked_order;
             bndl.linked_order = nullptr;
             break;
-        case order_condition::trailing_stop: /* no break */
+        case order_condition::trailing_stop:
+            contingent_nticks_order = bndl.contingent_nticks_order;
+            bndl.contingent_nticks_order = nullptr;
+            break;
         case order_condition::one_triggers_other:
-            contingent_order = bndl.contingent_order;
-            bndl.contingent_order = nullptr;
+            contingent_price_order = bndl.contingent_price_order;
+            bndl.contingent_price_order = nullptr;
             break;
         case order_condition::trailing_bracket:
             nticks_bracket_orders = bndl.nticks_bracket_orders;
@@ -135,7 +142,7 @@ SOB_CLASS::_order_bndl::_order_bndl(_order_bndl&& bndl)
             linked_trailer = bndl.linked_trailer;
             bndl.linked_trailer = nullptr;
             break;
-        case order_condition::all_or_nothing: /* no break */
+        case order_condition::all_or_none: /* no break */
         case order_condition::fill_or_kill: /* no break */
         case order_condition::none:
             break;
@@ -147,16 +154,19 @@ SOB_CLASS::_order_bndl::_order_bndl(_order_bndl&& bndl)
 
 SOB_CLASS::_order_bndl::~_order_bndl()
    {
-       switch(cond){
+       switch(condition){
        case order_condition::_bracket_active: /* no break */
        case order_condition::one_cancels_other:
            if( linked_order )
                delete linked_order;
            break;
-       case order_condition::trailing_stop: /* no break */
+       case order_condition::trailing_stop:
+           if( contingent_nticks_order )
+               delete contingent_nticks_order;
+           break;
        case order_condition::one_triggers_other:
-           if( contingent_order )
-               delete contingent_order;
+           if( contingent_price_order )
+               delete contingent_price_order;
            break;
        case order_condition::trailing_bracket:
            if( nticks_bracket_orders )
@@ -171,7 +181,7 @@ SOB_CLASS::_order_bndl::~_order_bndl()
                delete linked_trailer;
            break;
        case order_condition::_trailing_stop_active: /* no break */
-       case order_condition::all_or_nothing: /* no break */
+       case order_condition::all_or_none: /* no break */
        case order_condition::fill_or_kill: /* no break */
        case order_condition::none:
            break;
@@ -195,10 +205,10 @@ SOB_CLASS::stop_bndl::stop_bndl( bool is_buy,
                                  id_type id,
                                  size_t sz,
                                  const order_exec_cb_bndl& cb,
-                                 order_condition cond,
+                                 order_condition condition,
                                  condition_trigger trigger )
    :
-       _order_bndl(id, sz, cb, cond, trigger),
+       _order_bndl(id, sz, cb, condition, trigger),
        is_buy(is_buy),
        limit(limit)
    {
@@ -487,13 +497,16 @@ SOB_CLASS::order_queue_elem::order_queue_elem(
         order_condition condition,
         condition_trigger trigger,
         std::unique_ptr<OrderParamaters>&& cparams1,
-        std::unique_ptr<OrderParamaters>&& cparams2 )
+        std::unique_ptr<OrderParamaters>&& cparams2,
+        id_type parent_id
+        )
     :
         order_queue_elem_base_(ot, is_buy, limit, stop, sz, cb, id),
         condition(condition),
         trigger(trigger),
         cparams1( std::move(cparams1) ),
-        cparams2( std::move(cparams2) )
+        cparams2( std::move(cparams2) ),
+        parent_id( parent_id )
     {}
 
 
@@ -504,13 +517,14 @@ SOB_CLASS::order_queue_elem::order_queue_elem(
          order_condition condition,
          condition_trigger trigger,
          std::unique_ptr<OrderParamaters>&& cparams1,
-         std::unique_ptr<OrderParamaters>&& cparams2
+         std::unique_ptr<OrderParamaters>&& cparams2,
+         id_type parent_id
          )
     :
         order_queue_elem(cparams.get_order_type(), cparams.is_buy(),
                          cparams.limit_price(), cparams.stop_price(),
                          cparams.size(), cb, id, condition, trigger,
-                         std::move(cparams1), std::move(cparams2) )
+                         std::move(cparams1), std::move(cparams2), parent_id )
     {}
 
 
@@ -523,7 +537,8 @@ SOB_CLASS::order_queue_elem::order_queue_elem(
         condition( e.aot.condition() ),
         trigger( e.aot.trigger() ),
         cparams1(),
-        cparams2()
+        cparams2(),
+        parent_id(0)
     {
         switch( type ){
         case order_type::market:
@@ -544,6 +559,12 @@ SOB_CLASS::order_queue_elem::order_queue_elem(
                 case order_condition::one_cancels_other:
                     sob->_check_limit_order(is_buy, limit, cparams1, condition );
                     break;
+                case order_condition::trailing_bracket:
+                    sob->_check_nticks( is_buy, limit, cparams2->limit_nticks() );
+                    /* no break */
+                case order_condition::trailing_stop:
+                    sob->_check_nticks( !is_buy, limit, cparams1->stop_nticks() );
+                    break;
                 default: break;
                 };
             }
@@ -559,6 +580,20 @@ SOB_CLASS::order_queue_elem::order_queue_elem(
                     is_buy, sz, e.aot);
                 if( cparams1->stop_price() == stop )
                     throw advanced_order_error("stop orders of same price");
+
+                switch( condition ){
+                case order_condition::trailing_bracket:
+                    if( limit )
+                        sob->_check_nticks( is_buy, limit, cparams2->limit_nticks() );
+                    sob->_check_nticks( is_buy, stop, cparams2->limit_nticks() );
+                   /* no break */
+                case order_condition::trailing_stop:
+                    if( limit )
+                        sob->_check_nticks( !is_buy, limit, cparams1->stop_nticks() );
+                    sob->_check_nticks( !is_buy, stop, cparams1->stop_nticks() );
+                    break;
+                default: break;
+               };
             }
             break;
 

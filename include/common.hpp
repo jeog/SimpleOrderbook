@@ -70,7 +70,7 @@ enum class order_condition {
     _trailing_stop_active, // private
     trailing_bracket,
     _trailing_bracket_active, // private
-    all_or_nothing
+    all_or_none
 };
 
 enum class condition_trigger {
@@ -88,9 +88,15 @@ enum class callback_msg{
     trigger_OCO,
     trigger_OTO,
     trigger_BRACKET_open,
+    trigger_BRACKET_open_target,
+    trigger_BRACKET_open_loss,
+    trigger_BRACKET_adj_target,
+    trigger_BRACKET_adj_loss,
     trigger_BRACKET_close,
-    trigger_trailing_stop,
-    adjust_trailing_stop,
+    trigger_TRAILING_STOP_open,
+    trigger_TRAILING_STOP_open_loss,
+    trigger_TRAILING_STOP_adj_loss,
+    trigger_TRAILING_STOP_close,
     kill
 };
 
@@ -164,14 +170,24 @@ INLINE_OPERATOR_PLUS_STR(timesale_entry_type);
 
 class liquidity_exception
         : public std::logic_error{
+    size_t _initial_size;
+    size_t _remaining_size;
+    id_type _order_id;
 public:
-    const size_t initial_size;
-    const size_t remaining_size;
-    const id_type order_id;
     liquidity_exception(size_t initial_size,
                         size_t remaining_size,
                         id_type order_id,
                         std::string msg="");
+    size_t initital_size() const { return _initial_size; }
+    size_t remaining_size() const { return _remaining_size; }
+    id_type order_id() const { return _order_id; }
+
+};
+
+class derived_price_exception
+        : public std::out_of_range{
+public:
+    using std::out_of_range::out_of_range;
 };
 
 template<typename T>

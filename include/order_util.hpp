@@ -57,7 +57,7 @@ is_advanced(const order_queue_elem& e)
 
 static constexpr bool
 is_advanced(const _order_bndl& bndl)
-{ return bndl.cond != order_condition::none; }
+{ return bndl.condition != order_condition::none; }
 
 static constexpr bool
 is_OCO(const order_queue_elem& e )
@@ -65,7 +65,7 @@ is_OCO(const order_queue_elem& e )
 
 static constexpr bool
 is_OCO(const _order_bndl& bndl )
-{ return bndl.cond == order_condition::one_cancels_other; }
+{ return bndl.condition == order_condition::one_cancels_other; }
 
 static constexpr bool
 is_OTO(const order_queue_elem& e )
@@ -73,7 +73,7 @@ is_OTO(const order_queue_elem& e )
 
 static constexpr bool
 is_OTO(const _order_bndl& bndl )
-{ return bndl.cond == order_condition::one_triggers_other; }
+{ return bndl.condition == order_condition::one_triggers_other; }
 
 static constexpr bool
 is_bracket(const order_queue_elem& e )
@@ -81,7 +81,7 @@ is_bracket(const order_queue_elem& e )
 
 static constexpr bool
 is_bracket(const _order_bndl& bndl )
-{ return bndl.cond == order_condition::bracket; }
+{ return bndl.condition == order_condition::bracket; }
 
 static constexpr bool
 is_active_bracket(const order_queue_elem& e )
@@ -89,7 +89,7 @@ is_active_bracket(const order_queue_elem& e )
 
 static constexpr bool
 is_active_bracket(const _order_bndl& bndl )
-{ return bndl.cond == order_condition::_bracket_active; }
+{ return bndl.condition == order_condition::_bracket_active; }
 
 static constexpr bool
 is_trailing_stop(const order_queue_elem& e )
@@ -97,7 +97,7 @@ is_trailing_stop(const order_queue_elem& e )
 
 static constexpr bool
 is_trailing_stop(const _order_bndl& bndl )
-{ return bndl.cond == order_condition::trailing_stop; }
+{ return bndl.condition == order_condition::trailing_stop; }
 
 static constexpr bool
 is_active_trailing_stop(const order_queue_elem& e )
@@ -105,7 +105,7 @@ is_active_trailing_stop(const order_queue_elem& e )
 
 static constexpr bool
 is_active_trailing_stop(const _order_bndl& bndl )
-{ return bndl.cond == order_condition::_trailing_stop_active; }
+{ return bndl.condition == order_condition::_trailing_stop_active; }
 
 static constexpr bool
 is_trailing_bracket(const order_queue_elem& e )
@@ -113,7 +113,7 @@ is_trailing_bracket(const order_queue_elem& e )
 
 static constexpr bool
 is_trailing_bracket(const _order_bndl& bndl )
-{ return bndl.cond == order_condition::trailing_bracket; }
+{ return bndl.condition == order_condition::trailing_bracket; }
 
 static constexpr bool
 is_active_trailing_bracket(const order_queue_elem& e )
@@ -121,7 +121,7 @@ is_active_trailing_bracket(const order_queue_elem& e )
 
 static constexpr bool
 is_active_trailing_bracket(const _order_bndl& bndl )
-{ return bndl.cond == order_condition::_trailing_bracket_active; }
+{ return bndl.condition == order_condition::_trailing_bracket_active; }
 
 static constexpr bool
 is_FOK(const order_queue_elem& e)
@@ -129,19 +129,19 @@ is_FOK(const order_queue_elem& e)
 
 static constexpr bool
 is_FOK(const _order_bndl& bndl )
-{ return bndl.cond == order_condition::fill_or_kill; }
+{ return bndl.condition == order_condition::fill_or_kill; }
 
 static constexpr bool
 is_AON(const order_queue_elem& e)
-{ return e.condition == order_condition::all_or_nothing; }
+{ return e.condition == order_condition::all_or_none; }
 
 static constexpr bool
 is_AON(const _order_bndl& bndl )
-{ return bndl.cond == order_condition::all_or_nothing; }
+{ return bndl.condition == order_condition::all_or_none; }
 
 static constexpr bool
 is_not_AON(const _order_bndl& bndl )
-{ return bndl.cond != order_condition::all_or_nothing; }
+{ return bndl.condition != order_condition::all_or_none; }
 
 static constexpr bool
 needs_partial_fill(const order_queue_elem& e)
@@ -166,6 +166,15 @@ has_condition_trigger(const order_queue_elem& e)
 static constexpr bool
 has_condition_trigger(const _order_bndl& bndl)
 { return bndl.trigger != condition_trigger::none; }
+
+static constexpr bool
+should_pull_linked(const _order_bndl& bndl)
+{ return is_OCO(bndl) || is_active_bracket(bndl)
+        || is_active_trailing_bracket(bndl); }
+
+static constexpr bool
+should_pull_linked(const order_queue_elem& e)
+{ return is_OCO(e) || is_active_bracket(e)|| is_active_trailing_bracket(e); }
 
 static constexpr double
 index_price(const order_queue_elem& e )

@@ -83,14 +83,28 @@ orderbook_tests = {
       {"TEST_advanced_BRACKET_1", TEST_advanced_BRACKET_1},
       {"TEST_advanced_BRACKET_2", TEST_advanced_BRACKET_2},
       {"TEST_advanced_BRACKET_3", TEST_advanced_BRACKET_3},
+      {"TEST_advanced_BRACKET_4", TEST_advanced_BRACKET_4},
+      {"TEST_advanced_BRACKET_5", TEST_advanced_BRACKET_5},
+      {"TEST_advanced_BRACKET_6", TEST_advanced_BRACKET_6},
+      {"TEST_advanced_BRACKET_7", TEST_advanced_BRACKET_7},
+      {"TEST_advanced_BRACKET_8", TEST_advanced_BRACKET_8},
       {"TEST_advanced_TRAILING_STOP_1", TEST_advanced_TRAILING_STOP_1},
       {"TEST_advanced_TRAILING_STOP_2", TEST_advanced_TRAILING_STOP_2},
       {"TEST_advanced_TRAILING_STOP_3", TEST_advanced_TRAILING_STOP_3},
+      {"TEST_advanced_TRAILING_STOP_4", TEST_advanced_TRAILING_STOP_4},
+      {"TEST_advanced_TRAILING_STOP_5", TEST_advanced_TRAILING_STOP_5},
+      {"TEST_advanced_TRAILING_STOP_6", TEST_advanced_TRAILING_STOP_6},
+      {"TEST_advanced_TRAILING_STOP_7", TEST_advanced_TRAILING_STOP_7},
       {"TEST_advanced_TRAILING_BRACKET_1", TEST_advanced_TRAILING_BRACKET_1},
       {"TEST_advanced_TRAILING_BRACKET_2", TEST_advanced_TRAILING_BRACKET_2},
       {"TEST_advanced_TRAILING_BRACKET_3", TEST_advanced_TRAILING_BRACKET_3},
       {"TEST_advanced_TRAILING_BRACKET_4", TEST_advanced_TRAILING_BRACKET_4},
       {"TEST_advanced_TRAILING_BRACKET_5", TEST_advanced_TRAILING_BRACKET_5},
+      {"TEST_advanced_TRAILING_BRACKET_6", TEST_advanced_TRAILING_BRACKET_6},
+      {"TEST_advanced_TRAILING_BRACKET_7", TEST_advanced_TRAILING_BRACKET_7},
+      {"TEST_advanced_TRAILING_BRACKET_8", TEST_advanced_TRAILING_BRACKET_8},
+      {"TEST_advanced_TRAILING_BRACKET_9", TEST_advanced_TRAILING_BRACKET_9},
+      {"TEST_advanced_TRAILING_BRACKET_10", TEST_advanced_TRAILING_BRACKET_10},
 };
 
 const vector< pair<string, int(*)(std::ostream&)>>
@@ -228,7 +242,7 @@ void callback( sob::callback_msg msg,
                size_t size)
 {
     out.get() << "CALLBACK ::  "
-             << std::setw(22) << std::left << msg << " " << std::right
+             << std::setw(28) << std::left << msg << " " << std::right
              << std::setw(5) << id1 << " "
              << std::setw(5) << id2 << " "
              << std::setw(12) << std::fixed << price << " "

@@ -62,6 +62,10 @@ public:
     size() const
     { return _size; }
 
+    void
+    change_size(size_t sz)
+    { _size = sz; }
+
     virtual bool
     operator==(const OrderParamaters& op) const
     { return (_is_buy == op._is_buy) && (_size == op._size); }

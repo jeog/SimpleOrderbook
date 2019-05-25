@@ -29,10 +29,11 @@ namespace {
 bool
 get_args(pyAOT_TrailingBracket *obj,  PyObject *args, PyObject *kwds)
 {
-    static char* kwlist[] = {Strings::stop_nticks, Strings::target_nticks, NULL};
+    static char* kwlist[] = {Strings::stop_nticks, Strings::target_nticks,
+                             Strings::trigger, NULL};
 
-    return MethodArgs::parse(args, kwds, "kk", kwlist, &obj->stop_nticks,
-                             &obj->target_nticks);
+    return MethodArgs::parse(args, kwds, "kk|i", kwlist, &obj->stop_nticks,
+                             &obj->target_nticks, &obj->trigger);
 }
 
 int

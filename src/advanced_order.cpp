@@ -232,15 +232,14 @@ const order_condition AdvancedOrderTicketFOK::condition =
 AdvancedOrderTicketBRACKET::AdvancedOrderTicketBRACKET(
         condition_trigger trigger,
         bool is_buy,
-        size_t sz,
         double loss_limit,
         double loss_stop,
         double target_limit
         )
     :
         AdvancedOrderTicket( order_condition::bracket, trigger,
-                new OrderParamatersByPrice(is_buy, sz, loss_limit, loss_stop),
-                new OrderParamatersByPrice(is_buy, sz, target_limit, 0)
+                new OrderParamatersByPrice(is_buy,1,loss_limit, loss_stop),
+                new OrderParamatersByPrice(is_buy,1,target_limit, 0)
                 )
     {
     }
@@ -249,7 +248,6 @@ AdvancedOrderTicketBRACKET
 AdvancedOrderTicketBRACKET::build_sell_stop_limit( double loss_stop,
                                                    double loss_limit,
                                                    double target_limit,
-                                                   size_t sz,
                                                    condition_trigger trigger )
 {
     if( target_limit <= loss_stop ){
@@ -261,14 +259,13 @@ AdvancedOrderTicketBRACKET::build_sell_stop_limit( double loss_stop,
     if( !loss_stop || !loss_limit || !target_limit ){
         throw std::invalid_argument("invalid price(s)");
     }
-    return AdvancedOrderTicketBRACKET(trigger, false, sz, loss_limit,
+    return AdvancedOrderTicketBRACKET(trigger, false, loss_limit,
             loss_stop, target_limit);
 }
 
 AdvancedOrderTicketBRACKET
 AdvancedOrderTicketBRACKET::build_sell_stop( double loss_stop,
                                              double target_limit,
-                                             size_t sz,
                                              condition_trigger trigger )
 {
     if( target_limit <= loss_stop ){
@@ -277,7 +274,7 @@ AdvancedOrderTicketBRACKET::build_sell_stop( double loss_stop,
     if( !loss_stop || !target_limit ){
         throw std::invalid_argument("invalid price(s)");
     }
-    return AdvancedOrderTicketBRACKET(trigger, false, sz, 0, loss_stop,
+    return AdvancedOrderTicketBRACKET(trigger, false, 0, loss_stop,
             target_limit);
 }
 
@@ -285,7 +282,6 @@ AdvancedOrderTicketBRACKET
 AdvancedOrderTicketBRACKET::build_buy_stop_limit( double loss_stop,
                                                   double loss_limit,
                                                   double target_limit,
-                                                  size_t sz,
                                                   condition_trigger trigger )
 {
     if( target_limit >= loss_stop ){
@@ -297,14 +293,13 @@ AdvancedOrderTicketBRACKET::build_buy_stop_limit( double loss_stop,
     if( !loss_stop || !loss_limit || !target_limit ){
         throw std::invalid_argument("invalid price(s)");
     }
-    return AdvancedOrderTicketBRACKET(trigger, true, sz, loss_limit,
+    return AdvancedOrderTicketBRACKET(trigger, true, loss_limit,
             loss_stop, target_limit);
 }
 
 AdvancedOrderTicketBRACKET
 AdvancedOrderTicketBRACKET::build_buy_stop( double loss_stop,
                                             double target_limit,
-                                            size_t sz,
                                             condition_trigger trigger )
 {
     if( target_limit >= loss_stop ){
@@ -313,7 +308,7 @@ AdvancedOrderTicketBRACKET::build_buy_stop( double loss_stop,
     if( !loss_stop || !target_limit ){
         throw std::invalid_argument("invalid price(s)");
     }
-    return AdvancedOrderTicketBRACKET(trigger, true, sz, 0, loss_stop,
+    return AdvancedOrderTicketBRACKET(trigger, true, 0, loss_stop,
             target_limit);
 }
 
@@ -334,7 +329,8 @@ AdvancedOrderTicketTrailingStop::AdvancedOrderTicketTrailingStop(
     }
 
 AdvancedOrderTicketTrailingStop
-AdvancedOrderTicketTrailingStop::build(size_t nticks)
+AdvancedOrderTicketTrailingStop::build( size_t nticks,
+                                        condition_trigger trigger )
 {
     if(nticks == 0){
         throw std::invalid_argument("nticks == 0");
@@ -342,23 +338,21 @@ AdvancedOrderTicketTrailingStop::build(size_t nticks)
     if( nticks > LONG_MAX ){
         throw std::invalid_argument("nticks overflows long");
     }
-    return AdvancedOrderTicketTrailingStop(nticks, condition, default_trigger);
+    return AdvancedOrderTicketTrailingStop(nticks, condition, trigger);
 }
 
 const order_condition AdvancedOrderTicketTrailingStop::condition =
         order_condition::trailing_stop;
 
-const condition_trigger AdvancedOrderTicketTrailingStop::default_trigger =
-        condition_trigger::fill_full;
-
 
 /* TRAILING BRACKET */
 AdvancedOrderTicketTrailingBracket::AdvancedOrderTicketTrailingBracket(
         size_t stop_nticks,
-        size_t target_nticks
+        size_t target_nticks,
+        condition_trigger trigger
         )
     :
-        AdvancedOrderTicket(condition, default_trigger,
+        AdvancedOrderTicket(condition, trigger,
                 new OrderParamatersByNTicks(0,0,0,stop_nticks),
                 new OrderParamatersByNTicks(0,0,target_nticks,0))
     {
@@ -366,7 +360,8 @@ AdvancedOrderTicketTrailingBracket::AdvancedOrderTicketTrailingBracket(
 
 AdvancedOrderTicketTrailingBracket
 AdvancedOrderTicketTrailingBracket::build( size_t stop_nticks,
-                                           size_t target_nticks )
+                                           size_t target_nticks,
+                                           condition_trigger trigger )
 {
     if( stop_nticks == 0 || target_nticks == 0 ){
         throw std::invalid_argument("nticks == 0");
@@ -374,19 +369,16 @@ AdvancedOrderTicketTrailingBracket::build( size_t stop_nticks,
     if( stop_nticks > LONG_MAX || target_nticks > LONG_MAX ){
         throw std::invalid_argument("nticks overflows long");
     }
-    return AdvancedOrderTicketTrailingBracket(stop_nticks, target_nticks);
+    return AdvancedOrderTicketTrailingBracket(stop_nticks, target_nticks, trigger);
 }
 
 const order_condition AdvancedOrderTicketTrailingBracket::condition =
         order_condition::trailing_bracket;
 
-const condition_trigger AdvancedOrderTicketTrailingBracket::default_trigger =
-        condition_trigger::fill_full;
 
-
-/* ALL OR NOTHING */
+/* ALL OR NONE */
 const order_condition AdvancedOrderTicketAON::condition =
-        order_condition::all_or_nothing;
+        order_condition::all_or_none;
 
 const condition_trigger AdvancedOrderTicketAON::default_trigger =
         condition_trigger::none;

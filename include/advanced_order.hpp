@@ -207,7 +207,6 @@ class AdvancedOrderTicketBRACKET
 protected:
     AdvancedOrderTicketBRACKET( condition_trigger trigger,
                                 bool is_buy,
-                                size_t sz,
                                 double loss_limit,
                                 double loss_stop,
                                 double target_limit );
@@ -219,26 +218,22 @@ public:
     build_sell_stop_limit( double loss_stop,
                            double loss_limit,
                            double target_limit,
-                           size_t sz,
                            condition_trigger trigger = default_trigger );
 
     static AdvancedOrderTicketBRACKET
     build_sell_stop( double loss_stop,
                      double target_limit,
-                     size_t sz,
                      condition_trigger trigger = default_trigger );
 
     static AdvancedOrderTicketBRACKET
     build_buy_stop_limit( double loss_stop,
                            double loss_limit,
                            double target_limit,
-                           size_t sz,
                            condition_trigger trigger = default_trigger );
 
     static AdvancedOrderTicketBRACKET
     build_buy_stop( double loss_stop,
                     double target_limit,
-                    size_t sz,
                     condition_trigger trigger = default_trigger );
 };
 
@@ -253,10 +248,9 @@ protected:
 
 public:
     static const order_condition condition;
-    static const condition_trigger default_trigger;
 
     static AdvancedOrderTicketTrailingStop
-    build(size_t nticks);
+    build(size_t nticks, condition_trigger trigger = default_trigger);
 };
 
 
@@ -264,14 +258,17 @@ public:
 class AdvancedOrderTicketTrailingBracket
         : public AdvancedOrderTicket{
 protected:
-    AdvancedOrderTicketTrailingBracket(size_t stop_nticks, size_t target_nticks);
+    AdvancedOrderTicketTrailingBracket( size_t stop_nticks,
+                                        size_t target_nticks,
+                                        condition_trigger trigger );
 
 public:
     static const order_condition condition;
-    static const condition_trigger default_trigger;
 
     static AdvancedOrderTicketTrailingBracket
-    build(size_t stop_nticks, size_t target_nticks);
+    build( size_t stop_nticks,
+           size_t target_nticks,
+           condition_trigger trigger = default_trigger );
 };
 
 

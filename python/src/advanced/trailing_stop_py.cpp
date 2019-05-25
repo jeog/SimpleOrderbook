@@ -26,11 +26,12 @@ along with this program. If not, see http://www.gnu.org/licenses.
 
 namespace {
 
+
 bool
 get_args(pyAOT_TrailingStop *obj,  PyObject *args, PyObject *kwds)
 {
-    static char* kwlist[] = {Strings::nticks, NULL};
-    return MethodArgs::parse(args, kwds, "k", kwlist, &obj->nticks);
+    static char* kwlist[] = {Strings::nticks, Strings::trigger, NULL};
+    return MethodArgs::parse(args, kwds, "k|i", kwlist, &obj->nticks, &obj->trigger);
 }
 
 int

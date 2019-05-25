@@ -94,6 +94,6 @@ native_aot_to_py(const sob::AdvancedOrderTicket& aot)
 BUILD_AOT_DERIVED_TYPE_OBJ(
         pyAOT_AON ,
         "simpleorderbook.AdvancedOrderTicketAON",
-        "AdvancedOrderTicket all-or-nothing object"
+        "AdvancedOrderTicket all-or-none object"
         );
 

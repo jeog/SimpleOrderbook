@@ -61,7 +61,6 @@ struct pyAOT_FOK
 struct pyAOT_BRACKET
         : public pyAOT {
     bool is_buy;
-    size_t size;
     double loss_limit;
     double loss_stop;
     double target_limit;
@@ -95,7 +94,7 @@ struct pyAOT_TrailingStop_Active
         : public pyAOT {
 };
 
-/* all or nothing */
+/* all or none */
 struct pyAOT_AON
         : public pyAOT{
 };

@@ -70,11 +70,12 @@ liquidity_exception::liquidity_exception( size_t initial_size,
             std::to_string(initial_size - remaining_size) + "/" +
             std::to_string(initial_size) + "; " + msg
             ),
-        initial_size(initial_size),
-        remaining_size(remaining_size),
-        order_id(order_id)
+        _initial_size(initial_size),
+        _remaining_size(remaining_size),
+        _order_id(order_id)
     {
     }
+
 
 
 #define THROW_ENUM_TO_STR_EXC(name, val) \
@@ -97,20 +98,45 @@ std::string
 to_string(const callback_msg& cm)
 {
     switch(cm){
-    case callback_msg::cancel: return "cancel";
-    case callback_msg::fill: return "fill";
-    case callback_msg::stop_to_limit: return "stop-to-limit";
-    case callback_msg::stop_to_market: return "stop-to-market";
-    case callback_msg::trigger_OCO: return "trigger-OCO";
-    case callback_msg::trigger_OTO: return "trigger-OTO";
-    case callback_msg::trigger_BRACKET_open: return "trigger-BRACKET-open";
-    case callback_msg::trigger_BRACKET_close: return "trigger-BRACKET-close";
-    case callback_msg::trigger_trailing_stop: return "trigger-trailing-stop";
-    case callback_msg::adjust_trailing_stop: return "adjust-trailing-stop";
-    case callback_msg::kill: return "kill";
-    default: THROW_ENUM_TO_STR_EXC("callback_msg", cm);
+    case callback_msg::cancel:
+        return "cancel";
+    case callback_msg::fill:
+        return "fill";
+    case callback_msg::stop_to_limit:
+        return "stop-to-limit";
+    case callback_msg::stop_to_market:
+        return "stop-to-market";
+    case callback_msg::trigger_OCO:
+        return "trigger-OCO";
+    case callback_msg::trigger_OTO:
+        return "trigger-OTO";
+    case callback_msg::trigger_BRACKET_open:
+        return "trigger-BRACKET-open";
+    case callback_msg::trigger_BRACKET_open_loss:
+        return "trigger-BRACKET-open-loss";
+    case callback_msg::trigger_BRACKET_open_target:
+        return "trigger-BRACKET-open-target";
+    case callback_msg::trigger_BRACKET_adj_loss:
+        return "trigger-BRACKET-adj-loss";
+    case callback_msg::trigger_BRACKET_adj_target:
+        return "trigger-BRACKET-adj-target";
+    case callback_msg::trigger_BRACKET_close:
+        return "trigger-BRACKET-close";
+    case callback_msg::trigger_TRAILING_STOP_open:
+        return "trigger-TRAILING-STOP-open";
+    case callback_msg::trigger_TRAILING_STOP_open_loss:
+        return "trigger-TRAILING-STOP-open-loss";
+    case callback_msg::trigger_TRAILING_STOP_adj_loss:
+        return "trigger-TRAILING-STOP-adj-loss";
+    case callback_msg::trigger_TRAILING_STOP_close:
+        return "trigger-TRAILING-STOP-close";
+    case callback_msg::kill:
+        return "kill";
+    default:
+        THROW_ENUM_TO_STR_EXC("callback_msg", cm);
     }
 }
+
 
 std::string
 to_string(const side_of_market& s)
@@ -138,18 +164,30 @@ std::string
 to_string(const order_condition& oc)
 {
     switch(oc){
-    case order_condition::one_cancels_other: return "one-cancels-other";
-    case order_condition::one_triggers_other: return "one-triggers-other";
-    case order_condition::fill_or_kill: return "fill-or-kill";
-    case order_condition::bracket: return "bracket";
-    case order_condition::_bracket_active: return "bracket-active";
-    case order_condition::trailing_stop: return "trailing-stop";
-    case order_condition::_trailing_stop_active: return "trailing-stop-active";
-    case order_condition::trailing_bracket: return "trailing-bracket";
-    case order_condition::_trailing_bracket_active: return "trailing-bracket-active";
-    case order_condition::all_or_nothing: return "all-or-noting";
-    case order_condition::none: return "none";
-    default: THROW_ENUM_TO_STR_EXC("order_condition", oc);
+    case order_condition::one_cancels_other:
+        return "one-cancels-other";
+    case order_condition::one_triggers_other:
+        return "one-triggers-other";
+    case order_condition::fill_or_kill:
+        return "fill-or-kill";
+    case order_condition::bracket:
+        return "bracket";
+    case order_condition::_bracket_active:
+        return "bracket-active";
+    case order_condition::trailing_stop:
+        return "trailing-stop";
+    case order_condition::_trailing_stop_active:
+        return "trailing-stop-active";
+    case order_condition::trailing_bracket:
+        return "trailing-bracket";
+    case order_condition::_trailing_bracket_active:
+        return "trailing-bracket-active";
+    case order_condition::all_or_none:
+        return "all-or-noting";
+    case order_condition::none:
+        return "none";
+    default:
+        THROW_ENUM_TO_STR_EXC("order_condition", oc);
     }
 }
 

@@ -62,7 +62,7 @@ check_market_order_params(const AdvancedOrderTicket& advanced, Args... args)
             throw advanced_order_error("OCO invalid for market order");
         case order_condition::fill_or_kill:
             throw advanced_order_error("FOK invalid for market order");
-        case order_condition::all_or_nothing:
+        case order_condition::all_or_none:
             throw advanced_order_error("AON invalid for market order");
         default: break;
        };
@@ -79,7 +79,7 @@ check_stop_order_params(const AdvancedOrderTicket& advanced, Args... args)
         switch( advanced.condition() ) {
         case order_condition::fill_or_kill:
             throw advanced_order_error("FOK invalid for stop order");
-        case order_condition::all_or_nothing:
+        case order_condition::all_or_none:
             throw advanced_order_error("AON invalid for stop order");
         default: break;
         };

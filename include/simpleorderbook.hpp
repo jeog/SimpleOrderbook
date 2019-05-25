@@ -323,13 +323,15 @@ private:
             condition_trigger trigger;
             std::unique_ptr<OrderParamaters> cparams1;
             std::unique_ptr<OrderParamaters> cparams2;
+            id_type parent_id;
 
             order_queue_elem(
                 ORDER_QUEUE_ELEM_BASE_ARGS,
                 order_condition condition = order_condition::none,
                 condition_trigger trigger = condition_trigger::none,
                 std::unique_ptr<OrderParamaters>&& cparams1 = nullptr,
-                std::unique_ptr<OrderParamaters>&& cparams2 = nullptr
+                std::unique_ptr<OrderParamaters>&& cparams2 = nullptr,
+                id_type parent_id = 0
                 );
 
             order_queue_elem(
@@ -339,7 +341,8 @@ private:
                 order_condition condition = order_condition::none,
                 condition_trigger trigger = condition_trigger::none,
                 std::unique_ptr<OrderParamaters>&& cparams1 = nullptr,
-                std::unique_ptr<OrderParamaters>&& cparams2 = nullptr
+                std::unique_ptr<OrderParamaters>&& cparams2 = nullptr,
+                id_type parent_id = 0
                 );
 
             order_queue_elem(const external_order_queue_elem& e,
@@ -351,13 +354,41 @@ private:
 
         struct order_location; /* forward decl */
 
-        using price_bracket_type = std::pair<OrderParamatersByPrice,
-                                             OrderParamatersByPrice>;
-
-        using nticks_bracket_type = std::pair<OrderParamatersByNTicks,
-                                              OrderParamatersByNTicks> ;
-
         using linked_trailer_type = std::pair<size_t, order_location>;
+
+        template<typename T>
+        struct bracket_type{
+            using order_paramaters_type = T;
+            T first;
+            T second;
+            id_type active1, active2;
+
+            static bracket_type*
+            New(const OrderParamaters& p1, const OrderParamaters& p2)
+            { return new bracket_type<T>{
+                reinterpret_cast<const T&>(p1),
+                reinterpret_cast<const T&>(p2),
+                0, 0 }; }
+        };
+        using price_bracket_type = bracket_type<OrderParamatersByPrice>;
+        using nticks_bracket_type = bracket_type<OrderParamatersByNTicks>;
+
+        template<typename T>
+        struct contingent_order_type{
+            using order_paramaters_type = T;
+            T params;
+            id_type active;
+
+            static contingent_order_type*
+            New(const OrderParamaters& p1)
+            { return new contingent_order_type<T>{
+                reinterpret_cast<const T&>(p1), 0 }; }
+        };
+        using contingent_price_order_type =
+                contingent_order_type<OrderParamatersByPrice>;
+        using contingent_nticks_order_type =
+                contingent_order_type<OrderParamatersByNTicks>;
+
 
         /*
          * base representation of orders internally (inside chains)
@@ -371,11 +402,12 @@ private:
             id_type id;
             size_t sz;
             order_exec_cb_bndl cb;
-            order_condition cond;
+            order_condition condition;
             condition_trigger trigger;
             union {
                 order_location *linked_order;
-                OrderParamaters *contingent_order;
+                contingent_price_order_type *contingent_price_order;
+                contingent_nticks_order_type *contingent_nticks_order;
                 price_bracket_type *price_bracket_orders;
                 nticks_bracket_type *nticks_bracket_orders;
                 linked_trailer_type *linked_trailer;
@@ -385,7 +417,7 @@ private:
             _order_bndl();
             _order_bndl(id_type id, size_t sz,
                         const order_exec_cb_bndl& cb,
-                        order_condition cond = order_condition::none,
+                        order_condition condition = order_condition::none,
                         condition_trigger trigger = condition_trigger::none);
             _order_bndl(const _order_bndl& bndl);
             _order_bndl(_order_bndl&& bndl);
@@ -416,7 +448,7 @@ private:
             stop_bndl();
             stop_bndl(bool is_buy, double limit, id_type id, size_t sz,
                       const order_exec_cb_bndl& exec_cb,
-                      order_condition cond = order_condition::none,
+                      order_condition condition = order_condition::none,
                       condition_trigger trigger = condition_trigger::none);
             stop_bndl(const stop_bndl& bndl);
             stop_bndl(stop_bndl&& bndl);
@@ -603,6 +635,16 @@ private:
                 type = IsBuy ? itype::aon_buy : itype::aon_sell;
             }
 
+            void incr_size(size_t sz){
+                _get_base_bndl().sz += sz;
+            }
+
+            void decr_size(size_t sz){
+                auto& b = _get_base_bndl();
+                assert( sz <= b.sz );
+                b.sz -= sz;
+            }
+
             bool is_limit() const { return type == itype::limit; }
             bool is_stop() const { return type == itype::stop; }
             bool is_aon_buy() const { return type == itype::aon_buy; }
@@ -786,11 +828,13 @@ private:
 
         /* if we need immediate (partial/full) fill info for basic order type*/
         bool
-        _inject_basic_order(const order_queue_elem& e, bool partial_ok);
+        _inject_basic_order(const order_queue_elem& e,
+                            bool partial_ok,
+                            bool pass_conditions=false);
 
         /* basic order types */
         template<side_of_trade side = side_of_trade::both>
-        fill_type
+        size_t
         _route_basic_order(const order_queue_elem& e,
                            bool pass_conditions = false);
 
@@ -837,47 +881,51 @@ private:
         _match_aon_orders_POST_trade(const order_queue_elem& e, plevel p);
 
         bool
-        _handle_advanced_order_trigger(_order_bndl& bndl, id_type id);
+        _handle_advanced_order_trigger(_order_bndl& bndl, id_type id, size_t sz);
 
         bool
-        _handle_advanced_order_cancel(_order_bndl& bndl, id_type id);
+        _handle_advanced_order_cancel(_order_bndl& bndl, id_type id, size_t sz);
 
         void
-        _handle_OCO(_order_bndl& bndl, id_type id);
+        _handle_OCO(_order_bndl& bndl, id_type id, size_t sz);
 
         void
-        _handle_OTO(_order_bndl& bndl, id_type id);
+        _handle_OTO(_order_bndl& bndl, id_type id, size_t sz);
+
+        // trailing and regular
+        template<bool IsTrailing>
+        void
+        _handle_bracket(_order_bndl& bndl, id_type id, size_t sz);
+
+        // active trailing and regular
+        template<bool IsTrailing>
+        void
+        _handle_active_bracket(_order_bndl& bndl, id_type id, size_t sz);
 
         void
-        _handle_BRACKET(_order_bndl& bndl, id_type id);
+        _handle_TRAILING_STOP(_order_bndl& bndl, id_type id, size_t sz);
 
         void
-        _handle_TRAILING_BRACKET(_order_bndl& bndl, id_type id);
-
-        void
-        _handle_TRAILING_STOP(_order_bndl& bndl, id_type id);
+        _handle_TRAILING_STOP_ACTIVE(_order_bndl& bndl, id_type id, size_t sz);
 
         void
         _exec_OTO_order(const OrderParamaters& op,
                         const order_exec_cb_bndl& cb,
                         id_type id);
 
+        // trailing and regular
+        template<bool IsTrailing>
         void
-        _exec_BRACKET_order(const OrderParamaters& op1,
-                            const OrderParamaters& op2,
-                            const order_exec_cb_bndl& cb,
-                            condition_trigger trigger,
-                            id_type id);
-
-        void
-        _exec_TRAILING_BRACKET_order(const OrderParamaters& op1,
-                                     const OrderParamaters& op2,
-                                     const order_exec_cb_bndl& cb,
-                                     condition_trigger trigger,
-                                     id_type id);
+        _exec_bracket_order( const OrderParamaters& op1,
+                             const OrderParamaters& op2,
+                             size_t sz,
+                             const order_exec_cb_bndl& cb,
+                             condition_trigger trigger,
+                             id_type id );
 
         void
         _exec_TRAILING_STOP_order(const OrderParamaters& op,
+                                  size_t sz,
                                   const order_exec_cb_bndl& cb,
                                   condition_trigger trigger,
                                   id_type id);
@@ -887,8 +935,7 @@ private:
         _exec_OCO_order(const T& t,
                         id_type id_old,
                         id_type id_new,
-                        id_type id_pull,
-                        double price_pull);
+                        id_type id_pull );
 
         void
         _insert_OCO_order(order_queue_elem& e);
@@ -896,14 +943,15 @@ private:
         void
         _insert_OTO_order(const order_queue_elem& e);
 
+        // trailing and regular
+        template<bool IsTrailing>
         void
-        _insert_BRACKET_order(const order_queue_elem& e);
+        _insert_bracket_order(const order_queue_elem& e);
 
+        // active trailing and regular
+        template<bool IsTrailing>
         void
-        _insert_TRAILING_BRACKET_order(const order_queue_elem& e);
-
-        void
-        _insert_TRAILING_BRACKET_ACTIVE_order(const order_queue_elem& e);
+        _insert_active_bracket_order(const order_queue_elem& e);
 
         void
         _insert_TRAILING_STOP_order(const order_queue_elem& e);
@@ -915,11 +963,11 @@ private:
         _insert_FOK_order(const order_queue_elem& e);
 
         void
-        _insert_ALL_OR_NOTHING_order(const order_queue_elem& e);
+        _insert_ALL_OR_NONE_order(const order_queue_elem& e);
 
         /* internal insert orders once/if we have an id */
         template<bool BuyLimit>
-        fill_type
+        size_t
         _insert_limit_order( const order_queue_elem& e,
                              bool pass_conditions = false );
 
@@ -958,10 +1006,10 @@ private:
         _handle_triggered_stop_chain(plevel plev);
 
         void
-        _trailing_stops_adjust(bool buy_stops);
+        _trailing_stops_adjust(bool buy_stops, plevel p);
 
         void
-        _trailing_stop_adjust(id_type id, bool buy_stop);
+        _trailing_stop_adjust(id_type id, bool buy_stop, plevel p);
 
         void
         _trailing_stop_insert(id_type id, bool is_buy);
@@ -970,10 +1018,18 @@ private:
         _trailing_stop_erase(id_type id, bool is_buy);
 
         plevel
-        _trailing_stop_plevel(bool buy_stop, size_t nticks);
+        _trailing_stop_plevel(bool buy_stop, size_t nticks, plevel p);
 
         plevel
-        _trailing_limit_plevel(bool buy_limit, size_t nticks);
+        _trailing_limit_plevel(bool buy_limit, size_t nticks, plevel p);
+
+        plevel
+        _trailing_stop_plevel(bool buy_stop, size_t nticks)
+        { return _trailing_stop_plevel(buy_stop, nticks, _last); }
+
+        plevel
+        _trailing_limit_plevel(bool buy_limit, size_t nticks)
+        { return _trailing_limit_plevel(buy_limit, nticks, _last); }
 
         template<typename... Args>
         linked_trailer_type*
@@ -1024,12 +1080,13 @@ private:
                             double stop,
                             size_t size,
                             const order_exec_cb_bndl& cb_bndl,
-                            order_condition cond = order_condition::none,
+                            order_condition condition = order_condition::none,
                             condition_trigger cond_trigger
                                 = condition_trigger::fill_partial,
                             std::unique_ptr<OrderParamaters>&& cparams1=nullptr,
                             std::unique_ptr<OrderParamaters>&& cparams2=nullptr,
-                            id_type id = 0);
+                            id_type id = 0,
+                            id_type parent_id = 0 );
 
 
         /* limit @ p can fill sz */
@@ -1123,13 +1180,13 @@ private:
                           const OrderParamaters *order) const;
 
         std::unique_ptr<OrderParamaters>
-        _build_price_params(const OrderParamaters *order) const;
+        _build_price_params(size_t size, const OrderParamaters *order) const;
 
         std::pair<std::unique_ptr<OrderParamaters>,
                std::unique_ptr<OrderParamaters>>
         _build_advanced_params(bool buy,
-                            size_t size,
-                            const AdvancedOrderTicket& advanced) const;
+                               size_t size,
+                               const AdvancedOrderTicket& advanced) const;
 
         /* check prices levels for limit-OCO orders are valid */
         void
@@ -1137,6 +1194,10 @@ private:
                         double limit,
                         std::unique_ptr<OrderParamaters> & op,
                         order_condition oc) const;
+
+        /* check prices levels for trailing-stop/bracket orders are valid */
+        void
+        _check_nticks( bool above, double limit, size_t nticks ) const;
 
         template<typename T>
         static constexpr long long

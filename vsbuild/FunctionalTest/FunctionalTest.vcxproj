@@ -151,7 +151,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\test\functional\functional.cpp" />
-    <ClCompile Include="..\..\test\functional\tests\advanced_orders\all_or_nothing.cpp" />
+    <ClCompile Include="..\..\test\functional\tests\advanced_orders\all_or_none.cpp" />
     <ClCompile Include="..\..\test\functional\tests\advanced_orders\bracket.cpp" />
     <ClCompile Include="..\..\test\functional\tests\advanced_orders\fill_or_kill.cpp" />
     <ClCompile Include="..\..\test\functional\tests\advanced_orders\one_cancels_other.cpp" />

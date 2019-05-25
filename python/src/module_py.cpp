@@ -64,9 +64,15 @@ CALLBACK_MESSAGES = {
     {static_cast<int>(sob::callback_msg::trigger_OCO), "MSG_TRIGGER_OCO"},
     {static_cast<int>(sob::callback_msg::trigger_OTO), "MSG_TRIGGER_OTO"},
     {static_cast<int>(sob::callback_msg::trigger_BRACKET_open), "MSG_TRIGGER_BRACKET_OPEN"},
+    {static_cast<int>(sob::callback_msg::trigger_BRACKET_open_target), "MSG_TRIGGER_BRACKET_OPEN_TARGET"},
+    {static_cast<int>(sob::callback_msg::trigger_BRACKET_open_loss), "MSG_TRIGGER_BRACKET_OPEN_LOSS"},
+    {static_cast<int>(sob::callback_msg::trigger_BRACKET_adj_target), "MSG_TRIGGER_BRACKET_ADJ_TARGET"},
+    {static_cast<int>(sob::callback_msg::trigger_BRACKET_adj_loss), "MSG_TRIGGER_BRACKET_ADJ_LOSS"},
     {static_cast<int>(sob::callback_msg::trigger_BRACKET_close), "MSG_TRIGGER_BRACKET_CLOSE"},
-    {static_cast<int>(sob::callback_msg::trigger_trailing_stop), "MSG_TRIGGER_TRAILING_STOP"},
-    {static_cast<int>(sob::callback_msg::adjust_trailing_stop), "MSG_ADJUST_TRAILING_STOP"},
+    {static_cast<int>(sob::callback_msg::trigger_TRAILING_STOP_open), "MSG_TRIGGER_TRAILING_STOP_OPEN"},
+    {static_cast<int>(sob::callback_msg::trigger_TRAILING_STOP_open_loss), "MSG_TRIGGER_TRAILING_STOP_OPEN_LOSS"},
+    {static_cast<int>(sob::callback_msg::trigger_TRAILING_STOP_adj_loss), "MSG_TRIGGER_TRAILING_STOP_ADJ_LOSS"},
+    {static_cast<int>(sob::callback_msg::trigger_TRAILING_STOP_close), "MSG_TRIGGER_TRAILING_STOP_CLOSE"},
     {static_cast<int>(sob::callback_msg::kill), "MSG_KILL"}
 };
 
@@ -88,7 +94,7 @@ ORDER_CONDITIONS = {
     {static_cast<int>(sob::order_condition::_bracket_active), "CONDITION_BRACKET_ACTIVE"},
     {static_cast<int>(sob::order_condition::_trailing_bracket_active), "CONDITION_TRAILING_BRACKET_ACTIVE"},
     {static_cast<int>(sob::order_condition::_trailing_stop_active), "CONDITION_TRAILING_STOP_ACTIVE"},
-    {static_cast<int>(sob::order_condition::all_or_nothing), "CONDITION_AON"}
+    {static_cast<int>(sob::order_condition::all_or_none), "CONDITION_AON"}
 };
 
 const std::map<int, std::string>

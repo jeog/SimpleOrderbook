@@ -318,32 +318,32 @@ def test_BRACKET():
     DEF_TRIGGER = sob.TRIGGER_FILL_PARTIAL
     AOT = sob.AdvancedOrderTicketBRACKET
     
-    def check_aot(aot, cond, trigger, is_buy, sz, loss_stop, loss_limit, 
+    def check_aot(aot, cond, trigger, is_buy,loss_stop, loss_limit, 
                   target_limit, tag):
         check_val(aot.condition, cond, "BRACKET - " + tag + " - .condition")
         check_val(aot.trigger, trigger, "BRACKET - " + tag + " - .trigger") 
-        check_val(aot.is_buy, is_buy, "BRACKET - " + tag + " - .is_buy")
-        check_val(aot.size, sz, "BRACKET - " + tag + " - .size")
+        check_val(aot.is_buy, is_buy, "BRACKET - " + tag + " - .is_buy")     
         check_val(aot.loss_stop, loss_stop, "BRACKET - " + tag + " - .loss_stop")  
         check_val(aot.loss_limit, loss_limit, "BRACKET - " + tag + " - .loss_limit")                     
         check_val(aot.target_limit, target_limit, 
                   "BRACKET - " + tag + " - .target_limit")
             
-    aot_ssl = AOT.build_sell_stop_limit(BOOK_MID, BOOK_MIN, BOOK_MAX, SZ)        
-    check_aot(aot_ssl, sob.CONDITION_BRACKET, DEF_TRIGGER, False, SZ, BOOK_MID, 
+    aot_ssl = AOT.build_sell_stop_limit(BOOK_MID, BOOK_MIN, BOOK_MAX,
+                                        sob.TRIGGER_FILL_FULL)        
+    check_aot(aot_ssl, sob.CONDITION_BRACKET, sob.TRIGGER_FILL_FULL, False, BOOK_MID, 
               BOOK_MIN, BOOK_MAX, 'sell_stop_limit fill-partial AOT')
 
-    aot_bsl = AOT.build_buy_stop_limit(BOOK_MID, BOOK_MAX, BOOK_MIN, SZ*2,
+    aot_bsl = AOT.build_buy_stop_limit(BOOK_MID, BOOK_MAX, BOOK_MIN,
                                        sob.TRIGGER_FILL_FULL)        
-    check_aot(aot_bsl, sob.CONDITION_BRACKET, sob.TRIGGER_FILL_FULL, True, SZ*2, 
+    check_aot(aot_bsl, sob.CONDITION_BRACKET, sob.TRIGGER_FILL_FULL, True,  
               BOOK_MID, BOOK_MAX, BOOK_MIN, 'buy_stop_limit fill-full AOT')    
 
-    aot_ss = AOT.build_sell_stop(BOOK_MID, BOOK_MAX, 1, sob.TRIGGER_FILL_FULL)        
-    check_aot(aot_ss, sob.CONDITION_BRACKET, sob.TRIGGER_FILL_FULL, False, 1, 
+    aot_ss = AOT.build_sell_stop(BOOK_MID, BOOK_MAX, sob.TRIGGER_FILL_FULL)        
+    check_aot(aot_ss, sob.CONDITION_BRACKET, sob.TRIGGER_FILL_FULL, False, 
               BOOK_MID, 0, BOOK_MAX, 'sell_stop fill-full AOT') 
 
-    aot_bs = AOT.build_buy_stop(BOOK_MID, BOOK_MIN, 100*SZ)        
-    check_aot(aot_bs, sob.CONDITION_BRACKET, DEF_TRIGGER, True, 100*SZ, 
+    aot_bs = AOT.build_buy_stop(BOOK_MID, BOOK_MIN, sob.TRIGGER_FILL_FULL)       
+    check_aot(aot_bs, sob.CONDITION_BRACKET, sob.TRIGGER_FILL_FULL, True, 
               BOOK_MID, 0, BOOK_MIN, 'buy_stop fill-partial AOT') 
     
     o1 = 0
@@ -386,9 +386,9 @@ def test_BRACKET():
     md = book.market_depth()
     if not md[BOOK_MIN]:
          raise Exception("*** ERROR invalid limit @ %f ***" % BOOK_MIN)       
-    if md[BOOK_MIN][0] != 100*SZ:
-        raise Exception("*** ERROR reaming size @ %f (%i) != %i ***" % 
-                        (BOOK_MIN, md[BOOK_MIN][0],100*SZ))    
+    #if md[BOOK_MIN][0] != 100*SZ:
+    #    raise Exception("*** ERROR reaming size @ %f (%i) != %i ***" % 
+    #                    (BOOK_MIN, md[BOOK_MIN][0],100*SZ))    
     if md[BOOK_MIN][1] != sob.SIDE_BID:
         raise Exception("*** ERROR bracket target not on correct side of market")
     
@@ -398,8 +398,8 @@ def test_BRACKET():
     
     book.sell_limit(BOOK_MIN, SZ)
     md = book.market_depth()
-    if md[BOOK_MIN][0] != 99*SZ:
-        raise Exception("*** ERROR orders still exists in book ***")  
+    #if md[BOOK_MIN][0] != 99*SZ:
+    #    raise Exception("*** ERROR orders still exists in book ***")  
         
     null_fd = os.open(os.devnull, os.O_RDWR)
     err_fd = os.dup(2)
@@ -421,13 +421,13 @@ def test_TrailingStop():
         check_val(aot.trigger, trigger, "TrailingStop - " + tag + " - .trigger")
         check_val(aot.nticks, nticks, "TrailingStop - " + tag + " - .nticks")  
             
-    aot1 = sob.AdvancedOrderTicketTrailingStop.build(NTICKS)
+    aot1 = sob.AdvancedOrderTicketTrailingStop.build(NTICKS, sob.TRIGGER_FILL_FULL)
     check_aot(aot1, sob.CONDITION_TRAILING_STOP, sob.TRIGGER_FILL_FULL, NTICKS, '')
 
     o1 = 0
     def stop_cb(msg, id1, id2, price, size):
         nonlocal o1   
-        if msg == sob.MSG_TRIGGER_TRAILING_STOP:         
+        if msg == sob.MSG_TRIGGER_TRAILING_STOP_OPEN:         
             o1 = id2
         
     book = sob.SimpleOrderbook(TICK_TYPE, BOOK_MIN, BOOK_MAX)
@@ -467,7 +467,7 @@ def test_TrailingBracket():
         check_val(aot.target_nticks, target_nticks, 
                   "TrailingBracket - " + tag + " - .target_nticks")  
     
-    aot2 = sob.AdvancedOrderTicketTrailingBracket.build(NTICKS, NTICKS)
+    aot2 = sob.AdvancedOrderTicketTrailingBracket.build(NTICKS, NTICKS, sob.TRIGGER_FILL_FULL)
     check_aot(aot2, sob.CONDITION_TRAILING_BRACKET, sob.TRIGGER_FILL_FULL, 
               NTICKS, NTICKS, '')
 
