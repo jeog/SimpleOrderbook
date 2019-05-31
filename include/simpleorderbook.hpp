@@ -352,9 +352,8 @@ private:
 #undef ORDER_QUEUE_ELEM_BASE_ARGS
 
 
-        struct order_link; /* forward decl */
-
-        using linked_trailer_type = std::pair<size_t, order_link>;
+        struct order_link;
+        struct trailing_order_link;
 
         template<typename T>
         struct bracket_type{
@@ -410,7 +409,6 @@ private:
                 contingent_nticks_order_type *contingent_nticks_order;
                 price_bracket_type *price_bracket_orders;
                 nticks_bracket_type *nticks_bracket_orders;
-                linked_trailer_type *linked_trailer;
                 size_t nticks;
             };
             operator bool() const { return sz; }
@@ -472,7 +470,16 @@ private:
         struct order_link{
             id_type id;
             bool is_primary;
-            order_link(id_type id, bool is_primary);
+            order_link(id_type id, bool is_primary)
+                : id(id), is_primary(is_primary) {}
+            virtual ~order_link(){}
+        };
+
+        struct trailing_order_link
+                : public order_link {
+            size_t nticks;
+            trailing_order_link(id_type id, bool is_primary, size_t nticks)
+                : order_link(id, is_primary), nticks(nticks) {}
         };
 
         /* info held for each exec callback in the deferred callback vector*/
@@ -894,7 +901,6 @@ private:
         _handle_bracket(_order_bndl& bndl, id_type id, size_t sz);
 
         // active trailing and regular
-        template<bool IsTrailing>
         void
         _handle_active_bracket(_order_bndl& bndl, id_type id, size_t sz);
 
@@ -1024,10 +1030,6 @@ private:
         plevel
         _trailing_limit_plevel(bool buy_limit, size_t nticks) const
         { return _plevel_offset<false>(buy_limit, nticks, _last); }
-
-        template<typename... Args>
-        linked_trailer_type*
-        _new_linked_trailer(size_t nticks, Args&&... args) const;
 
         /* push order onto the external queue, BLOCK */
         id_type

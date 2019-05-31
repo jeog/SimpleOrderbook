@@ -144,6 +144,7 @@ set_ostream(int argc, char* argv[] )
     }
 }
 
+std::mutex callback_mtx;
 
 }; /* namespace */
 
@@ -321,21 +322,22 @@ create_advanced_callback(std::map<sob::id_type, sob::id_type>& ids)
 {
     return [&](sob::callback_msg msg, sob::id_type id1, sob::id_type id2,
                double price, size_t size)
-               {
-                   if(id1 != id2 ){
-                       for(auto& p : ids){
-                           if( p.second == id1 ){
-                               p.second = id2;
-                               callback(msg,id1,id2,price,size);
-                               return;
-                           }
-                       }
-                   }
-                   if( ids.find(id1) == ids.end() ){
-                       ids[id1] = id2;
-                   }
+   {
+       std::lock_guard<std::mutex> lock(callback_mtx);
+       if(id1 != id2 ){
+           for(auto& p : ids){
+               if( p.second == id1 ){
+                   p.second = id2;
                    callback(msg,id1,id2,price,size);
-               };
+                   return;
+               }
+           }
+       }
+       if( ids.find(id1) == ids.end() ){
+           ids[id1] = id2;
+       }
+       callback(msg,id1,id2,price,size);
+   };
 }
 
 

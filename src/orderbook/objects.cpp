@@ -90,8 +90,9 @@ SOB_CLASS::_order_bndl::_order_bndl(const _order_bndl& bndl)
             nticks = bndl.nticks;
             break;
         case order_condition::_trailing_bracket_active:
-            linked_trailer = bndl.linked_trailer
-                   ? new linked_trailer_type(*bndl.linked_trailer)
+            linked_order = bndl.linked_order
+                   ? new trailing_order_link(
+                       *dynamic_cast<trailing_order_link*>(bndl.linked_order) )
                    : nullptr;
             break;
         case order_condition::all_or_none: /* no break */
@@ -114,7 +115,8 @@ SOB_CLASS::_order_bndl::_order_bndl(_order_bndl&& bndl)
         trigger(bndl.trigger)
     {
         switch(condition){
-        case order_condition::_bracket_active: /* break */
+        case order_condition::_bracket_active: /* no break */
+        case order_condition::_trailing_bracket_active: /* no break */
         case order_condition::one_cancels_other:
             linked_order = bndl.linked_order;
             bndl.linked_order = nullptr;
@@ -138,10 +140,6 @@ SOB_CLASS::_order_bndl::_order_bndl(_order_bndl&& bndl)
         case order_condition::_trailing_stop_active:
             nticks = bndl.nticks;
             break;
-        case order_condition::_trailing_bracket_active:
-            linked_trailer = bndl.linked_trailer;
-            bndl.linked_trailer = nullptr;
-            break;
         case order_condition::all_or_none: /* no break */
         case order_condition::fill_or_kill: /* no break */
         case order_condition::none:
@@ -156,6 +154,7 @@ SOB_CLASS::_order_bndl::~_order_bndl()
    {
        switch(condition){
        case order_condition::_bracket_active: /* no break */
+       case order_condition::_trailing_bracket_active: /* no break */
        case order_condition::one_cancels_other:
            if( linked_order )
                delete linked_order;
@@ -175,10 +174,6 @@ SOB_CLASS::_order_bndl::~_order_bndl()
        case order_condition::bracket:
            if( price_bracket_orders )
                delete price_bracket_orders;
-           break;
-       case order_condition::_trailing_bracket_active:
-           if( linked_trailer )
-               delete linked_trailer;
            break;
        case order_condition::_trailing_stop_active: /* no break */
        case order_condition::all_or_none: /* no break */
@@ -232,13 +227,6 @@ SOB_CLASS::stop_bndl::stop_bndl(stop_bndl&& bndl)
    {
    }
 
-
-SOB_CLASS::order_link::order_link(id_type id, bool is_primary)
-    :
-        id(id),
-        is_primary(is_primary)
-    {
-    }
 
 SOB_CLASS::chain_iter_wrap::chain_iter_wrap(
         limit_chain_type::iterator iter,

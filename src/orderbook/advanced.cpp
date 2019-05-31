@@ -88,11 +88,9 @@ SOB_CLASS::_handle_advanced_order_trigger(_order_bndl& bndl, id_type id, size_t 
     case order_condition::_trailing_stop_active:
         _handle_TRAILING_STOP_ACTIVE(bndl, id, sz);
         break;
-    case order_condition::_trailing_bracket_active:
-        _handle_active_bracket<true>(bndl, id, sz);
-        break;
+    case order_condition::_trailing_bracket_active: /* no break */
     case order_condition::_bracket_active:
-        _handle_active_bracket<false>(bndl, id, sz);
+        _handle_active_bracket(bndl, id, sz);
         break;
     case order_condition::one_triggers_other:
         _handle_OTO(bndl, id, sz);
@@ -158,28 +156,19 @@ SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id, size_t sz)
 {
     using namespace detail;
 
-    bool is_atb = order::is_active_trailing_bracket(bndl);
-    assert( order::is_OCO(bndl) || order::is_active_bracket(bndl) || is_atb );
+    assert( order::is_OCO(bndl)
+            || order::is_active_bracket(bndl)
+            || order::is_active_trailing_bracket(bndl) );
+    assert( bndl.linked_order );
 
-    const order_link *loc;
-    if( is_atb ){
-        assert( bndl.linked_trailer );
-        loc = &(bndl.linked_trailer->second);
-    }else{
-        assert( bndl.linked_order );
-        loc = bndl.linked_order;
-    }
+    const order_link *loc = bndl.linked_order;
 
     _exec_OCO_order( bndl, (loc->is_primary ? loc->id : id), id, loc->id );
 
     /* remove linked order from union */
-    if( is_atb ){
-        delete bndl.linked_trailer;
-        bndl.linked_trailer = nullptr;
-    }else{
-        delete bndl.linked_order;
-        bndl.linked_order = nullptr;
-    }
+    delete bndl.linked_order;
+    bndl.linked_order = nullptr;
+
     bndl.condition = order_condition::none;
     bndl.trigger = condition_trigger::none;
 }
@@ -247,22 +236,19 @@ SOB_CLASS::_handle_bracket(_order_bndl& bndl, id_type id, size_t sz)
 }
 
 
-template<bool IsTrailing>
 void
 SOB_CLASS::_handle_active_bracket(_order_bndl& bndl, id_type id, size_t sz)
 {
     using namespace detail;
 
-    assert( IsTrailing ? order::is_active_trailing_bracket(bndl)
-                       : order::is_active_bracket(bndl) );
-    assert( IsTrailing ? reinterpret_cast<void*>(bndl.linked_trailer)
-                       : reinterpret_cast<void*>(bndl.linked_order) );
+    assert( order::is_active_trailing_bracket(bndl)
+            || order::is_active_bracket(bndl) );
+    assert( reinterpret_cast<void*>(bndl.linked_order) );
 
     if( sz == bndl.sz )
         return;
 
-    id_type other_id = IsTrailing ? bndl.linked_trailer->second.id
-                                  : bndl.linked_order->id;
+    id_type other_id = bndl.linked_order->id;
 
     /* SHOULDN'T THROW */
     auto& iwrap = _from_cache(other_id);
@@ -615,8 +601,8 @@ SOB_CLASS::_insert_active_bracket_order(const order_queue_elem& e)
 
     /* link each order with the other */
     if( IsTrailing ){
-        order1->linked_trailer =  _new_linked_trailer(0, id2, false);
-        order2.linked_trailer = _new_linked_trailer(nticks, e.id, true);
+        order1->linked_order =  new trailing_order_link(id2, false, 0);
+        order2.linked_order = new trailing_order_link(e.id, true, nticks);
     }else{
         order1->linked_order = new order_link(id2, false);
         order2.linked_order = new order_link(e.id, true);
@@ -639,10 +625,8 @@ SOB_CLASS::_insert_active_bracket_order(const order_queue_elem& e)
     /* find the entry order and let it know about us for dynamic updates */
     try{
         auto& bndl = *_from_cache(e.parent_id);
-        if( IsTrailing )
-            assert( order::is_trailing_bracket(bndl) );
-        else
-            assert( order::is_bracket(bndl) );
+        assert( IsTrailing ? order::is_trailing_bracket(bndl)
+                           : order::is_bracket(bndl) );
         bndl.nticks_bracket_orders->active1 = id2; // stop/loss first;
         bndl.nticks_bracket_orders->active2 = e.id; // target second
     }catch(OrderNotInCache&){
@@ -812,8 +796,12 @@ SOB_CLASS::_trailing_stop_adjust(id_type id, bool buy_stop, plevel p)
 
     bool is_ats = order::is_active_trailing_stop(bndl);
     assert( is_ats || order::is_active_trailing_bracket(bndl) );
+    assert( is_ats || bndl.linked_order );
 
-    size_t nticks = is_ats ? bndl.nticks : bndl.linked_trailer->first;
+    size_t nticks = is_ats
+        ? bndl.nticks
+        : dynamic_cast<trailing_order_link*>(bndl.linked_order)->nticks;
+
     plevel p_adj = _plevel_offset<true>(buy_stop, nticks, p);
     double price = _itop(p_adj);
 
@@ -826,15 +814,6 @@ SOB_CLASS::_trailing_stop_adjust(id_type id, bool buy_stop, plevel p)
 }
 
 
-template<typename... Args>
-SOB_CLASS::linked_trailer_type*
-SOB_CLASS::_new_linked_trailer(size_t nticks, Args&&... args) const
-{
-    return new linked_trailer_type(
-        nticks, order_link(std::forward<Args>(args)...)
-        );
-}
-
 AdvancedOrderTicket
 SOB_CLASS::_bndl_to_aot(const _order_bndl& bndl) const
 {
@@ -846,11 +825,9 @@ SOB_CLASS::_bndl_to_aot(const _order_bndl& bndl) const
 
     switch( bndl.condition ){
     case order_condition::_bracket_active: /* no break */
+    case order_condition::_trailing_bracket_active: /* no break */
     case order_condition::one_cancels_other:
         loc = bndl.linked_order;
-        break;
-    case order_condition::_trailing_bracket_active:
-        loc = &(bndl.linked_trailer->second);
         break;
     case order_condition::trailing_stop:
         aot.change_order1( bndl.contingent_nticks_order->params );

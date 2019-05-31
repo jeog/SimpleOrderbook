@@ -1195,19 +1195,10 @@ SOB_CLASS::_pull_linked_order(typename ChainTy::value_type& bndl)
     if( !detail::order::should_pull_linked(bndl) )
         return;
 
-    order_link *loc;
-    if( detail::order::is_active_trailing_bracket(bndl) ){
-        assert( bndl.linked_trailer );
-        loc = &(bndl.linked_trailer->second);
-    }else{
-        assert( bndl.linked_order );
-        loc = bndl.linked_order;
-    }
-    if( !loc )
-        return;
+    assert( bndl.linked_order );
 
     /* false to pull_linked; this side in process of being pulled */
-    _pull_order(loc->id, false);
+    _pull_order(bndl.linked_order->id, false);
 }
 
 
