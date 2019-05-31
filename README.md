@@ -93,7 +93,7 @@ Orders generally receive a combination of callback messages to indicate state, p
 C++ (sob::callback_msg)           |     Python                            |    Description
 ----------------------------------|---------------------------------------|---------------------------------------------------
 ::cancel                          |  MSG_CANCEL                           | Order was successfully canceled
-::fill                            |  MSG_FILL                             | Order receieved a (partial or full) fill
+::fill                            |  MSG_FILL                             | Order received a (partial or full) fill
 ::stop_to_limit                   |  MSG_STOP_TO_LIMIT                    | Stop was triggered and entered as a limit order
 ::stop_to_market                  |  MSG_STOP_TO_MARKET                   | Stop was triggered and entered as a market order
 ::trigger_OCO                     |  MSG_TRIGGER_OCO                      | One-Cancels-Other order was triggered, canceling other order

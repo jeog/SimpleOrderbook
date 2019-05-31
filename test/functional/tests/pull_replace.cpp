@@ -471,6 +471,7 @@ TEST_replace_order_ASYNC_1(FullInterface *orderbook, std::ostream& out)
     // beg + 0  L 100
     dump_orders(orderbook, out);
 
+    out<< std::endl <<"wait 1" << std::endl;
     orderbook->wait_for_async_callbacks(); // *** WAIT ***
     orderbook->pull_order_async(ids[id2]).wait();
 
@@ -502,6 +503,7 @@ TEST_replace_order_ASYNC_1(FullInterface *orderbook, std::ostream& out)
         return 2;
     }
 
+    out<< std::endl << "wait 2" << std::endl;
     orderbook->wait_for_async_callbacks(); // *** WAIT ***
     id_type id6 = orderbook->replace_with_limit_order_async( ids[id4], false,
                                                        conv(beg+2*incr), sz,
@@ -519,6 +521,7 @@ TEST_replace_order_ASYNC_1(FullInterface *orderbook, std::ostream& out)
         return 4;
     }
 
+    out<< std::endl << "wait 3" << std::endl;
     orderbook->wait_for_async_callbacks(); // *** WAIT ***
     id_type id7 = orderbook->replace_with_stop_order_async( ids[id1], false,
                                                       conv(beg+4*incr), sz,
@@ -529,6 +532,7 @@ TEST_replace_order_ASYNC_1(FullInterface *orderbook, std::ostream& out)
     dump_orders(orderbook, out);
 
 
+    out<< std::endl <<"wait 4" << std::endl;
     orderbook->wait_for_async_callbacks(); // *** WAIT ***
     id_type id8 = orderbook->replace_with_stop_order_async( id7, false,
                                                       conv(beg+3*incr),
@@ -562,6 +566,7 @@ TEST_replace_order_ASYNC_1(FullInterface *orderbook, std::ostream& out)
         return 9;
     }
 
+    out<< std::endl << "wait 5" << std::endl;
     orderbook->wait_for_async_callbacks(); // *** WAIT ***
     id_type id10 = orderbook->replace_with_limit_order_async( ids[id9], true,
                                                         conv(beg+2*incr), sz,
@@ -587,6 +592,7 @@ TEST_replace_order_ASYNC_1(FullInterface *orderbook, std::ostream& out)
 
     auto aot2 = AdvancedOrderTicketOCO::build_stop_limit( true, conv(beg+2*incr),
                                                           conv(beg+3*incr), sz );
+    out<< std::endl <<"wait 6" << std::endl;
     orderbook->wait_for_async_callbacks(); // *** WAIT ***
     id_type id11 = orderbook->replace_with_stop_order_async( ids[id10], false,
                                                        conv(beg+incr), sz,
@@ -610,6 +616,8 @@ TEST_replace_order_ASYNC_1(FullInterface *orderbook, std::ostream& out)
 
 
     auto aot3 = AdvancedOrderTicketOCO::build_limit(false, beg, sz);
+
+    out<< std::endl << "wait 7" << std::endl;
     orderbook->wait_for_async_callbacks(); // *** WAIT ***
     orderbook->replace_with_limit_order_async( ids[id11], false, conv(beg+3*incr),
                                          sz, ecb, aot3 ).get();

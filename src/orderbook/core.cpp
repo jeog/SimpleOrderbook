@@ -654,14 +654,11 @@ SOB_CLASS::_insert_limit_order(const order_queue_elem& e, bool pass_conditions)
     try{
         auto& iwrap = _from_cache(e.id);
         assert( !iwrap.is_stop() );
-        if( iwrap->sz != e.sz )
-            return e.sz - iwrap->sz;
+        assert( iwrap->sz <= e.sz );
+        return e.sz - iwrap->sz;
     }catch( OrderNotInCache& ){
         return e.sz;
     }
-
-    /* we're still in the cache AND have the original size so... */
-    return 0;
 }
 
 
@@ -675,11 +672,10 @@ SOB_CLASS::_insert_market_order(const order_queue_elem& e)
     plevel p = BuyMarket ? (_end - 1) : _beg;
 
     size_t rmndr = _match_aon_orders_PRE_trade<BuyMarket>(e, p);
-    if( rmndr )
+    if( rmndr ){
         rmndr = _trade<!BuyMarket>(p, e.id, rmndr, e.cb);
-
-    if( rmndr > 0 ){
-        throw liquidity_exception( e.sz, rmndr, e.id);
+        if( rmndr )
+            throw liquidity_exception( e.sz, rmndr, e.id);
     }
 }
 
@@ -1199,7 +1195,7 @@ SOB_CLASS::_pull_linked_order(typename ChainTy::value_type& bndl)
     if( !detail::order::should_pull_linked(bndl) )
         return;
 
-    order_location *loc;
+    order_link *loc;
     if( detail::order::is_active_trailing_bracket(bndl) ){
         assert( bndl.linked_trailer );
         loc = &(bndl.linked_trailer->second);
@@ -1211,8 +1207,7 @@ SOB_CLASS::_pull_linked_order(typename ChainTy::value_type& bndl)
         return;
 
     /* false to pull_linked; this side in process of being pulled */
-    loc->is_limit_chain ? _pull_order<limit_chain_type>(loc->id, false)
-                        : _pull_order<stop_chain_type>(loc->id, false);
+    _pull_order(loc->id, false);
 }
 
 

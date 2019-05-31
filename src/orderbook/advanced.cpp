@@ -161,7 +161,7 @@ SOB_CLASS::_handle_OCO(_order_bndl& bndl, id_type id, size_t sz)
     bool is_atb = order::is_active_trailing_bracket(bndl);
     assert( order::is_OCO(bndl) || order::is_active_bracket(bndl) || is_atb );
 
-    const order_location *loc;
+    const order_link *loc;
     if( is_atb ){
         assert( bndl.linked_trailer );
         loc = &(bndl.linked_trailer->second);
@@ -253,19 +253,16 @@ SOB_CLASS::_handle_active_bracket(_order_bndl& bndl, id_type id, size_t sz)
 {
     using namespace detail;
 
+    assert( IsTrailing ? order::is_active_trailing_bracket(bndl)
+                       : order::is_active_bracket(bndl) );
+    assert( IsTrailing ? reinterpret_cast<void*>(bndl.linked_trailer)
+                       : reinterpret_cast<void*>(bndl.linked_order) );
+
     if( sz == bndl.sz )
         return;
 
-    id_type other_id;
-    if( IsTrailing ){
-        assert( order::is_active_trailing_bracket(bndl) );
-        assert( bndl.linked_trailer );
-        other_id = bndl.linked_trailer->second.id;
-    }else{
-        assert( order::is_active_bracket(bndl) );
-        assert( bndl.linked_order );
-        other_id = bndl.linked_order->id;
-    }
+    id_type other_id = IsTrailing ? bndl.linked_trailer->second.id
+                                  : bndl.linked_order->id;
 
     /* SHOULDN'T THROW */
     auto& iwrap = _from_cache(other_id);
@@ -389,16 +386,10 @@ SOB_CLASS::_exec_bracket_order( const OrderParamaters& op1,
     *    4) keep trigger_condition the same
     *    5) use the new id
     */
-    assert( op2.get_order_type() == order_type::limit );
-    assert( op2.stop_price() == 0 );
-
-    if( IsTrailing ){
-        assert( op1.is_by_nticks() );
-        assert( op2.is_by_nticks() );
-    }else{
-        assert( op1.is_by_price() );
-        assert( op2.is_by_price() );
-    }
+    assert( op1.is_stop_order() );
+    assert( op2.is_limit_order() );
+    assert( IsTrailing ? op1.is_by_nticks() : op1.is_by_price() );
+    assert( IsTrailing ? op2.is_by_nticks() : op1.is_by_price()  );
 
     id_type id_new = _generate_id();
     _push_exec_callback(callback_msg::trigger_BRACKET_open, cb, id, id_new, 0, 0);
@@ -517,8 +508,8 @@ SOB_CLASS::_insert_OCO_order(order_queue_elem& e)
     assert(order2);
 
     /* link each order with the other */
-    order1->linked_order = new order_location(e2, false);
-    order2->linked_order = new order_location(e, true);
+    order1->linked_order = new order_link(e2.id, false);
+    order2->linked_order = new order_link(e.id, true);
 
     /* transfer condition/trigger info */
     order1->condition = order2->condition = e.condition;
@@ -533,16 +524,10 @@ SOB_CLASS::_insert_bracket_order(const order_queue_elem& e)
 {
     assert( e.cparams1 );
     assert( e.cparams2 );
-
-    if( IsTrailing ){
-        assert( detail::order::is_trailing_bracket(e) );
-        assert( e.cparams1->is_by_nticks() );
-        assert( e.cparams2->is_by_nticks() );
-    }else{
-        assert( detail::order::is_bracket(e) );
-        assert( e.cparams1->is_by_price() );
-        assert( e.cparams2->is_by_price() );
-    }
+    assert( IsTrailing ? detail::order::is_trailing_bracket(e)
+                       : detail::order::is_bracket(e) );
+    assert( IsTrailing ? e.cparams1->is_by_nticks() : e.cparams1->is_by_price());
+    assert( IsTrailing ? e.cparams2->is_by_nticks() : e.cparams2->is_by_price());
 
     size_t filled = _route_basic_order<>(e, true);
 
@@ -583,17 +568,11 @@ SOB_CLASS::_insert_active_bracket_order(const order_queue_elem& e)
 
     assert( order::is_limit(e));
     assert( e.cparams1 );
-    assert( e.cparams1->get_order_type() == order_type::stop
-            || e.cparams1->get_order_type() == order_type::stop_limit );
+    assert( e.cparams1->is_stop_order() );
     assert( e.trigger == condition_trigger::fill_partial );
-
-    if( IsTrailing ){
-        assert( order::is_active_trailing_bracket(e) );
-        assert( e.cparams1->is_by_nticks() );
-    }else{
-        assert( order::is_active_bracket(e) );
-        assert( e.cparams1->is_by_price() );
-    }
+    assert( IsTrailing ? detail::order::is_active_trailing_bracket(e)
+                       : detail::order::is_active_bracket(e) );
+    assert( IsTrailing ? e.cparams1->is_by_nticks() : e.cparams1->is_by_price());
 
     size_t rmndr = e.sz - _route_basic_order<>(e);
 
@@ -636,13 +615,11 @@ SOB_CLASS::_insert_active_bracket_order(const order_queue_elem& e)
 
     /* link each order with the other */
     if( IsTrailing ){
-        order1->linked_trailer =
-            _new_linked_trailer(0, false, _itop(p), id2, false);
-        order2.linked_trailer = _new_linked_trailer(nticks, e, true);
+        order1->linked_trailer =  _new_linked_trailer(0, id2, false);
+        order2.linked_trailer = _new_linked_trailer(nticks, e.id, true);
     }else{
-        order1->linked_order =
-            new order_location(false, e.cparams1->stop_price(), id2, false);
-        order2.linked_order = new order_location(e, true);
+        order1->linked_order = new order_link(id2, false);
+        order2.linked_order = new order_link(e.id, true);
     }
 
     /* transfer condition/trigger info */
@@ -834,8 +811,7 @@ SOB_CLASS::_trailing_stop_adjust(id_type id, bool buy_stop, plevel p)
     assert( bndl.is_buy == buy_stop );
 
     bool is_ats = order::is_active_trailing_stop(bndl);
-    bool is_atb = order::is_active_trailing_bracket(bndl);
-    assert( is_ats || is_atb );
+    assert( is_ats || order::is_active_trailing_bracket(bndl) );
 
     size_t nticks = is_ats ? bndl.nticks : bndl.linked_trailer->first;
     plevel p_adj = _plevel_offset<true>(buy_stop, nticks, p);
@@ -844,16 +820,6 @@ SOB_CLASS::_trailing_stop_adjust(id_type id, bool buy_stop, plevel p)
     auto msg = is_ats ? callback_msg::trigger_TRAILING_STOP_adj_loss
                       : callback_msg::trigger_BRACKET_adj_loss;
     _push_exec_callback( msg, bndl.cb, id, id, price, bndl.sz );
-
-    /* if bracket, need to let linked order know new location */
-    // TODO do we need this if we're using the cache ??
-    if( is_atb ){
-        assert( bndl.linked_trailer );
-        const order_location& loc = bndl.linked_trailer->second;
-        auto& linked = _id_cache.at(loc.id);
-        assert( order::is_active_trailing_bracket(*linked) );
-        linked->linked_trailer->second.price = price;
-    }
 
     /* make 'new' stop active again */
     chain<stop_chain_type>::push(this, p_adj, std::move(bndl));
@@ -865,7 +831,7 @@ SOB_CLASS::linked_trailer_type*
 SOB_CLASS::_new_linked_trailer(size_t nticks, Args&&... args) const
 {
     return new linked_trailer_type(
-        nticks, order_location(std::forward<Args>(args)...)
+        nticks, order_link(std::forward<Args>(args)...)
         );
 }
 
@@ -876,7 +842,7 @@ SOB_CLASS::_bndl_to_aot(const _order_bndl& bndl) const
     aot.change_condition(bndl.condition);
     aot.change_trigger(bndl.trigger);
 
-    order_location *loc = nullptr;
+    order_link *loc = nullptr;
 
     switch( bndl.condition ){
     case order_condition::_bracket_active: /* no break */
@@ -909,9 +875,9 @@ SOB_CLASS::_bndl_to_aot(const _order_bndl& bndl) const
     };
 
     if( loc ){
-        /* reconstruct OrderParamaters from order_location */
+        /* reconstruct OrderParamaters from order_link */
         aot.change_order1(
-            loc->is_limit_chain
+            _from_cache(loc->id).is_limit()
                ? detail::order::template
                  as_price_params<limit_chain_type>(this, loc->id)
                : detail::order::template

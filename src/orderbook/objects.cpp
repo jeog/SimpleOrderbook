@@ -63,7 +63,7 @@ SOB_CLASS::_order_bndl::_order_bndl(const _order_bndl& bndl)
         case order_condition::_bracket_active: /* no break */
         case order_condition::one_cancels_other:
             linked_order = bndl.linked_order
-                 ? new order_location(*bndl.linked_order)
+                 ? new order_link(*bndl.linked_order)
                  : nullptr;
             break;
         case order_condition::trailing_stop:
@@ -233,24 +233,8 @@ SOB_CLASS::stop_bndl::stop_bndl(stop_bndl&& bndl)
    }
 
 
-SOB_CLASS::order_location::order_location(const order_queue_elem& elem,
-                                          bool is_primary)
+SOB_CLASS::order_link::order_link(id_type id, bool is_primary)
     :
-        is_limit_chain(elem.type == order_type::limit),
-        price(is_limit_chain ? elem.limit : elem.stop),
-        id(elem.id),
-        is_primary(is_primary)
-    {
-    }
-
-
-SOB_CLASS::order_location::order_location(bool is_limit,
-                                          double price,
-                                          id_type id,
-                                          bool is_primary)
-    :
-        is_limit_chain(is_limit),
-        price(price),
         id(id),
         is_primary(is_primary)
     {

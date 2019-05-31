@@ -352,9 +352,9 @@ private:
 #undef ORDER_QUEUE_ELEM_BASE_ARGS
 
 
-        struct order_location; /* forward decl */
+        struct order_link; /* forward decl */
 
-        using linked_trailer_type = std::pair<size_t, order_location>;
+        using linked_trailer_type = std::pair<size_t, order_link>;
 
         template<typename T>
         struct bracket_type{
@@ -405,7 +405,7 @@ private:
             order_condition condition;
             condition_trigger trigger;
             union {
-                order_location *linked_order;
+                order_link *linked_order;
                 contingent_price_order_type *contingent_price_order;
                 contingent_nticks_order_type *contingent_nticks_order;
                 price_bracket_type *price_bracket_orders;
@@ -469,14 +469,10 @@ private:
 
 
         /* one order to (quickly) find another */
-        struct order_location{ // WHY NOT JUST POINT AT THE OBJECT ?
-            bool is_limit_chain;
-            double price;
+        struct order_link{
             id_type id;
             bool is_primary;
-            order_location(const order_queue_elem& elem, bool is_primary);
-            order_location(bool is_limit, double price, id_type id,
-                           bool is_primary);
+            order_link(id_type id, bool is_primary);
         };
 
         /* info held for each exec callback in the deferred callback vector*/
