@@ -306,8 +306,11 @@ SOB_CLASS::_total_depth() const
     using FirstChain =
         typename std::conditional<AON, limit_chain_type, ChainTy>::type;
 
-    auto pred = AON  ? [](const limit_bndl& b){ return order::is_AON(b); }
-                     : [](const limit_bndl& b){ return order::is_not_AON(b); };
+	auto lambda_is_AON =[](const limit_bndl& b) { return order::is_AON(b); };
+    auto lambda_is_not_AON = [](const limit_bndl& b){ return order::is_not_AON(b); };
+	
+	auto pred = AON ? std::function<bool(const limit_bndl& b)>(lambda_is_AON) : std::function<bool(const limit_bndl& b)>(lambda_is_not_AON);
+	
 
     std::lock_guard<std::mutex> lock(_master_mtx);
     /* --- CRITICAL SECTION --- */

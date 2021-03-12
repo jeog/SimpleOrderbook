@@ -115,9 +115,9 @@ enum class side_of_market {
 };
 
 enum class side_of_trade {
-    buy = 1,
+    buy = 2,
     sell = -1,
-    both = 0
+    both = 3
 };
 
 using order_exec_cb_type = std::function<
